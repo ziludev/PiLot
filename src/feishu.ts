@@ -570,7 +570,7 @@ export function groupInstructions(who: "owner" | "guest", topic?: string): strin
     `- 每条消息开头的方括号是网关标注的说话人：「${owner} 本人」就是 ${owner} 的账号，已经校验过，不需要你再判断身份；「群成员」不是。`,
     who === "owner"
       ? `- 本轮是 ${owner} 本人提问：按他说的改文件、跑命令、推分支、触发部署都可以。`
-      : `- 本轮不是 ${owner}：只读查证照常做（read / project_search / logs_query / bash 的只读命令：git log、grep、psql select 都放行，所有已注册项目都能读）。不要改文件、不要推分支、不要触发部署、不要写记忆；被拦时只说被拦的那条命令，不要笼统说「guest 模式用不了工具」。`,
+      : `- 本轮不是 ${owner}：只读查证照常做（read / project_search / logs_query / db_query / bash 的只读命令：git log、grep、psql select 都放行，所有已注册项目都能读）。不要改文件、不要推分支、不要触发部署、不要写记忆；被拦时只说被拦的那条命令，不要笼统说「guest 模式用不了工具」。`,
   ];
   if (who === "owner") {
     // The model reads its own earlier refusals in the transcript and repeats them, even when
