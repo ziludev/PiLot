@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseLogsQuery, searchRoot } from "../src/diagnostics.ts";
+import { parseDbQuery, parseLogsQuery, searchRoot } from "../src/diagnostics.ts";
 
 /**
  * The two read-only tools exist so a colleague can search the code and look at logs without a
@@ -44,4 +44,37 @@ test("project_search stays inside the chat's own project", () => {
   // A sibling whose name starts the same is not inside the project.
   assert.equal(searchRoot({ path: "/Users/example/work/example-service-secrets" }, roots).ok, false);
   assert.equal(searchRoot({ path: "../../../etc" }, roots).ok, false);
+});
+
+test("db_query defaults to the dev cluster and clamps the row count", () => {
+  assert.deepEqual(parseDbQuery({ sql: "select 1" }), {
+    env: "dev",
+    cliEnv: "test",
+    source: "pgCfg",
+    sql: "select 1",
+    maxRows: 100,
+  });
+  const prod = parseDbQuery({ sql: "select 1", env: "prod", maxRows: 9_999 });
+  assert.equal((prod as { cliEnv: string }).cliEnv, "prod");
+  assert.equal((prod as { maxRows: number }).maxRows, 500);
+  assert.equal((parseDbQuery({ sql: "select 1", maxRows: 0 }) as { maxRows: number }).maxRows, 100);
+});
+
+test("db_query only lets reads through, one statement at a time", () => {
+  for (const sql of ["delete from user_coins", "update t set a = 1", "drop table t", "truncate t"]) {
+    assert.match(String(parseDbQuery({ sql })), /只允许查询/, sql);
+  }
+  assert.match(String(parseDbQuery({ sql: "select 1; delete from t" })), /一条语句/);
+  assert.equal(typeof parseDbQuery({ sql: "select 1 from t where note = 'a;b'" }), "object");
+  // A keyword inside a string literal is data, not a statement.
+  const literal = parseDbQuery({ sql: "select * from t where kind = 'create'" });
+  assert.equal(typeof literal, "object");
+});
+
+test("db_query refuses a bad environment and a suspicious source name", () => {
+  assert.match(String(parseDbQuery({ sql: "select 1", env: "staging" })), /dev 或 prod/);
+  for (const source of ["../etc/passwd", "pg;drop", "pg$Cfg", "a b"]) {
+    assert.match(String(parseDbQuery({ sql: "select 1", source })), /不合法/, source);
+  }
+  assert.match(String(parseDbQuery({ sql: "  " })), /不能为空/);
 });

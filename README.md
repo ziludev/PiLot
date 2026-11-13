@@ -87,7 +87,7 @@ One level per chat, in `app.chat-access`: `closed`, `owner` or `group`. Chats li
 | who | may talk when | tool surface (enforced in code) | memory |
 |---|---|---|---|
 | you (`FEISHU_ALLOWED_SENDER_IDS`) | chat is allowed | everything; dangerous calls raise an approval card in your DM | all layers |
-| anyone else in an allowed group | the group was opened | `read` (workspace and this conversation's project, sensitive files refused), `skill`, `recall`, `remind`, `project_search`, `logs_query` (read-only) | this chat only |
+| anyone else in an allowed group | the group was opened | `read` (workspace and this conversation's project, sensitive files refused), `skill`, `recall`, `remind`, `project_search`, `logs_query`, `db_query` (both read-only, dev and prod) | this chat only |
 | nobody has authorised the chat | level is `closed` | no reply; you get one card with a single button | — |
 
 - **`FEISHU_ALLOWED_SENDER_IDS` is required.** It defines both "who is the owner" and "who may tap an approval". Empty means no owner, so the Feishu bridge refuses to start and says why.
@@ -125,6 +125,7 @@ Everything lives in `.env`; `.env.example` explains every key.
 | `AGENT_WORKTREE`, `AGENT_SKILLS_DIRS`, `AGENT_MCP_CONFIG` | worktree mode, skill directories, MCP config file |
 | `AGENT_HTTP_PORT`, `AGENT_HTTP_HOST`, `AGENT_HTTP_TOKEN` | the local bridge the client and CLI use; `0` disables it |
 | `SLS_LOGSTORE_PREFIX` | for `logs_query`: the logstore is named `<prefix>-<env>-stdout` |
+| `PRESENCE_CLI` | the presence CLI that backs `logs_query` / `db_query`; defaults to `~/work/presence-cli/dist/index.js` |
 | `AGENT_ASR` | local whisper transcription: `auto` or `off` |
 
 ## Install
@@ -244,7 +245,7 @@ src/
   git-info.ts      commits, a single patch, push, PR/MR links
   changes.ts       workspace status, unified diff, commit
   subagents.ts     delegate / delegate_parallel / build_feature
-  diagnostics.ts   the two read-only tools guests get: project_search (rg, project scope), logs_query
+  diagnostics.ts   the read-only tools guests get: project_search (rg, project scope), logs_query, db_query
   audit.ts         the ring of permission decisions (app.audit)
 
 evals/             the offline bench: guard (approval decisions) and contract (config ↔ .env.example ↔ README)

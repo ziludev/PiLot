@@ -75,7 +75,7 @@ export function approvalReason(tool: string, args: Record<string, unknown>): App
  * needs the shell (git log, grep, a select against the test db), so bash is on the surface with
  * a command-level allowlist under it — see guestShellBlockReason.
  */
-const GUEST_TOOLS = new Set(["read", "bash", "skill", "recall", "remind", "logs_query", "project_search"]);
+const GUEST_TOOLS = new Set(["read", "bash", "skill", "recall", "remind", "logs_query", "db_query", "project_search"]);
 
 /** Commands a guest may run at all. Everything absent here is refused before it starts. */
 const GUEST_SHELL_COMMANDS = new Set([
@@ -188,7 +188,7 @@ export function guestBlockReason(
   roots: readonly string[] = [config.workspace],
 ): string | undefined {
   if (!GUEST_TOOLS.has(tool)) {
-    return `这个群是 guest 模式：不能用 ${tool}（这里只读查证：read / project_search / logs_query / 只读 bash）。`;
+    return `这个群是 guest 模式：不能用 ${tool}（这里只读查证：read / project_search / logs_query / db_query / 只读 bash）。`;
   }
   if (tool === "bash") {
     return guestShellBlockReason(typeof args["command"] === "string" ? args["command"] : "", roots);
