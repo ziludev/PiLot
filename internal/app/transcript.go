@@ -55,6 +55,10 @@ func (a *App) transcript(c *ui.Context) {
 		if a.atBottom {
 			a.newMessages = 0
 		}
+	} else {
+		// Content that fits the pane cannot be scrolled away from: no jump bar.
+		a.atBottom = true
+		a.newMessages = 0
 	}
 	scroll.Children(func() {
 		ui.Column(c).Fill().Padding(16, 20).Gap(14).Children(func() {
