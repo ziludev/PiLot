@@ -9,7 +9,7 @@ import (
 )
 
 // keyUse matches a literal translation key: i18n.T("send"), i18n.TF("waited", …).
-// The chat menu once asked for "renameChat" and "archiveChat", keys the React
+// The chat menu once asked for "renameChat" and "archiveChat", keys the earlier client
 // dictionary never had, so the window drew the key itself where a label
 // belonged. This test walks the sources and refuses a key that is not there.
 var keyUse = regexp.MustCompile(`i18n\.(?:T|TF)\("([^"]+)"`)

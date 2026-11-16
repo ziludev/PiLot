@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 )
 
-// prefs is what survives a restart. The React client kept these in
+// prefs is what survives a restart. The earlier web client kept these in
 // localStorage (agent.surfaceOrder, agent.pinned, agent.lang,
 // agent.surfaceFilter); a desktop app has a file instead.
 type prefs struct {
@@ -26,7 +26,7 @@ type prefs struct {
 	// LastChat is the chat that was open when the app last quit, so a restart
 	// lands where the reader left off instead of at the newest chat.
 	LastChat int `json:"lastChat,omitempty"`
-	// OthersCollapsed folds the "other projects" group in the rail; the React
+	// OthersCollapsed folds the "other projects" group in the rail; the earlier client
 	// client kept the same fold in component state, which is why it forgot it.
 	OthersCollapsed bool `json:"othersCollapsed,omitempty"`
 	// The window's frame, so a restart lands on the same screen at the same

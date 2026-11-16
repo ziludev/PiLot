@@ -11,7 +11,7 @@ A personal assistant that runs on [Pi Durable](https://earendil.com/posts/pi-dur
 - **Engine** — `@earendil-works/pi-durable` 1.5.2. Every model request, tool call and compaction is a durable task that checkpoints before it runs. `kill -9` mid-turn, restart, and it continues from where it stopped.
 - **Models** — `@earendil-works/pi-ai`. Any built-in provider; model and thinking level are switchable per conversation.
 - **Storage** — one SQLite file (`.data/agent.sqlite`), one writer process, restored as-is on restart.
-- **Three surfaces** — a Feishu app (long connection: no public IP, domain or certificate), a MyGo desktop app (Go window + React, with a native Go twin under `client-go/`), and the `durable` CLI.
+- **Three surfaces** — a Feishu app (long connection: no public IP, domain or certificate), a native macOS desktop app (`client-go/`: Go + mygo/ui on Metal, no webview), and the `durable` CLI.
 
 ![Three surfaces, one process, one SQLite file](assets/readme/architecture.svg)
 
@@ -179,14 +179,16 @@ and each run their own instance; the owner list decides who controls what.
 ### Desktop client
 
 ```bash
-cd client
-npm install
-npm run dev          # Go window + Vite HMR
-npm run build        # build/darwin-arm64/Pitta.app and a .dmg
-npm run install-app  # the same build into /Applications
+cd client-go
+go run .                         # the window, connected to the local bridge
+go tool mygo build -skip-dmg     # build/darwin-arm64/Pitta.app
 ```
 
-Front end: shadcn/ui **Nova** (`radix-nova`) with Tailwind v4, Lucide icons, Motion, `react-resizable-panels`, dnd-kit, Zustand, next-themes.
+The window is drawn by mygo/ui from Go: no webview, no front-end build step. Screens, key
+bindings and the parity record with the React client this replaced are in
+[client-go/README.md](client-go/README.md) and [client-go/docs](client-go/docs); the React
+client it replaced was removed in this change, and `client-go/docs/history.md` says what it
+had that the Go one now covers.
 
 ## CLI
 
@@ -256,8 +258,7 @@ src/
 
 evals/             the offline bench: guard (approval decisions) and contract (config ↔ .env.example ↔ README)
 docs/              the one page with edges: the Feishu console, by menu, with the failures each row causes
-client/            MyGo app: main.go (window and bindings) + src/ (Transcript, TurnRail, Composer, SidePanel, store)
-client-go/         the same client drawn in Go: mygo/ui on Metal, no webview (README there)
+client-go/         the desktop client: Go drawing the window with mygo/ui on Metal, no webview
 ```
 
 ## Behaviours that have been observed

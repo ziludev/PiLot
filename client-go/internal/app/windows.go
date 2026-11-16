@@ -6,7 +6,7 @@ import (
 	"pitta/internal/api"
 )
 
-// newWindowLabel names the rail's "open this chat in a window" item. React has
+// newWindowLabel names the rail's "open this chat in a window" item. the earlier client has
 // no such command, so it has no i18n key.
 const newWindowLabel = "Open in new window"
 

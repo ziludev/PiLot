@@ -16,7 +16,7 @@ import (
 	"pitta/internal/protocol"
 )
 
-// TestMessageActionsCopyEditRetry covers the three buttons Transcript.tsx:20-46
+// TestMessageActionsCopyEditRetry covers the three buttons the transcript view:20-46
 // puts on every message.
 func TestMessageActionsCopyEditRetry(t *testing.T) {
 	i18n.Set(i18n.EN)

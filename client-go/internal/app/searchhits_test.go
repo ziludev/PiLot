@@ -16,7 +16,7 @@ import (
 
 // TestRunSearchFillsHits covers the submit path of the rail search: the box
 // filters titles while typing, and submitting asks the bridge for transcript
-// matches (SearchBox.tsx behaviour).
+// matches (the rail's search field behaviour).
 func TestRunSearchFillsHits(t *testing.T) {
 	var gotQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -47,7 +47,7 @@ func TestRunSearchFillsHits(t *testing.T) {
 }
 
 // TestRunSearchSkipsShortQueries keeps the bridge out of a one-letter search,
-// as SearchBox.tsx does with its two-character floor.
+// as the rail's search field does with its two-character floor.
 func TestRunSearchSkipsShortQueries(t *testing.T) {
 	called := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +119,7 @@ func TestTurnOfEntryFindsToolResults(t *testing.T) {
 	}
 }
 
-// TestRailShowsFeishuOutage covers the banner Rail.tsx draws once the
+// TestRailShowsFeishuOutage covers the banner the rail view draws once the
 // transport has been down for more than a minute.
 func TestRailShowsFeishuOutage(t *testing.T) {
 	render := func(feishu *protocol.Feishu) []string {

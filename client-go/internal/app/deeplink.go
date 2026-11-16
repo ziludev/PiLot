@@ -8,7 +8,7 @@ import (
 )
 
 // DeepLink is what pitta://chat/123 asks for: a chat, optionally in its own
-// window. The React client had no deep links; a native app can register a
+// window. The earlier web client had no deep links; a native app can register a
 // scheme, which is how a terminal command or a Feishu message jumps straight
 // to a conversation.
 type DeepLink struct {

@@ -24,7 +24,7 @@ type CommitsProps struct {
 	OnPush   func(dryRun bool)
 	PushNote string
 	// OnSetBase changes the branch the compare link and the patch count are
-	// measured against (Commits.tsx:71).
+	// measured against (the earlier client's view:71).
 	OnSetBase func(branch string)
 }
 
@@ -158,7 +158,7 @@ func commitWhen(date string) string {
 }
 
 // baseSelect chooses the branch the chat is compared against: branched from any
-// branch, so the base is a choice (Commits.tsx:71).
+// branch, so the base is a choice (the earlier client's view:71).
 func baseSelect(c *ui.Context, t theme.Tokens, git *protocol.Git, p CommitsProps) {
 	names := make([]string, 0, len(git.Branches))
 	for _, branch := range git.Branches {

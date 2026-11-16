@@ -18,12 +18,12 @@ import (
 )
 
 // railRowHeight is one chat's box: a single line of 11.5 px text, with the room
-// the React rail's rows have.
+// the rail's rows have.
 const railRowHeight float32 = 28
 
 // othersOpen is the fold state of the "other projects" group. It lives on the
 // App, not in a package variable, so that it survives a restart through prefs
-// the way the React client's localStorage did.
+// the way the earlier web client's localStorage did.
 // The rail has no per-window field for it, and a value rebuilt every frame
 // would fold the block again the moment the pointer left its header.
 
@@ -82,7 +82,7 @@ func (a *App) railHeader(c *ui.Context, t theme.Tokens) {
 				ui.Icon(c, icons.Monitor).Size(12, 12).TextColor(t.MutedFg)
 			}
 		})
-		// The language button shows the language it switches to, as Rail.tsx's
+		// The language button shows the language it switches to, as the rail's
 		// does with its EN / 中 label.
 		next := "EN"
 		if i18n.Current() != i18n.ZH {
@@ -120,7 +120,7 @@ func (a *App) railDown(c *ui.Context, t theme.Tokens) {
 }
 
 // railFeishu warns that the Feishu transport has been down for a while, which
-// silences the chats that arrive through it (Rail.tsx shows it past a minute).
+// silences the chats that arrive through it (the rail view shows it past a minute).
 func (a *App) railFeishu(c *ui.Context, t theme.Tokens) {
 	if a.feishu == nil || a.feishu.Ready || a.feishu.DownMs <= 60_000 {
 		return
@@ -152,7 +152,7 @@ func (a *App) railSearch(c *ui.Context, t theme.Tokens) {
 }
 
 // searchHitsPanel lists what the bridge found inside transcripts. A hit opens
-// the conversation and marks the turn, the same as SearchBox.tsx.
+// the conversation and marks the turn, the same as the rail's search field.
 func (a *App) searchHitsPanel(c *ui.Context, t theme.Tokens) {
 	if a.searchPending {
 		ui.Row(c).FillWidth().Padding(0, 12, 4, 12).Children(func() {
@@ -191,7 +191,7 @@ func (a *App) searchHitsPanel(c *ui.Context, t theme.Tokens) {
 // railFilters is the line between the search field and the list: what the list
 // shows, how many chats that is, and whether it keeps the archived ones.
 func (a *App) railFilters(c *ui.Context, t theme.Tokens, count int) {
-	// Rail.tsx's one-row header: an uppercase label, a compact select that
+	// the rail's one-row header: an uppercase label, a compact select that
 	// says how many chats each view holds, and the archive toggle at the end.
 	picked := railFilterIndex(a.prefs.SurfaceFilter)
 	counts := []int{count, 0, 0}
@@ -317,7 +317,7 @@ func (a *App) railEmpty(c *ui.Context, t theme.Tokens) {
 // railRow draws one line of the list: a chat, or the header that folds another
 // project's chats away. A chat is a single line — icon, title, cost — with its
 // #id, menu and pin appearing over the right end under the pointer, as
-// Rail.tsx's SessionRow does.
+// the rail's SessionRow does.
 func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 	if row.kind == railOtherProjects {
 		a.railOthersHeader(c, t, row.count)
@@ -332,7 +332,7 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 	line := ui.Row(c).FillWidth().Height(railRowHeight).PaddingX(6).Gap(4).Radius(6).
 		Key(s.ConversationID).Cursor(ui.CursorPointer)
 	if row.topic {
-		// A fork sits under the chat it forked from, as the React rail indents
+		// A fork sits under the chat it forked from, as the rail indents
 		// it, so the nesting reads without opening anything.
 		line.PaddingStart(14)
 	}
@@ -343,7 +343,7 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 	case hovered:
 		line.Background(c.Theme().SurfaceHover)
 	}
-	// The hover lift of Rail.tsx: the row rises 2 px and casts a soft shadow,
+	// The hover lift of the rail view: the row rises 2 px and casts a soft shadow,
 	// both over 300 ms, so a row under the pointer reads as picked up.
 	target := float32(0)
 	if hovered {
@@ -419,15 +419,15 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 		}
 		if a.isUnread(s.ConversationID) && !selected {
 			// A dot where the cost goes: this chat answered while nobody was
-			// looking, which the React rail had no way to say.
+			// looking, which the rail had no way to say.
 			ui.Box(c).Width(5).Height(5).Radius(3).AlignSelf(ui.Center).Background(t.Primary)
 		}
 		if s.Cost >= 0.005 {
-			// Under half a cent the number is noise, as in Rail.tsx.
+			// Under half a cent the number is noise, as in the rail view.
 			ui.Text(c, railCost(s.Cost)).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
 		}
 		// The #id, the menu and the pin appear under the pointer, as the
-		// cluster Rail.tsx positions over the right end of the row.
+		// cluster the rail view positions over the right end of the row.
 		if hovered {
 			ui.Text(c, "#"+itoa(s.ConversationID)).FontSize(9.5).TextColor(t.MutedFg)
 			railRowButton(c, icons.MoreHorizontal, i18n.T("rename"), t.MutedFg, func() {
@@ -520,7 +520,7 @@ func (a *App) railTasks(c *ui.Context, t theme.Tokens) {
 // railFooter is the rail's last line: a new chat, the agent's controls, and
 // where its home is.
 func (a *App) railFooter(c *ui.Context, t theme.Tokens) {
-	// One row, as Rail.tsx's footer: the three agentctl buttons, then the
+	// One row, as the rail's footer: the three agentctl buttons, then the
 	// workspace path at the right end.
 	ui.Row(c).FillWidth().Padding(6, 10).Gap(2).AlignItems(ui.Center).
 		BorderWidth(1, 0, 0, 0).BorderColor(t.SidebarBorder).Children(func() {
@@ -579,7 +579,7 @@ func (a *App) projectLabel() string {
 }
 
 // sortedSurfaces is the rail's order: pinned first, then newest first, as the
-// React rail sorts them. The search field and the archived toggle filter here,
+// rail sorts them. The search field and the archived toggle filter here,
 // so every view of the list sees the same chats in the same order.
 func (a *App) sortedSurfaces() []protocol.Surface {
 	query := strings.ToLower(a.query)
@@ -594,7 +594,7 @@ func (a *App) sortedSurfaces() []protocol.Surface {
 		out = append(out, s)
 	}
 	// Pinned chats keep their own order, then the drag order the user saved,
-	// then newest first — the comparison Rail.tsx:227-239 uses.
+	// then newest first — the comparison the rail view:227-239 uses.
 	sort.SliceStable(out, func(i, j int) bool {
 		pi, pj := a.isPinned(out[i].ConversationID), a.isPinned(out[j].ConversationID)
 		if pi != pj {
@@ -679,7 +679,7 @@ func (a *App) newConversation() {
 }
 
 // railStatus is the one line under the app name: what the agent is doing right
-// now, not what it did (Rail.tsx:320-328).
+// now, not what it did (the rail view:320-328).
 func (a *App) railStatus() string {
 	switch {
 	case a.busy:
@@ -783,7 +783,7 @@ func (a *App) reorderChats(moved []int, to int) {
 	next = append(next[:at], append(ids, next[at:]...)...)
 	a.apply(func() {
 		a.prefs.Order = next
-		// Dragging to the very top pins, as Rail.tsx:302-316 does.
+		// Dragging to the very top pins, as the rail view:302-316 does.
 		if at == 0 {
 			for _, id := range ids {
 				if !a.isPinned(id) {

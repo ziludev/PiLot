@@ -1,4 +1,4 @@
-// Package i18n carries the UI strings of the React client so the Go side can
+// Package i18n carries the UI strings of the earlier web client so the Go side can
 // phrase the same messages in the same two languages.
 package i18n
 

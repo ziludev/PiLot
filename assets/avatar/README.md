@@ -39,10 +39,10 @@ source (one page, the state and frame in the URL hash) and `scripts/render-avata
 frame by frame with headless Chrome; the animation is computed from the frame number, so 26 separate
 launches still make one seamless loop.
 
-The desktop client renders the same definition live: `client/src/lib/avatar.ts` holds a copy of
-`pie.json`, and `client/src/components/BotAvatar.tsx` mounts the renderer's canvas — thinking while a
-turn or a task runs, one happy beat when it stops, idle otherwise. Two copies of the geometry is one
-too many, but the client cannot read this folder at build time; if the shape changes, change both.
+The desktop client draws the same definition from Go: `client-go/internal/avatar` holds a copy of the
+geometry as an SVG and renders it with mygo/ui — thinking while a turn or a task runs, happy when it
+stops, idle otherwise. Two copies of the geometry is one too many, but the client cannot read this
+folder at build time; if the shape changes, change both.
 
 `prompt.md` is the prompt this was designed with — the schema, the numeric limits and the craft rules,
 self-contained, so another model can produce more candidates.

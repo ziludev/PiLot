@@ -175,7 +175,7 @@ func manyTurns(n int) []protocol.Entry {
 	return entries
 }
 
-// TestTranscriptFollowsNewestTurn pins the behaviour Transcript.tsx:231/286
+// TestTranscriptFollowsNewestTurn pins the behaviour the transcript view:231/286
 // has: the list starts stuck to the end, keeps following while entries arrive,
 // and only counts new messages once the user scrolled away.
 func TestTranscriptFollowsNewestTurn(t *testing.T) {

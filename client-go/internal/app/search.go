@@ -74,7 +74,7 @@ func (a *App) stepMatch(direction int) {
 
 // runSearch asks the bridge to look inside transcripts. The filter box already
 // narrows the list by title as the user types; this only runs on submit, as
-// SearchBox.tsx does, because the bridge scans up to 60 chats per query.
+// the rail's search field does, because the bridge scans up to 60 chats per query.
 func (a *App) runSearch() {
 	query := strings.TrimSpace(a.filter)
 	if len([]rune(query)) < 2 {
@@ -278,7 +278,7 @@ func (a *App) chatMenuDialog(c *ui.Context, t theme.Tokens) {
 	}
 	ui.DialogBase(c, &a.menu.open, func(back, panel ui.Element) {
 		back.Background(ui.RGBA(0, 0, 0, 0.2))
-		// The chat menu is a glass pane, as ChatMenu.tsx's `glass` dropdown is:
+		// The chat menu is a glass pane, as the earlier client's view's `glass` dropdown is:
 		// a form of four controls over a small panel.
 		panel.Width(360).Padding(14).Gap(10).Radius(12).Material(panelGlass()).Children(func() {
 			ui.Text(c, i18n.T("rename")).FontSize(13).TextColor(t.Foreground)
@@ -361,7 +361,7 @@ func (a *App) removeWorktree() {
 			return err
 		}
 		// An unmerged branch is kept, and the chat menu has to say so: the
-		// user would otherwise think the checkout is gone (ChatMenu.tsx:124-140).
+		// user would otherwise think the checkout is gone (the earlier client's view:124-140).
 		if result != nil && result.Status == "unmerged" {
 			a.apply(func() {
 				a.notice = i18n.T("unmergedWork")

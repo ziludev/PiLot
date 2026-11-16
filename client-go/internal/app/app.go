@@ -35,7 +35,7 @@ type Config struct {
 	Home    string
 }
 
-// SideTab is one panel of the right-hand column, as store.ts's tab field names
+// SideTab is one panel of the right-hand column, as the old client's store's tab field names
 // them.
 type SideTab string
 
@@ -311,7 +311,7 @@ func New(cfg Config) *App {
 		modelsFav:     p.Favorites,
 		modelsRecent:  p.Recents,
 		unread:        unreadFromPrefs(p),
-		// A chat opens at its newest turn, as React's transcript does.
+		// A chat opens at its newest turn, as the earlier client's transcript does.
 		atBottom:      true,
 		stickToBottom: true,
 	}
@@ -343,9 +343,9 @@ func (a *App) openInNewWindow(conversationID int) {
 func (a *App) Attach(win *mygo.Window) {
 	a.win = win
 	// A finished answer should reach the owner when the window is behind
-	// another one, as the React client notifies only while hidden.
+	// another one, as the earlier web client notifies only while hidden.
 	a.focused = win.IsFocused()
-	// React's rail panel defaults to 21% of the window and may be dragged
+	// the earlier client's rail panel defaults to 21% of the window and may be dragged
 	// between 16% and 30%; without a stored width, start there.
 	if a.prefs.RailWidth == 0 {
 		if width, _ := win.ContentSize(); width > 0 {
@@ -511,7 +511,7 @@ func (a *App) pollApprovals() {
 }
 
 // openDefaultConversation selects the conversation the rail sorts first, as
-// the React client does on boot.
+// the earlier web client does on boot.
 func (a *App) openDefaultConversation() {
 	// The chat that was open last time comes back, as a desktop app's window
 	// does; a chat that is gone falls through to the newest one.
@@ -531,7 +531,7 @@ func (a *App) openDefaultConversation() {
 }
 
 // defaultConversationID is the newest conversation that is not archived, which
-// is the chat the React client reopens.
+// is the chat the earlier web client reopens.
 func defaultConversationID(surfaces []protocol.Surface) int {
 	newest := 0
 	for _, surface := range surfaces {
@@ -803,7 +803,7 @@ func (a *App) View(c *ui.Context) {
 	a.applyThemeChoice(c)
 	t := theme.Current(c)
 	theme.Apply(c, t)
-	// ConvSearch.tsx:16 binds meta/ctrl+F window-wide; OnWindowShortcut fires
+	// the earlier client's view:16 binds meta/ctrl+F window-wide; OnWindowShortcut fires
 	// with no element focused, which is the same reach.
 	// ui.Cmd is Cmd on darwin and Ctrl elsewhere; a combined Super|Ctrl mask
 	// matches neither, since modifiers are matched exactly.
@@ -856,7 +856,7 @@ func (a *App) View(c *ui.Context) {
 	root := ui.Split(c, &a.railWidth, func() { a.rail(c) }, func() { a.pane(c) }).Fill()
 	// Files dragged from Finder land on the whole window: images become
 	// attachments, anything else opens in the viewer, which is more than the
-	// React client could do with a drop.
+	// earlier web client could do with a drop.
 	if paths := root.DroppedFiles(); len(paths) > 0 {
 		a.dropPaths(paths)
 	}
@@ -890,7 +890,7 @@ func (a *App) applyThemeChoice(c *ui.Context) {
 }
 
 // toggleTheme flips between light and dark and remembers it.
-// toggleTheme walks the three states ThemeToggle.tsx:8-20 cycles: follow the
+// toggleTheme walks the three states the earlier client's view:8-20 cycles: follow the
 // system, light, dark, and back to following the system.
 func (a *App) toggleTheme() {
 	a.apply(func() {
@@ -910,8 +910,8 @@ func nextTheme(theme string) string {
 	return ""
 }
 
-// themeLabel is the toggle's tooltip. React names the button, not the state
-// (ThemeToggle.tsx has only the "theme" key), so the icon carries the state.
+// themeLabel is the toggle's tooltip. the earlier client names the button, not the state
+// (the earlier client's view has only the "theme" key), so the icon carries the state.
 func themeLabel(theme string) string { return i18n.T("theme") }
 
 // toggleLang switches between Chinese and English, as the rail's Languages
@@ -940,7 +940,7 @@ func (a *App) pane(c *ui.Context) {
 		return
 	}
 	// main | side, with the divider between them draggable and remembered, as
-	// React's PanelResizeHandle is (App.tsx:74-96). Split sizes its first pane
+	// the earlier client's PanelResizeHandle is (the earlier client's view:74-96). Split sizes its first pane
 	// in DIPs, so mainPane is what the divider moves; the panel width is the
 	// remainder, which is what prefs keeps.
 	if a.mainPane <= 0 {
@@ -975,7 +975,7 @@ func absf(v float32) float32 {
 
 func (a *App) main(c *ui.Context) {
 	if a.view == ViewFile {
-		// The file viewer takes the chat's place, as React swaps the transcript
+		// The file viewer takes the chat's place, as the earlier client swaps the transcript
 		// for FileViewer instead of opening a window.
 		a.fileView(c)
 		return
@@ -992,11 +992,11 @@ func (a *App) main(c *ui.Context) {
 	})
 }
 
-// mainHeader names the chat and holds the actions that act on it, as App.tsx
+// mainHeader names the chat and holds the actions that act on it, as the earlier client's view
 // puts reset and stop above the transcript.
 func (a *App) mainHeader(c *ui.Context) {
 	t := theme.Current(c)
-	// h-12 px-3.5 gap-2, title 13/medium over a 10 px mono line: App.tsx's header.
+	// h-12 px-3.5 gap-2, title 13/medium over a 10 px mono line: the earlier client's view's header.
 	ui.Row(c).Height(48).PaddingX(14).Gap(8).AlignItems(ui.Center).Children(func() {
 		ui.Column(c).Grow(1).Gap(1).Children(func() {
 			ui.Text(c, a.currentTitle()).FontSize(13).FontWeight(500).
@@ -1010,7 +1010,7 @@ func (a *App) mainHeader(c *ui.Context) {
 		iconButton(c, icons.Search, i18n.T("findShort")).OnClick(func() {
 			a.apply(func() { a.findOpen = !a.findOpen; a.invalidate() })
 		})
-		// The React titles are the commands themselves: /new and /stop.
+		// The the earlier client titles are the commands themselves: /new and /stop.
 		iconButton(c, icons.SquarePen, "/new").OnClick(func() { a.resetConversation() })
 		stop := iconButton(c, icons.Square, "/stop")
 		if a.busy || a.live != nil {
@@ -1030,7 +1030,7 @@ func (a *App) mainHeader(c *ui.Context) {
 	})
 }
 
-// iconButton is a borderless button holding one icon, as the React header's
+// iconButton is a borderless button holding one icon, as the earlier client header's
 // ghost icon buttons are: no fill until the pointer is on it, 24 square.
 func iconButton(c *ui.Context, icon *ui.SVG, label string) ui.Element {
 	return iconButtonTint(c, icon, label, theme.Current(c).MutedFg)
@@ -1041,7 +1041,7 @@ func iconButton(c *ui.Context, icon *ui.SVG, label string) ui.Element {
 func iconButtonTint(c *ui.Context, icon *ui.SVG, label string, tint ui.Color) ui.Element {
 	t := theme.Current(c)
 	// The background fades under the pointer instead of switching, as the
-	// React header's transition-colors does.
+	// the earlier client header's transition-colors does.
 	button := ui.ButtonBase(c).Size(24, 24).Radius(6).Cursor(ui.CursorPointer).
 		Transition(motion.Hover())
 	button.Label(label)

@@ -1,5 +1,5 @@
-// Package avatar draws the bot's face, the React client's BotAvatar: Pie, the
-// scalloped pie from client/src/lib/avatar.ts, as one SVG in that definition's
+// Package avatar draws the bot's face, the earlier web client's BotAvatar: Pie, the
+// scalloped pie from the old client/lib/avatar.ts, as one SVG in that definition's
 // 100-unit box scaled to the size asked for.
 //
 // The client mounts the animated renderer (volume, blinking, gaze); a static
@@ -14,7 +14,7 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Mood is what the face shows, as AvatarMood in client/src/lib/avatar.ts.
+// Mood is what the face shows, as AvatarMood in the old client/lib/avatar.ts.
 type Mood int
 
 const (
@@ -43,7 +43,7 @@ var Tones = struct {
 	Done:      Tone{Color: ui.Hex("#14B3A5"), EyeColor: ui.Hex("#04211F")},
 }
 
-// body is PIE.body in client/src/lib/avatar.ts, in the definition's 100-unit box.
+// body is PIE.body in the old client/lib/avatar.ts, in the definition's 100-unit box.
 const body = "M50 11 C55 11 57 15 60 16 C64 17 66 13 70 16 C75 19 74 24 78 27 " +
 	"C82 30 87 28 89 33 C91 38 86 42 86 46 C86 51 91 54 88 59 C85 64 80 63 78 68 " +
 	"C76 73 81 77 77 82 C73 87 68 83 63 84 C58 85 57 90 51 90 C45 90 43 85 38 84 " +

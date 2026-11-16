@@ -1,6 +1,6 @@
 // Live state and coarse status of a turn. Ported from
-// client/src/lib/turn-state.ts and the live-doc wiring in
-// client/src/components/Transcript.tsx.
+// the old client/lib/turn-state.ts and the live-doc wiring in
+// the old client/components/the transcript view.
 package turns
 
 import (
@@ -143,7 +143,7 @@ const (
 // Status derives the turn's outcome. A live run wins; otherwise the last
 // assistant message decides, so an earlier failed retry does not mark a turn
 // error after it recovered. stopReason comes from pi-ai's AssistantMessage
-// (the React client does not read it for turns).
+// (the earlier web client does not read it for turns).
 func (t *Turn) Status(live *protocol.LiveDoc) Status {
 	if live != nil && len(live.Run) > 0 {
 		return StatusRunning

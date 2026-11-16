@@ -1,8 +1,8 @@
 // Package turns groups the agent transcript into turns and derives what a
 // transcript view needs from each: steps, spend, files touched and phase time.
 //
-// Ported from the React client (client/src/lib/turns.ts and
-// client/src/lib/diff.tsx). The JSON field names read here are the ones those
+// Ported from the earlier web client (the old client/lib/turns.ts and
+// the old client). The JSON field names read here are the ones those
 // files read; comments name the payload they come from.
 package turns
 
@@ -50,7 +50,7 @@ type Phases struct {
 
 // Stats is the turn's derived accounting. Start, End and MS are nil when the
 // turn has no timestamp at all, matching the optional TurnStats fields in the
-// React client; MS is nil until there are two timestamps to subtract.
+// earlier web client; MS is nil until there are two timestamps to subtract.
 type Stats struct {
 	Tools   int
 	Files   int
@@ -366,7 +366,7 @@ func messages(raw json.RawMessage) []map[string]any {
 }
 
 // partsOf flattens message contents into parts, carrying the message's role
-// and toolName onto each part the way the React client's partsOf does.
+// and toolName onto each part the way the earlier web client's partsOf does.
 func partsOf(list []map[string]any) []map[string]any {
 	var parts []map[string]any
 	for _, message := range list {
@@ -484,7 +484,7 @@ func timestampOf(entry protocol.Entry) (int64, bool) {
 }
 
 // toolCallID finds the result's call id. Real pi transcripts put toolCallId on
-// the ToolResultMessage; older shapes put it on the part (the React client only
+// the ToolResultMessage; older shapes put it on the part (the earlier web client only
 // reads the part, the Rust port reads the message first).
 func toolCallID(entry protocol.Entry) string {
 	list := messages(entry.Model)
@@ -518,7 +518,7 @@ func resultIsError(entry protocol.Entry) bool {
 	return false
 }
 
-// Clock renders a duration as the React client does: 42ms, 3.7s, 42s, 1m30s,
+// Clock renders a duration as the earlier web client does: 42ms, 3.7s, 42s, 1m30s,
 // 2m.
 func Clock(ms int64) string {
 	switch {
@@ -543,7 +543,7 @@ func Clock(ms int64) string {
 var hunkHeader = regexp.MustCompile(`^@@ -\d+(,\d+)? \+\d+(,\d+)? @@`)
 
 // diffStats counts added and removed lines, and reports whether text is a
-// unified diff at all. It is the React client's diffStats: only lines starting
+// unified diff at all. It is the earlier web client's diffStats: only lines starting
 // with + or - count, and file headers are skipped first.
 func diffStats(text string) (added, removed int, ok bool) {
 	lines := strings.Split(text, "\n")

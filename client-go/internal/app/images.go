@@ -17,7 +17,7 @@ import (
 	"pitta/internal/theme"
 )
 
-// maxImages is how many pictures one turn carries; the React composer clips at
+// maxImages is how many pictures one turn carries; the earlier client composer clips at
 // three as well.
 const maxImages = 3
 

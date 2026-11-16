@@ -1,4 +1,4 @@
-// Package motion holds the React client's motion numbers, so the two clients
+// Package motion holds the earlier web client's motion numbers, so the two clients
 // move alike: src/lib/motion.ts names each curve after the Motion Prompt spec
 // it came from, and the values here are those numbers.
 package motion
@@ -9,7 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// The two curves the React client uses, as CSS cubic-bezier tuples there.
+// The two curves the earlier web client uses, as CSS cubic-bezier tuples there.
 var (
 	// EaseInOutCubic is cubic-bezier(0.65, 0, 0.35, 1).
 	EaseInOutCubic = ui.CubicBezier(0.65, 0, 0.35, 1)
@@ -51,7 +51,7 @@ const (
 var Lift = ui.Animation{Duration: HoverLift, Ease: EaseOutCubic}
 
 // Hover is the transition rows, buttons and cards carry so their background,
-// border and shadow follow the pointer instead of jumping: React names the same
+// border and shadow follow the pointer instead of jumping: the earlier client names the same
 // properties in transition-[background-color,box-shadow].
 func Hover() ui.ElementTransition {
 	return ui.ElementTransition{Duration: HoverLift, Ease: EaseOutCubic, Colors: true, Shadows: true}

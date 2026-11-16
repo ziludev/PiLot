@@ -12,7 +12,7 @@ import (
 )
 
 // surfaceKind is the transport a chat came in on. The bridge leaves Kind out of
-// surfaces it does not know, so the id prefix decides, as the React rail's
+// surfaces it does not know, so the id prefix decides, as the rail's
 // kindOf does.
 func surfaceKind(s protocol.Surface) string {
 	switch {
@@ -60,7 +60,7 @@ func surfaceMeta(s protocol.Surface) string {
 }
 
 // railCost is the row's spend: cents under a dollar, tenths above it, as the
-// React rail prints it.
+// rail prints it.
 func railCost(cost float64) string {
 	if cost < 1 {
 		return "$" + money(cost)
@@ -157,7 +157,7 @@ func railKindShown(s protocol.Surface, filter int) bool {
 }
 
 // railChatRows lists chats depth-first: a fork follows the chat it forked from,
-// as the React rail nests it, so a busy chat cannot push the others off the
+// as the rail nests it, so a busy chat cannot push the others off the
 // rail. A fork whose parent is not listed stays folded away with it.
 func (a *App) railChatRows(list []protocol.Surface, other bool) []railRow {
 	listed := make(map[int]bool, len(list))
@@ -225,7 +225,7 @@ func railTaskLabel(kind string) string {
 	return kind
 }
 
-// railTaskState words the task's state, as the React rail's STATE_LABELS does.
+// railTaskState words the task's state, as the rail's STATE_LABELS does.
 func railTaskState(state string) string {
 	zh := i18n.Current() == i18n.ZH
 	labels := map[string][2]string{

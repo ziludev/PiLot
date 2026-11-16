@@ -42,7 +42,7 @@ func TestGroupTurns(t *testing.T) {
 					t.Fatalf("turns = %d, want 2", len(turns))
 				}
 				first := turns[0]
-				// The React client makes a step of every assistant message, so
+				// The earlier web client makes a step of every assistant message, so
 				// the answer is a think step too (the Rust port dropped it).
 				checkInt(t, "first turn steps", len(first.Steps), 2)
 				checkInt(t, "first step id", first.Steps[0].ID, 2)

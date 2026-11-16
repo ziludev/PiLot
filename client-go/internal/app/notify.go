@@ -10,7 +10,7 @@ import (
 
 // maybeNotify posts a desktop notification when a new answer finished while
 // the window is in the background. It reads the same last assistant entry the
-// React transcript watched.
+// transcript watched.
 func (a *App) maybeNotify() {
 	a.apply(func() {
 		if a.focused {

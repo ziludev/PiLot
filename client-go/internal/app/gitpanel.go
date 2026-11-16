@@ -125,7 +125,7 @@ func (a *App) clearReview() {
 }
 
 // sendReview hands the staged comments to the agent as one message, the way
-// React's sendReview builds its prompt.
+// the earlier client's sendReview builds its prompt.
 func (a *App) sendReview() {
 	if len(a.review) == 0 {
 		return
@@ -246,7 +246,7 @@ func (a *App) submitCommit() {
 // bridge answered.
 // openMergeDialog asks before merging: the dialog is where the user confirms,
 // sees a dirty checkout refused, and hands conflicts to the agent
-// (MergeButton.tsx:57-120).
+// (the earlier client's view:57-120).
 func (a *App) openMergeDialog() {
 	a.apply(func() {
 		a.mergeOpen = true
@@ -282,7 +282,7 @@ func (a *App) mergeBranch() {
 }
 
 // askAgentToResolve sends the conflicting files to the chat, which is what the
-// dialog's second button promises (store.ts:556 askAgentToResolve).
+// dialog's second button promises (the old client's store:556 askAgentToResolve).
 func (a *App) askAgentToResolve() {
 	result := a.merge
 	if result == nil || len(result.Conflicts) == 0 {
@@ -366,7 +366,7 @@ func (a *App) pushBranch(dryRun bool) {
 	})
 }
 
-// pushSummary words what the bridge reported; the states mirror the React
+// pushSummary words what the bridge reported; the states mirror the earlier client
 // notice strings.
 func pushSummary(result *protocol.PushResult, dryRun bool) string {
 	if result.Message != "" {

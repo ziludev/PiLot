@@ -1,7 +1,7 @@
 // Pitta: a native desktop client for the local pi-durable agent.
 //
 // The window is drawn by mygo's ui package from Go; there is no web page. The
-// Go side also owns what the web page could not do itself in the React
+// Go side also owns what the web page could not do itself in the earlier client
 // client: reading the bridge port and token from the agent's .env, running
 // scripts/agentctl, notifications and revealing the log directory.
 package main

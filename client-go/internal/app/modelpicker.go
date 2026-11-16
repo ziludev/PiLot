@@ -17,7 +17,7 @@ import (
 )
 
 // modelKey is the identity the favourites and recents lists store, the same
-// `provider/id` shape ModelPicker.tsx keeps in localStorage.
+// `provider/id` shape the earlier client's view keeps in localStorage.
 func modelKey(ref protocol.ModelRef) string {
 	return ref.Provider + "/" + ref.ModelID
 }
@@ -49,7 +49,7 @@ func (a *App) modelKey(c *ui.Context, k ui.TextKey) bool {
 }
 
 // walkModels moves the highlight by step, wrapping at both ends, the way the
-// arrow keys behave in ModelPicker.tsx's palette.
+// arrow keys behave in the earlier client's view's palette.
 func (a *App) walkModels(step int) {
 	models := a.visibleModels()
 	if len(models) == 0 {
@@ -77,7 +77,7 @@ func (a *App) pickModel() {
 // for picking a row.
 func (a *App) modelPicker(c *ui.Context) {
 	t := theme.Current(c)
-	// ModelPicker.tsx's trigger: an M badge, the model, its thinking level and
+	// the earlier client's view's trigger: an M badge, the model, its thinking level and
 	// a chevron, all 11 px and quiet until the pointer arrives.
 	trigger := ui.ButtonBase(c).Gap(6).Padding(2, 4).Radius(6).Cursor(ui.CursorPointer)
 	trigger.Label(i18n.T("model"))
@@ -108,7 +108,7 @@ func (a *App) modelPicker(c *ui.Context) {
 	})
 }
 
-// modelPalette is the command palette of ModelPicker.tsx: a search field, the
+// modelPalette is the command palette of the earlier client's view: a search field, the
 // models ordered favourites-first, and the thinking levels of the chosen one.
 func (a *App) modelPalette(c *ui.Context) {
 	t := theme.Current(c)
@@ -164,7 +164,7 @@ func paletteHeight(rows int) float32 {
 }
 
 // modelSection is one heading of the palette: the recents at the top or a
-// provider's group, as ModelPicker.tsx groups them.
+// provider's group, as the earlier client's view groups them.
 type modelSection struct {
 	Title     string
 	Provider  string
@@ -295,7 +295,7 @@ func (a *App) modelSectionHeader(c *ui.Context, t theme.Tokens, section *modelSe
 }
 
 // modelFooter is the palette's bottom bar: the effort in use, then the two
-// actions ModelPicker.tsx offers, setting the default and refreshing the list.
+// actions the earlier client's view offers, setting the default and refreshing the list.
 func (a *App) modelFooter(c *ui.Context, t theme.Tokens) {
 	ui.Divider(c).Background(t.Border)
 	ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
@@ -377,7 +377,7 @@ func (a *App) favoriteRank(entry protocol.ModelEntry) int {
 	return 1
 }
 
-// levelBars is the four-step meter ModelPicker.tsx shows beside a model: the
+// levelBars is the four-step meter the earlier client's view shows beside a model: the
 // bars up to the current level light up.
 func (a *App) levelBars(c *ui.Context, t theme.Tokens, levels []string, value string) {
 	index := 0
@@ -567,7 +567,7 @@ func (a *App) chooseThinking(level string) {
 	})
 }
 
-// levelNames is ModelPicker.tsx's LEVEL_LABEL: the thinking ladder is a
+// levelNames is the earlier client's view's LEVEL_LABEL: the thinking ladder is a
 // provider constant, not a translatable message, so it lives here.
 var levelNames = map[i18n.Lang]map[string]string{
 	i18n.EN: {"off": "off", "minimal": "min", "low": "low", "medium": "mid", "high": "high", "xhigh": "xhigh", "max": "max"},
@@ -594,7 +594,7 @@ func modelPrice(entry protocol.ModelEntry, lang i18n.Lang) string {
 	return prefix + " $" + trimFloat(entry.Cost.Input) + " / $" + trimFloat(entry.Cost.Output)
 }
 
-// modelContext is the window as ModelPicker.tsx prints it: M for millions, k
+// modelContext is the window as the earlier client's view prints it: M for millions, k
 // for thousands.
 func modelContext(window int) string {
 	switch {

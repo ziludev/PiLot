@@ -48,7 +48,7 @@ type MergeProps struct {
 	OnAskAgent        func()
 }
 
-// MergeDialog is MergeButton's confirmation, MergeButton.tsx:57-120: it asks
+// MergeDialog is MergeButton's confirmation, the earlier client's view:57-120: it asks
 // before touching the worktree, refuses while there is uncommitted work, and
 // when the merge conflicts it offers to hand the files to the agent instead of
 // leaving the user with a sentence they cannot act on.

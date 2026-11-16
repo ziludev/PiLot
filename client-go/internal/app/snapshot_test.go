@@ -131,7 +131,7 @@ func TestSnapshotApprovalAndModels(t *testing.T) {
 	tt := ui.NewTester(a.View, 1180, 820)
 	tt.Frame()
 	writePNG(t, "/tmp/pitta-app-modelpicker.png", tt.Image())
-	// Every provider but the chat's own starts folded, as ModelPicker.tsx does.
+	// Every provider but the chat's own starts folded, as the phase bar does.
 	if !tt.HasText("DeepSeek Flash") {
 		t.Fatal("model picker did not draw the list")
 	}

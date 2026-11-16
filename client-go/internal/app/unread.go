@@ -9,7 +9,7 @@ import (
 // Unread marks
 //
 // A chat that finished an answer while the window was behind another app keeps
-// a dot in the rail until it is opened. The React client had nothing like this:
+// a dot in the rail until it is opened. The earlier web client had nothing like this:
 // its notification vanished with the banner, and the rail looked the same
 // either way.
 
