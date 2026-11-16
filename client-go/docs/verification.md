@@ -131,3 +131,8 @@ $ go test ./internal/i18n -run TestEveryLiteralKeyExists -v
 | `TestCopyCarriesMarkdown` | 剪贴板同时携带 `text/markdown` 与纯文本 |
 | `TestRunningChatsListsBusyOnes` | 托盘运行列表按会话去重、只列忙碌的 |
 | `TestRunningHookSkipsSecondWindows` | 第二窗口不发布运行列表 |
+| `TestTaskFinishDotsTheChat` | 后台会话完成留下未读点，当前会话不留 |
+| `TestUnreadClearsWhenOpened` | 打开/清空未读，且未读点能写入并从 prefs 恢复 |
+| `TestAnswerWhileHiddenDots` | 隐藏时收到回答算新消息，同一帧不重复计数 |
+| `TestCmdSlashListsTheKeys` | `⌘/` 打开快捷键面板并列出 ⌘K/⌘⇧N/⌘⇧Space |
+| `TestStartupReopensTheLastChat` | 启动回到上次会话；已归档/不存在的会话不恢复 |

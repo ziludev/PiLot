@@ -256,3 +256,9 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 - `/api/search` 的命中现在落到**具体那一条**：`jumpToHit` 带 `entryId`，transcript 用 `isHit` 给用户消息或回答描主色边框（`a.focusEntry` 同时决定窗口锚点）。
 - 复制走 `WriteClipboardData`：同时给 `text/plain` 与 `text/markdown`，粘到 Markdown 编辑器保留结构（`mygo/ui/markdown` 没有 HTML 渲染器，故不给 `text/html`）。
 - 托盘的菜单随任务变化重建：正在跑的会话以「● 标题」逐条列出，点一条 `win.Show()` + 选中该会话；第二窗口不参与（`publishRunning` 里 `secondary` 直接返回）。
+
+### 2026-11 未读、快捷键面板、窗口状态（第 32 轮）
+
+- **未读点**：后台会话完成（`noteTaskFinish` 比对任务列表的 running→done）或窗口在别的应用之后收到回答（`hasNewAnswer`）时，侧栏该行在花费位置画一个 5px 主色圆点；点开或窗口获得焦点即清除；`prefs.Unread` 让它跨重启保留。React 侧没有这个概念。
+- **`⌘/` 快捷键面板**：列出 9 条实际生效的快捷键（`shortcuts()` 与代码同步维护），`ui.DialogBase` + 玻璃面板；View 菜单同名项。
+- **窗口状态记忆**：主窗口 `StateKey: "main"`（已有），聊天窗口统一 `StateKey: "chat"`（一窗一 key 会让 `window-state.json` 无限增长）；`prefs.LastChat` 记住退出时的会话，启动时若该会话仍在（且未归档）就打开它，否则退回最新会话。

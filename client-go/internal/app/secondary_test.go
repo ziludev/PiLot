@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"pitta/internal/api"
+	"pitta/internal/protocol"
 )
 
 // TestSecondaryWindowKeepsTheOwnedState checks the split between windows: the
@@ -53,5 +54,23 @@ func TestRailOffersASecondWindow(t *testing.T) {
 	a.openInNewWindow(7)
 	if len(opened) != 1 || opened[0] != 7 {
 		t.Fatalf("opened %v, want [7]", opened)
+	}
+}
+
+// TestStartupReopensTheLastChat checks the restart path: the chat that was open
+// when the app quit comes back, and a chat that is gone falls through.
+func TestStartupReopensTheLastChat(t *testing.T) {
+	a := New(Config{})
+	a.prefs.LastChat = 7
+	a.surfaces = []protocol.Surface{{ConversationID: 7}, {ConversationID: 9}}
+	if !a.surfaceExists(7) {
+		t.Fatal("surface 7 should be known")
+	}
+	if a.surfaceExists(8) {
+		t.Fatal("surface 8 is not listed")
+	}
+	a.surfaces = append(a.surfaces, protocol.Surface{ConversationID: 8, Archived: true})
+	if a.surfaceExists(8) {
+		t.Fatal("an archived chat is not reopened")
 	}
 }

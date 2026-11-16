@@ -406,6 +406,11 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 		if s.Archived {
 			title.Strikethrough().TextColor(t.MutedFg)
 		}
+		if a.isUnread(s.ConversationID) && !selected {
+			// A dot where the cost goes: this chat answered while nobody was
+			// looking, which the React rail had no way to say.
+			ui.Box(c).Width(5).Height(5).Radius(3).AlignSelf(ui.Center).Background(t.Primary)
+		}
 		if s.Cost >= 0.005 {
 			// Under half a cent the number is noise, as in Rail.tsx.
 			ui.Text(c, railCost(s.Cost)).FontSize(10).TextColor(t.MutedFg).MaxLines(1)

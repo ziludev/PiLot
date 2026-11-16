@@ -49,6 +49,7 @@ func installMenu(a *app.App) {
 			item("Switch chat…", "CmdOrCtrl+K", a.MenuSwitcher),
 			item("Toggle side panel", "CmdOrCtrl+B", a.MenuToggleSide),
 			mygo.Separator(),
+			item("Keyboard shortcuts", "CmdOrCtrl+/", a.MenuShortcuts),
 			item("Toggle theme", "CmdOrCtrl+Shift+T", a.MenuToggleTheme),
 			item("Toggle language", "CmdOrCtrl+Shift+L", a.MenuToggleLanguage),
 			mygo.Separator(),
