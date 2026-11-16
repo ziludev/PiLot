@@ -67,7 +67,13 @@ func loadPrefs() prefs {
 
 // savePrefs writes the preferences atomically: a crash mid-write must not
 // leave the window unable to start.
-func savePrefs(p prefs) {
+// prefsWriter is where preferences go. Tests replace it with a no-op so that
+// one test's theme or favourites cannot leak into the next through the file.
+var prefsWriter = savePrefsFile
+
+func savePrefs(p prefs) { prefsWriter(p) }
+
+func savePrefsFile(p prefs) {
 	path := prefsPath()
 	if path == "" {
 		return
