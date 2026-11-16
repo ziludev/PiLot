@@ -257,8 +257,11 @@ func (a *App) chatMenuDialog(c *ui.Context, t theme.Tokens) {
 	if !a.menu.open {
 		return
 	}
-	ui.Modal(c, &a.menu.open, func() {
-		ui.Column(c).Width(360).Padding(14).Gap(10).Radius(10).Background(t.Card).Border(1, t.Border).Children(func() {
+	ui.DialogBase(c, &a.menu.open, func(back, panel ui.Element) {
+		back.Background(ui.RGBA(0, 0, 0, 0.2))
+		// The chat menu is a glass pane, as ChatMenu.tsx's `glass` dropdown is:
+		// a form of four controls over a small panel.
+		panel.Width(360).Padding(14).Gap(10).Radius(12).Material(panelGlass()).Children(func() {
 			ui.Text(c, i18n.T("rename")).FontSize(13).TextColor(t.Foreground)
 			ui.TextInput(c, &a.menu.title).FontSize(12).Placeholder(i18n.T("renameHint"))
 			if a.menu.note != "" {

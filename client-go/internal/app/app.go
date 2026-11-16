@@ -637,6 +637,7 @@ func (a *App) View(c *ui.Context) {
 	a.imageDialog(c, t)
 	a.previewDialog(c)
 	a.errorPanel(c, t)
+	a.toasts(c)
 	// The split writes the dragged width into railWidth; keep a copy once it
 	// settles, so the next launch opens the same size.
 	if diff := a.railWidth - a.prefs.RailWidth; diff > 2 || diff < -2 {
