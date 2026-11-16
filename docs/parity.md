@@ -152,4 +152,4 @@
 - Shift+← 选区后输入替换（测试 `TestSelectAllAndBackspaceClears`）
 - Cmd+V 粘贴系统剪贴板（测试 `TestPasteInsertsClipboardText`）
 
-这三项需要人工在窗口里点一次确认；同一原因也说明「真实窗口是否响应鼠标点击」本身还没被验证。
+这三项与中文 IME 需要人工在窗口里点一次确认。为此提供 `scripts/manual-check.sh`：它逐步提示操作、每步截一张窗口图并写 `docs/manual-checks/results.txt`，跑完即为手工验证记录。
