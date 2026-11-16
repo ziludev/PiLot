@@ -145,20 +145,32 @@
 | Markdown 渲染 | 同一窗口内多段中文回答、行内代码与列表正常（同上截图） |
 | 流式 | 同一会话由真实模型逐段产出，耗时条显示 `1 tool · $0.00 · 3.0s`（`internal/app/live_test.go` 也断言过 `streamed=true`） |
 | 审批拒绝在客户端可见 | 拒绝响应后，回答里出现「未获批准（提权执行）」，后端日志 `[approval] resolved {approved:false, by:"client"}` + `[guard] bash denied`（`internal/app/approval_live_test.go`） |
+| 点击会话行切换 | 合成点击 rail 行后 header 变为「话题 b6d61b #22603」（`/tmp/pitta-manual/27-click-switch.png`） |
+| 打字进 composer | 点击 composer 后合成输入 `abc` 上屏（`/tmp/pitta-manual/35-typed2.png`） |
+| Shift+Enter 换行 | 同上草稿再按 Shift+Enter 再输入，得到首行空行 + `line-two`，未发送（`/tmp/pitta-manual/37-shiftenter.png`） |
+| 全选后输入替换 | `Cmd+A` 后输入新内容替换掉原草稿（用户手工确认；`/tmp/pitta-manual/36-selectall.png`） |
 
-**尚未取得手工记录、仅有 tester 级证据的三项**。合成输入到这个窗口只成功了一半，实测记录如下，所以这四项必须由人在窗口里做一次：
+这张表里"合成点击/键盘"在 0.9.1 的窗口上是可用的；早先记录过"点击到不了窗口"，那是另一个 bug 的假象：
 
-- 键盘到得了：合成的 `Cmd+F` 真的打开了查找条（`/tmp/pitta-manual/16-cmdf.png`）。
-- 鼠标点击到不了：rail 行有 hover 高亮，但 `mouseDown/mouseUp`（含 `clickState=1`、带 `mouseEventWindowUnderMousePointer` 两种写法、`cghidEventTap` 与 `postToPid` 两条通道）都不触发 `OnClick`——点会话行不切换、点主题开关不变色、点 Search 图标不开查找条。
-- 没有点击就没有焦点，于是 `keyboardSetUnicodeString` 打的字符不上屏；`osascript keystroke` 同样无效（连 TextEdit 存盘都超时）。
-- `AXIsProcessTrusted`、`CGPreflightPostEventAccess`、`CGPreflightScreenCaptureAccess` 均为 true，`ioreg` 里无 SecureInput，光标能被事件移动，所以不是权限或坐标问题。
+**点一下就冻死**。rail 行的 `OnClick` 调 `selectConversation` → `applyWait`，而 `applyWait` 当时是"把写入投递到主线程 + 等 channel"，回调本身就在主线程上，于是主线程等主线程，窗口永久冻结（macOS 显示"应用程序无响应"）。`kill -QUIT` 的栈直接指出来：
 
-`internal/app/input_test.go` 覆盖同样的逻辑（粘贴、全选、Shift+←、IME）；人工核对脚本见 `scripts/manual-check.sh`。
+```
+goroutine 1 ... [chan receive, locked to thread]:
+pitta/internal/app.(*App).applyWait(...)   app.go:277
+pitta/internal/app.(*App).selectConversation(...)  app.go:487
+pitta/internal/app.(*App).railRow.func1()  rail.go:213
+```
 
-下列各项需要人工确认：
+修法：`applyWait` 改用 `mygo.RunOnMain`（已在主线程就直接跑，否则投递并等待），并在 `race_test.go` 里钉住"点击处理路径不得阻塞"。**这条修复之前的窗口交互一律不可信**，包括当时判断"合成事件到不了这个窗口"的结论。
 
-- Shift+Enter 在真窗口里换行（测试 `TestEnterKeepsNewline`）
-- Shift+← 选区后输入替换（测试 `TestSelectAllAndBackspaceClears`）
-- Cmd+V 粘贴系统剪贴板（测试 `TestPasteInsertsClipboardText`）
+### 7.2 选区高亮曾不可见
 
-这三项与中文 IME 需要人工在窗口里点一次确认。为此提供 `scripts/manual-check.sh`：它逐步提示操作、每步截一张窗口图并写 `docs/manual-checks/results.txt`，跑完即为手工验证记录。
+主题把 `ui.Theme.Selection` 映射成了 shadcn 的 `--accent`（浅色 `#f5f5f5`、深色 `#262626`）——那是 hover 底色，用作文本选区就是白底上的近白、黑底上的近黑，选中了看不出来（用户实测提出："确实可以替换，但是没有选中的效果"）。现在 `theme.Tokens.Selection` 单独给出半透明蓝（浅 `RGBA(37,99,235,0.25)`、深 `RGBA(59,130,246,0.40)`），两条断言：
+
+- `internal/theme` `TestSelectionIsVisibleComposited`：选区色必须半透明，且合成到背景后与背景至少差 8 级。
+- `internal/app` `TestSelectAllHighlightsText`：composer 聚焦后 `Cmd+A`，逐像素比对新帧与"旧像素叠上主题选区色"，命中数 < 400 即失败（把映射改回 `--accent` 时该用例报 `0 pixels changed to the selection color`）。
+
+### 7.3 仍只有 tester 级证据的两项
+
+- 真窗口里的中文 IME 候选窗（`tt.Compose` 只能在离屏 tester 里模拟预编辑，见上）。
+- 真窗口里的 `Cmd+V`（剪贴板内容在 tester 里注入；真机需要拷一段文字再按一次）。

@@ -26,7 +26,11 @@ type Tokens struct {
 
 	// Warning is amber-500, the color the approval bar and running tasks use;
 	// shadcn has no token for it.
-	Warning     ui.Color
+	Warning ui.Color
+	// Selection is the highlight behind selected text, which mygo draws
+	// itself; shadcn leaves it to the browser, so these are mygo's own
+	// defaults, kept explicit so a theme change cannot make it invisible.
+	Selection   ui.Color
 	Destructive ui.Color
 	Border      ui.Color
 	Input       ui.Color
@@ -58,6 +62,7 @@ func Light() Tokens {
 		AccentFg: ui.Hex("#171717"),
 
 		Warning:     ui.Hex("#f59e0b"),
+		Selection:   ui.RGBA(37, 99, 235, 0.25),
 		Destructive: ui.Hex("#e7000b"),
 		Border:      ui.Hex("#e5e5e5"),
 		Input:       ui.Hex("#e5e5e5"),
@@ -91,6 +96,7 @@ func Dark() Tokens {
 		AccentFg: ui.Hex("#fafafa"),
 
 		Warning:     ui.Hex("#fbbf24"),
+		Selection:   ui.RGBA(59, 130, 246, 0.40),
 		Destructive: ui.Hex("#ff6467"),
 		Border:      ui.RGBA(255, 255, 255, 0.10),
 		Input:       ui.RGBA(255, 255, 255, 0.15),
@@ -132,9 +138,19 @@ func Apply(c *ui.Context, t Tokens) {
 	base.AccentPressed = t.Primary
 	base.AccentText = t.PrimaryFg
 	base.Danger = t.Destructive
-	base.Selection = t.Accent
+	base.Selection = t.Selection
 	base.Focus = t.Ring
 	base.Radius = Radius
 	base.Font = FontFamily
 	c.SetTheme(&base)
+}
+
+// Composite blends a over an opaque bg, which is what a translucent highlight
+// looks like on screen and what a pixel test can compare against.
+func Composite(a, bg ui.Color) ui.Color {
+	mix := func(f, b uint8) uint8 {
+		alpha := uint32(a.A)
+		return uint8((uint32(f)*alpha + uint32(b)*(255-alpha)) / 255)
+	}
+	return ui.RGBA(mix(a.R, bg.R), mix(a.G, bg.G), mix(a.B, bg.B), 255)
 }

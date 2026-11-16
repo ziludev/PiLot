@@ -149,16 +149,41 @@ func TestBorderComesFromTokens(t *testing.T) {
 }
 
 // composite blends a with alpha over an opaque background.
-func composite(a, bg ui.Color) ui.Color {
-	mix := func(f, b uint8) uint8 {
-		alpha := uint32(a.A)
-		return uint8((uint32(f)*alpha + uint32(b)*(255-alpha)) / 255)
-	}
-	return ui.RGBA(mix(a.R, bg.R), mix(a.G, bg.G), mix(a.B, bg.B), 255)
-}
+func composite(a, bg ui.Color) ui.Color { return Composite(a, bg) }
 
 // near tolerates the 1-2 value rounding of a blend done in the renderer.
 func near(a, b uint8) bool {
 	d := int(a) - int(b)
 	return d >= -2 && d <= 2
+}
+
+// TestSelectionIsVisibleComposited pins the bug where Selection was set to the
+// accent color: in light mode that is near-white on white, in dark mode
+// near-black on black, so selecting text showed nothing. The highlight has to
+// be translucent and clearly off the background.
+func TestSelectionIsVisibleComposited(t *testing.T) {
+	for name, tok := range map[string]Tokens{"light": Light(), "dark": Dark()} {
+		sel := tok.Selection
+		if sel.A == 0xff {
+			t.Fatalf("%s: Selection is opaque, it would hide the text", name)
+		}
+		got, bg := composite(tok.Selection, tok.Background), tok.Background
+		delta := 0
+		for _, pair := range [][2]uint8{{got.R, bg.R}, {got.G, bg.G}, {got.B, bg.B}} {
+			if d := absInt(int(pair[0]) - int(pair[1])); d > delta {
+				delta = d
+			}
+		}
+		if delta < 8 {
+			t.Fatalf("%s: selection %v over %v differs by %d; too close to see",
+				name, tok.Selection, tok.Background, delta)
+		}
+	}
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
