@@ -123,8 +123,18 @@ func TestSnapshotApprovalAndModels(t *testing.T) {
 	tt := ui.NewTester(a.View, 1180, 820)
 	tt.Frame()
 	writePNG(t, "/tmp/pitta-app-modelpicker.png", tt.Image())
-	if !tt.HasText("Claude Sonnet 4") {
+	// Every provider but the chat's own starts folded, as ModelPicker.tsx does.
+	if !tt.HasText("DeepSeek Flash") {
 		t.Fatal("model picker did not draw the list")
+	}
+	if tt.HasText("Claude Sonnet 4") {
+		t.Fatal("another provider's group should start folded")
+	}
+	// Opening it draws that provider's rows.
+	tt.Click("anthropic")
+	tt.Frame()
+	if !tt.HasText("Claude Sonnet 4") {
+		t.Fatal("unfolding a provider did not draw its models")
 	}
 
 	a = snapshotData(t)
