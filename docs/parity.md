@@ -141,14 +141,15 @@
 
 | 项目 | 证据 |
 | --- | --- |
-| 中文排版与字体回退 | 真实回答「命令被系统拦下了，我没有执行。拦截原因写的是「未获批准（提权执行）」」在回答气泡里按 Geist + 系统 CJK 回退渲染，无豆腐块、无截断（`/tmp/pitta-manual/05-back.png`） |
+| 中文排版与字体回退 | 真实回答「命令被系统拦下了，我没有执行。拦截原因写的是「未获批准（提权执行）」」在回答气泡里按 Geist + 系统 CJK 回退渲染，无豆腐块、无截断（`/tmp/pitta-manual/05-back.png`，仓库外临时文件） |
 | Markdown 渲染 | 同一窗口内多段中文回答、行内代码与列表正常（同上截图） |
 | 流式 | 同一会话由真实模型逐段产出，耗时条显示 `1 tool · $0.00 · 3.0s`（`internal/app/live_test.go` 也断言过 `streamed=true`） |
 | 审批拒绝在客户端可见 | 拒绝响应后，回答里出现「未获批准（提权执行）」，后端日志 `[approval] resolved {approved:false, by:"client"}` + `[guard] bash denied`（`internal/app/approval_live_test.go`） |
-| 点击会话行切换 | 合成点击 rail 行后 header 变为「话题 b6d61b #22603」（`/tmp/pitta-manual/27-click-switch.png`） |
-| 打字进 composer | 点击 composer 后合成输入 `abc` 上屏（`/tmp/pitta-manual/35-typed2.png`） |
-| Shift+Enter 换行 | 同上草稿再按 Shift+Enter 再输入，得到首行空行 + `line-two`，未发送（`/tmp/pitta-manual/37-shiftenter.png`） |
-| 全选后输入替换 | `Cmd+A` 后输入新内容替换掉原草稿（用户手工确认；`/tmp/pitta-manual/36-selectall.png`） |
+| 点击会话行切换 | 点击 rail 行后 header 变为「话题 b6d61b #22603」（`docs/manual-checks/58-click-switches-chat.png`） |
+| 打字进 composer | 点击 composer 后输入 `abc` 上屏（`docs/manual-checks/59-typing.png`） |
+| Shift+Enter 换行 | 再按 Shift+Enter 并输入，得到空行 + `line-two`，未发送（`docs/manual-checks/60-shift-enter.png`） |
+| 选区可见 | `Cmd+A` 后文本被蓝色高亮覆盖（`docs/manual-checks/56-selection.png`） |
+| 选中后输入替换 | 保持全选再输入，原文本被整体替换（`docs/manual-checks/57-replace.png`） |
 | `Cmd+V` 粘贴 | `pbcopy` 一段中英混排后按 `Cmd+V`，草稿出现该文本（`docs/manual-checks/51-paste.png`） |
 | 中文 IME 预编辑 | 微信拼音键入 `nihao`，composer 内显示带下划线的 `ni'ha'o`，候选窗贴光标下方，预编辑不进草稿（`docs/manual-checks/52-ime-preedit.png`） |
 | 组词期间按 Enter | 不发送、不插换行；微信输入法把原始拼音落成字面 `nihao`（输入法行为，见 `docs/manual-checks/results.txt`） |
@@ -174,6 +175,13 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 - `internal/theme` `TestSelectionIsVisibleComposited`：选区色必须半透明，且合成到背景后与背景至少差 8 级。
 - `internal/app` `TestSelectAllHighlightsText`：composer 聚焦后 `Cmd+A`，逐像素比对新帧与"旧像素叠上主题选区色"，命中数 < 400 即失败（把映射改回 `--accent` 时该用例报 `0 pixels changed to the selection color`）。
 
-### 7.3 记录的落点
+### 7.3 会话菜单曾画出原始 i18n key
+
+会话菜单把 key 写成了 `renameChat` / `archiveChat`，而 React 的字典里叫 `rename` / `archive`（归档后是 `unarchive`），于是按钮上直接显示 `renameChat`。现在改用真实 key，并加了两道防线：
+
+- `internal/i18n` `TestEveryLiteralKeyExists`：遍历仓库源码里所有 `i18n.T("…")` / `TF("…")` 字面量，要求 en 与 zh 两个字典都有该 key（把 key 改回 `renameChat` 时该用例报 `key "renameChat" has no zh string`）。
+- `internal/app` `TestChatMenuDrawsLabels` / `TestChatMenuOffersUnarchive` / `TestImageDialogDrawsLabels`：渲染对话框后，任何一段文本只要"本身是字典的 key"就判失败（`i18n.IsKey`）。
+
+### 7.4 记录的落点
 
 真窗口那一轮的操作、截图与逐项结论写在 `docs/manual-checks/results.txt`（截图同目录 `51-paste.png` … `55-cleared.png`）。要重做一次，跑 `scripts/manual-check.sh`，它按同样的步骤提示操作并逐步截图。

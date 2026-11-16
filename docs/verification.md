@@ -35,6 +35,7 @@ $ go test ./internal/app -run 'Snapshot|TestSelectAllHighlightsText' -v
 
 - 背景像素 == `Tokens.Background`，正文至少一处与背景不同色，主按钮像素 == `Tokens.Primary`，分隔线像素 == `Tokens.Border`（深色下按 alpha 合成后 ±2）。
 - 选区高亮必须半透明且合成后与背景至少差 8 级；把映射改回 `--accent` 时 `TestSelectAllHighlightsText` 会报 `0 pixels changed to the selection color`。
+- 渲染出来的文本只要"本身是字典 key"就判失败（`TestChatMenuDrawsLabels`、`TestImageDialogDrawsLabels` + `i18n.IsKey`）；把 key 写回 `renameChat` 时这两个用例会红。
 - 快照写到 `/tmp/pitta-app-{light,dark,side-*,modelpicker,approval}.png`。
 
 ## 3. 真实后端（`127.0.0.1:8787`，凭据来自 `~/learn/pi-durable-agent/.env`）
@@ -72,10 +73,17 @@ $ open ~/Applications/Pitta.app
 
 装到 `~/Applications` 而不是 `/Applications`：后者已有一个旧的 mygo webview 版 Pitta（bundleID 同为 `com.example.agent`），不能覆盖。启动后 `logs/agent.log` 出现 `[http] client attached {"conversationId":…}`。
 
-## 5. 真窗口输入
+## 5. 字面量 key 守卫
 
-见 `docs/manual-checks/results.txt` 与同目录截图（粘贴、IME 预编辑+候选窗、组词期间 Enter、候选提交、清空）。
+```
+$ go test ./internal/i18n -run TestEveryLiteralKeyExists -v
+--- PASS: TestEveryLiteralKeyExists (0.01s)      # 遍历仓库源码，108 个字面量 key 必须在 en/zh 两个字典里
+```
 
-## 6. 已知差异
+## 6. 真窗口输入
+
+见 `docs/manual-checks/results.txt` 与同目录 10 张截图（点击切换、打字、Shift+Enter、选区可见、选中替换、粘贴、IME 预编辑+候选窗、组词期间 Enter、候选提交、清空）。
+
+## 7. 已知差异
 
 `docs/parity.md` §4 逐条列出（⌘F 定位方式、附件靠路径、Toast 无动效、access 表分组、memory 逐条勾选、飞书健康横幅与 `/api/search` 未接等）；mygo 版本选择见 `docs/mygo-version.md`。

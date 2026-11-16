@@ -140,6 +140,17 @@ func (a *App) openChatMenu() {
 	})
 }
 
+// surfaceArchived reports whether the chat is archived, which flips the label
+// and the action of the chat menu's archive entry.
+func (a *App) surfaceArchived(conversationID int) bool {
+	for _, surface := range a.surfaces {
+		if surface.ConversationID == conversationID {
+			return surface.Archived
+		}
+	}
+	return false
+}
+
 // surfaceTitleByID is the rail's title rule for one chat.
 func (a *App) surfaceTitleByID(conversationID int) string {
 	for _, surface := range a.surfaces {
@@ -157,14 +168,19 @@ func (a *App) chatMenuDialog(c *ui.Context, t theme.Tokens) {
 	}
 	ui.Modal(c, &a.menu.open, func() {
 		ui.Column(c).Width(360).Padding(14).Gap(10).Radius(10).Background(t.Card).Border(1, t.Border).Children(func() {
-			ui.Text(c, i18n.T("renameChat")).FontSize(13).TextColor(t.Foreground)
+			ui.Text(c, i18n.T("rename")).FontSize(13).TextColor(t.Foreground)
 			ui.TextInput(c, &a.menu.title).FontSize(12).Placeholder(i18n.T("renameHint"))
 			if a.menu.note != "" {
 				ui.Text(c, a.menu.note).FontSize(10).TextColor(t.Destructive)
 			}
 			ui.Row(c).Gap(6).Children(func() {
 				ui.PrimaryButton(c, i18n.T("save")).FontSize(11).OnClick(func() { a.renameChat() })
-				ui.Button(c, i18n.T("archiveChat")).FontSize(11).OnClick(func() { a.archiveChat(true) })
+				archived := a.surfaceArchived(a.currentValue())
+				label := i18n.T("archive")
+				if archived {
+					label = i18n.T("unarchive")
+				}
+				ui.Button(c, label).FontSize(11).OnClick(func() { a.archiveChat(!archived) })
 				ui.Button(c, i18n.T("cleanupWorktree")).FontSize(11).OnClick(func() { a.removeWorktree() })
 				ui.Row(c).Grow(1)
 				ui.Button(c, i18n.T("cancel")).FontSize(11).OnClick(func() {

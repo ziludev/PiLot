@@ -57,6 +57,16 @@ func Current() Lang {
 	return current
 }
 
+// IsKey reports whether s is a dictionary key. A view that draws s instead of
+// T(s) shows the key itself, which a test can spot.
+func IsKey(s string) bool {
+	if _, ok := en[s]; ok {
+		return true
+	}
+	_, ok := zh[s]
+	return ok
+}
+
 // T renders key in the current language without arguments.
 func T(key string) string {
 	return TF(key, nil)
