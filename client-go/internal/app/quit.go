@@ -8,7 +8,7 @@ import (
 )
 
 // Words for the quit question. They are constants rather than i18n keys
-// because the dictionary must stay identical to client/src/i18n.ts.
+// because the dictionary must stay identical to internal/i18n/origin/i18n.ts.
 const (
 	quitTitle = "A turn is still running"
 	quitBody  = "Quit anyway? The agent will stop where it is."

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"log"
 	"net/url"
 	"strconv"
 	"strings"
@@ -47,8 +48,10 @@ func ParseDeepLink(raw string) (DeepLink, bool) {
 func (a *App) OpenDeepLink(raw string) {
 	link, ok := ParseDeepLink(raw)
 	if !ok {
+		log.Printf("deeplink: ignore %q", raw)
 		return
 	}
+	log.Printf("deeplink: chat %d newWindow=%v", link.ChatID, link.NewWindow)
 	if link.NewWindow && windowOpener != nil {
 		a.openInNewWindow(link.ChatID)
 		return
