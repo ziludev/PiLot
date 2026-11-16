@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { splitTables, stripInlineCode } from "../src/feishu.ts";
+import { bodyElements, clip, MAX_CARD_CHARS, splitTables, stripInlineCode } from "../src/feishu.ts";
 
 const TABLE = `近 7 天共 3479 次。
 
@@ -51,4 +51,28 @@ test("inline code loses its ticks, a fenced block keeps them", () => {
   assert.equal(stripInlineCode("run `npm test` now"), "run npm test now");
   assert.equal(stripInlineCode("```\nconst a = `x`;\n```"), "```\nconst a = `x`;\n```");
   assert.equal(stripInlineCode("`a` and\n```\nb\n```\n`c`"), "a and\n```\nb\n```\nc");
+});
+
+test("a heading becomes a bold line, a rule becomes an hr element", () => {
+  const elements = bodyElements("## 结论\n3479 次全通过\n---\n下一步");
+  assert.deepEqual(elements, [
+    { tag: "markdown", content: "**结论**\n3479 次全通过" },
+    { tag: "hr" },
+    { tag: "markdown", content: "下一步" },
+  ]);
+});
+
+test("a table keeps its neighbours' order in a card body", () => {
+  const elements = bodyElements(TABLE);
+  assert.deepEqual(
+    elements.map((element) => (element as { tag: string }).tag),
+    ["markdown", "table", "markdown"],
+  );
+});
+
+test("truncating a clipped answer closes the code fence it cut open", () => {
+  const body = "```\n" + "x".repeat(MAX_CARD_CHARS) + "\n```";
+  const cut = clip(body);
+  const fences = cut.split("\n").filter((line) => line.trim() === "```").length;
+  assert.equal(fences % 2, 0);
 });
