@@ -181,16 +181,9 @@ git clone https://github.com/ziludev/pitta.git && cd pitta
 5. **把控制台读回来** —— 凭证、机器人能力、订阅方式、已发布版本、已订阅事件、`card.action.trigger`、权限、机器人是否已在某个会话；每个 ✗ 都写明去哪个菜单改。
 6. **launchd** —— 交出去，开机自启、崩溃重启。
 
-飞书开发者后台要点的（open.feishu.cn → 你的应用）：
-
-| 菜单 | 设置 |
-|---|---|
-| 添加应用能力 | 机器人 |
-| 权限管理 | `im:message`、`im:message:send_as_bot`、`im:message.p2p_msg:readonly`、`im:message.group_at_msg:readonly`；想在话题里不 @ 也回复，再加 `im:message.group_msg`；想让卡片和引用里显示人名而不是 `ou_…`，再加 `contact:user.base:readonly` |
-| 事件与回调 → 订阅方式 | **使用长连接接收事件**（不需要公网 IP、域名、证书） |
-| 事件与回调 → 回调 | `card.action.trigger`（审批与「继续」按钮） |
-| 事件与回调 → 事件 | `im.message.receive_v1` |
-| 版本管理与发布 | 创建版本 → 申请发布。不发布等于没配 |
+飞书开发者后台要点什么，只有一页：**[docs/feishu-setup.zh-CN.md](docs/feishu-setup.zh-CN.md)** ——
+机器人能力、六个权限、长连接、一个回调、一个事件、发版。`setup` 读回来的就是这一页的内容，
+所以它打 ✗ 的地方，去那一页找对应行即可。
 
 之后：
 
@@ -303,6 +296,7 @@ src/
   live.ts / log.ts / similar.ts / channel.ts / runtime-ref.ts / storage-lock.ts / models.ts
 
 evals/             离线评测台：guard（审批判定）+ contract（config↔.env.example↔README），`npm run eval`
+docs/            只有一页需要细读的：飞书控制台按菜单列，以及每行配错会出现的报错
 
 client/            MyGo 桌面 app
   main.go          Go 窗口 + 绑定（桥接地址/token、agentctl 控制、原生通知）
@@ -360,16 +354,13 @@ npm run eval -- --json        # 一个 envelope，给脚本读
 
 ## 下一步候选
 
-暂缓（不是紧急问题，先说清需求再动）：
+- **follow-up 计时器**：让它自己约「两小时后再看一次这个 MR」。`sleepUntil` 已经有了，缺的是判断规则。
+- **五条具名原则**：把散在 `personal.ts`、`SECURITY.md`、`AGENTS.md` 的二十来条约束收成 5 条有名字的（少加实体 / 先量再改 / 别在代码里修网络 / 状态只有一个来源 / 说话要有证据），prompt 只放名字。
+- **子 agent 的终态契约**：`build_feature` 的角色产出从自由文本改成 PASS / ISSUES / BLOCKED + 证据，父 agent 才能机械判定。
 
-- **主动性**：邮件 / 日历 / GitHub 事件触发（现在是显式指令 + 定时提醒）。要先定：哪些触发源、什么值得打断、静默时段
-- **记忆向量检索**：现在是 bigram 去重 + `recall` 关键词，记忆上千条后会不够用。需要选 embedding 走哪家（magpie 代理？）并估一次重排成本
+量过不值得做的：空转成本（`/api/state` 10–20ms / 21 个会话，占空比 0.1%）、主动发件箱（`app.reminder` 历史触发 0 次）。
 
-已经量过、不值得做的：
-
-- ~~空转成本~~：`/api/state` 10–20ms / 21 个会话，占空比 0.1%，不是瓶颈
-
-做完的（留档，避免重复讨论）：会话级花费与耗时（列表 + 头部 + 每轮柱状图）、项目移除、话题在客户端可读、飞书断线告警、纯逻辑单测
+做完的：会话级花费与耗时、项目移除、话题在客户端可读、断线告警、纯逻辑单测、`/ketchup`、决策轨迹、`report_done`、每日早报。
 
 ---
 
