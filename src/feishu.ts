@@ -1580,7 +1580,9 @@ const continuing = new Set<string>();
             thread: threadFor(message),
             mention: mentionFor(event, message),
             buttons: picks.map((id) => ({
-              label: id.split("/").pop() ?? id,
+              // The gateway routes by prefix (auto/, sitin-deepseek/, sitin-glm/) and the same model
+              // name exists under several of them, so the whole id goes on the button.
+              label: id,
               value: { kind: "set-model", conversationId: conversation.id as unknown as number, provider: "magpie", modelId: id },
               type: id === modelId ? ("primary" as const) : ("default" as const),
             })),
