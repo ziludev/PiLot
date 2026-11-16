@@ -32,12 +32,12 @@ func TestRunningChatsListsBusyOnes(t *testing.T) {
 // TestRunningHookSkipsSecondWindows checks the tray belongs to one window.
 func TestRunningHookSkipsSecondWindows(t *testing.T) {
 	calls := 0
-	SetRunningHook(func([]RunningChat) { calls++ })
-	t.Cleanup(func() { SetRunningHook(nil) })
+	SetTrayHook(func(TrayState) { calls++ })
+	t.Cleanup(func() { SetTrayHook(nil) })
 	second := NewSecondary(Config{}, nil, 3)
-	second.publishRunning()
+	second.publishTray()
 	primary := New(Config{})
-	primary.publishRunning()
+	primary.publishTray()
 	// publishRunning hands the list over in a goroutine; the second window
 	// must not add a call.
 	deadline := time.Now().Add(2 * time.Second)
@@ -47,5 +47,27 @@ func TestRunningHookSkipsSecondWindows(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	if calls != 1 {
 		t.Fatalf("hook ran %d times, want once (second windows stay quiet)", calls)
+	}
+}
+
+// TestTrayApprovalsNameTheirChat checks the menu's approval rows: each pending
+// call carries the chat its surface belongs to, so a click lands there.
+func TestTrayApprovalsNameTheirChat(t *testing.T) {
+	a := New(Config{})
+	a.surfaces = []protocol.Surface{{ConversationID: 4, SurfaceID: "client:mw1"}}
+	a.approvals = []protocol.PendingApproval{
+		{CallID: "call_1", SurfaceID: "client:mw1", Tool: "bash", Reason: "rm -rf"},
+		{CallID: "call_2", SurfaceID: "feishu:zz", Tool: "edit", Reason: "write"},
+	}
+	rows := a.trayApprovals()
+	if len(rows) != 2 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	if rows[0].ConversationID != 4 || rows[0].Tool != "bash" {
+		t.Fatalf("row = %+v", rows[0])
+	}
+	// A surface the rail does not list (a Feishu thread here) maps to no chat.
+	if rows[1].ConversationID != 0 {
+		t.Fatalf("row = %+v", rows[1])
 	}
 }

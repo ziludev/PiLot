@@ -71,15 +71,27 @@ func installTray(a *app.App, win *mygo.Window) *mygo.Tray {
 		return &mygo.MenuItem{Label: label, Click: func(*mygo.MenuItem, *mygo.Window) { click() }}
 	}
 	show := func() { win.Show(); win.Focus() }
-	build := func(running []app.RunningChat) *mygo.Menu {
+	build := func(state app.TrayState) *mygo.Menu {
 		items := []*mygo.MenuItem{
 			item("Show window", show),
 			item("New chat", func() { a.MenuNewChat(); show() }),
 			item("Switch chat…", func() { a.MenuSwitcher(); show() }),
 		}
-		if len(running) > 0 {
+		if len(state.Approvals) > 0 {
 			items = append(items, mygo.Separator())
-			for _, chat := range running {
+			for _, approval := range state.Approvals {
+				approval := approval
+				items = append(items, item("⚠ "+approval.Tool+" — "+approval.Reason, func() {
+					show()
+					if approval.ConversationID != 0 {
+						a.MenuOpenChat(approval.ConversationID)
+					}
+				}))
+			}
+		}
+		if len(state.Running) > 0 {
+			items = append(items, mygo.Separator())
+			for _, chat := range state.Running {
 				chat := chat
 				items = append(items, item("● "+chat.Title, func() {
 					show()
@@ -99,15 +111,15 @@ func installTray(a *app.App, win *mygo.Window) *mygo.Tray {
 		ID:      "pitta",
 		Icon:    trayIcon,
 		ToolTip: "Pitta",
-		Menu:    build(nil),
+		Menu:    build(app.TrayState{}),
 	})
 	if err != nil {
 		log.Printf("menu: tray: %v", err)
 		return nil
 	}
 	tray.OnClick(show)
-	app.SetRunningHook(func(running []app.RunningChat) {
-		tray.SetMenu(build(running))
+	app.SetTrayHook(func(state app.TrayState) {
+		tray.SetMenu(build(state))
 	})
 	return tray
 }

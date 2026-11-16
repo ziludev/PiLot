@@ -262,3 +262,9 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 - **未读点**：后台会话完成（`noteTaskFinish` 比对任务列表的 running→done）或窗口在别的应用之后收到回答（`hasNewAnswer`）时，侧栏该行在花费位置画一个 5px 主色圆点；点开或窗口获得焦点即清除；`prefs.Unread` 让它跨重启保留。React 侧没有这个概念。
 - **`⌘/` 快捷键面板**：列出 9 条实际生效的快捷键（`shortcuts()` 与代码同步维护），`ui.DialogBase` + 玻璃面板；View 菜单同名项。
 - **窗口状态记忆**：主窗口 `StateKey: "main"`（已有），聊天窗口统一 `StateKey: "chat"`（一窗一 key 会让 `window-state.json` 无限增长）；`prefs.LastChat` 记住退出时的会话，启动时若该会话仍在（且未归档）就打开它，否则退回最新会话。
+
+### 2026-11 托盘里的审批、⌘↑/⌘↓ 翻页（第 33 轮）
+
+- **托盘列审批**：`SetTrayHook` 现在收到 `TrayState{Running, Approvals}`，菜单在运行中会话之前先列出待批调用（`⚠ bash — rm -rf`），点击 `win.Show()` 并切到该 surface 所属会话；`publishTray` 由 `loadState` 与 `loadApprovals` 两处触发。
+- **`⌘↑`/`⌘↓` 翻页**：按视口高度的 85% 滚动；注意跟随末尾时 `transcriptScroll.Y` 停在 `MaxFloat32`，必须以 `scrollMaxY` 为起点计算，且要把 `stickToBottom` 一并关掉，否则下一帧会弹回底部。
+- 快捷键面板同步（10 条）。
