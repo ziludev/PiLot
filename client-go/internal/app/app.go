@@ -148,6 +148,11 @@ type App struct {
 	waitingAlert  bool
 	// quitAsk holds the ⌘Q confirmation open while a turn is still running.
 	quitAsk bool
+	// history is what this window sent, for Up/Down recall; historyAt walks it
+	// and historyDraft holds what was being typed before the walk started.
+	history      []string
+	historyAt    int
+	historyDraft string
 	// settingsOpen holds the ⌘, panel.
 	settingsOpen bool
 	// ownChat is the chat this window was opened for; 0 for the first window,
@@ -712,6 +717,7 @@ func (a *App) submit() {
 // frame.
 func (a *App) sendText(text string) {
 	images := a.pendingImages
+	a.apply(func() { a.recall(text) })
 	mode := api.ModeFollowUp
 	if a.steer {
 		mode = api.ModeSteer
