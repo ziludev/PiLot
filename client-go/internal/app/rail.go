@@ -133,7 +133,7 @@ func (a *App) railFeishu(c *ui.Context, t theme.Tokens) {
 // sortedSurfaces, which every view of the list goes through.
 func (a *App) railSearch(c *ui.Context, t theme.Tokens) {
 	ui.Row(c).FillWidth().Padding(6, 10, 4, 10).Children(func() {
-		ui.TextInput(c, &a.query).Fill().Height(24).FontSize(11.5).
+		ui.TextInput(c, &a.query).Fill().FontSize(11.5).PaddingY(4).PaddingX(8).
 			Placeholder(i18n.T("searchShort")).
 			OnSubmit(func() {
 				a.apply(func() {
@@ -207,7 +207,7 @@ func (a *App) railFilters(c *ui.Context, t theme.Tokens, count int) {
 	ui.Row(c).FillWidth().Padding(6, 10).Gap(4).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, strings.ToUpper(i18n.T("sessions"))).FontSize(10).FontWeight(600).
 			TextColor(t.MutedFg).MaxLines(1)
-		ui.Select(c, &chosen, labels).FontSize(10.5).Height(20).Label(i18n.T("sessions"))
+		ui.Select(c, &chosen, labels).FontSize(10.5).Height(22).Label(i18n.T("sessions"))
 		ui.Row(c).Grow(1).Children(func() {})
 		a.railArchiveToggle(c, t)
 		railIconAction(c, i18n.T("newChat"), icons.Plus, func() { go a.newConversation() })
