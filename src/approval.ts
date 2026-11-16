@@ -1,4 +1,4 @@
-import { isAbsolute, relative, resolve } from "node:path";
+import { basename, isAbsolute, relative, resolve } from "node:path";
 import { defineExtension, hook, ToolTask } from "@earendil-works/pi-durable";
 import { config } from "./config.ts";
 import { requestApproval, surfaceForConversation } from "./channel.ts";
@@ -44,12 +44,64 @@ function outsideWorkspace(path: string): boolean {
   return rel.startsWith("..") || isAbsolute(rel);
 }
 
+/**
+ * The two-step install: nothing is piped, so `| sh` never matches — a file lands and then runs.
+ * Matching runs on basenames because a download to `i.sh` and `sh ./i.sh` are the same act, and
+ * on both sides of `&&`, `;` and newlines because the shell does not care which came first.
+ *
+ * `curl -O` and plain `wget` name the file after the URL, while `curl -o` / `wget -O` name it
+ * themselves; the two tools disagree about that letter, so each pattern stays with its tool.
+ */
+export function downloadThenRun(command: string): string | undefined {
+  const downloaded: string[] = [];
+  const push = (names: Iterable<string>): void => {
+    for (const name of names) if (name.length > 0 && name !== "." && name !== "/") downloaded.push(name);
+  };
+  const explicit = (pattern: RegExp): void => {
+    for (const match of command.matchAll(pattern)) {
+      const target = match[2];
+      if (target !== undefined) push([basename(target)]);
+    }
+  };
+  const fromUrls = (pattern: RegExp): void => {
+    for (const match of command.matchAll(pattern)) {
+      const path = (match[1] ?? "").split(/[?#]/)[0];
+      if (path !== undefined) push([basename(path)]);
+    }
+  };
+
+  explicit(/(?:curl|wget)\b[^\n]*?(?:--output[= ]\s*|--output-document[= ]\s*|-o\s+|-O\s+|>\s*)(["']?)([^\s"'|;&]+)\1/g);
+  // curl -O keeps the URL's basename; a bare wget does the same thing by default.
+  if (/(?:curl|wget)\b[^\n]*?(?:\s-O\b|--remote-name\b)/.test(command)) {
+    fromUrls(/(?:curl|wget)\b[^\n]*?(https?:\/\/[^\s"'|;&]+)/g);
+  }
+  if (/\bwget\b/.test(command) && !/\bwget\b[^\n]*?(?:-O\s+|--output-document[= ])/.test(command)) {
+    fromUrls(/\bwget\b[^\n]*?(https?:\/\/[^\s"'|;&]+)/g);
+  }
+  if (downloaded.length === 0) return undefined;
+
+  const executed: string[] = [];
+  for (const match of command.matchAll(/\b(?:(?:ba|z|k)?sh|source|\.)\s+([^\s|;&]+)/g)) {
+    const path = match[1];
+    if (path !== undefined) executed.push(basename(path));
+  }
+  for (const match of command.matchAll(/\bchmod\s+[^\n]*?\b([^\s|;&]+)\s*&&\s*([^\s|;&]+)/g)) {
+    const path = match[2];
+    if (path !== undefined) executed.push(basename(path));
+  }
+  const hit = executed.find((name) => downloaded.includes(name));
+  return hit === undefined ? undefined : `下载后直接执行（${hit}）：${command.slice(0, 120)}`;
+}
+
 export type ApprovalNeed = { reason: string; key: string };
 
 /** Returns why a call needs a human, or undefined when it may run unattended. */
 export function approvalReason(tool: string, args: Record<string, unknown>): ApprovalNeed | undefined {
   if (tool === "bash" && typeof args["command"] === "string") {
     const command = args["command"];
+    // Not in RISKY: this one needs the whole command line, not one pattern.
+    const twoStep = downloadThenRun(command);
+    if (twoStep !== undefined) return { reason: twoStep, key: "pipe-to-shell" };
     for (const risky of RISKY) {
       if (risky.pattern.test(command)) return { reason: `${risky.reason}：${command.slice(0, 120)}`, key: risky.key };
     }

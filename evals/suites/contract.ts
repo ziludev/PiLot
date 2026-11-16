@@ -138,6 +138,45 @@ export const contractSuite: Suite = {
       );
     }
 
+    // A quiet catch is often right (an audit line must not fail the call it describes) and often
+    // a bug report nobody filed. Counting them is the part that is free: a ratchet that only moves
+    // down means the next one has to be a decision, not a habit.
+    const quiet = await countQuietCatches();
+    const budgetPath = join(ROOT, "evals/budgets.json");
+    const budget = await readFile(budgetPath, "utf8")
+      .then((text) => (JSON.parse(text) as { quietCatch?: number }).quietCatch ?? 0)
+      .catch(() => 0);
+    results.push(
+      quiet > budget
+        ? {
+            id: "quiet-catch/budget",
+            status: "fail",
+            detail: `${quiet} silent catch blocks (\`catch(() => {})\`), budget ${budget}: log inside it, or a comment saying why it is safe`,
+          }
+        : quiet < budget
+          ? { id: "quiet-catch/ratchet", status: "warn", detail: `${quiet} silent catch blocks, budget ${budget}: lower evals/budgets.json` }
+          : { id: "quiet-catch/budget", status: "pass", detail: `${quiet} silent catch blocks, at budget` },
+    );
+
     return results;
   },
 };
+
+/** `catch(() => {})` and `catch(() => undefined)`: the two shapes that keep no evidence at all. */
+const QUIET_CATCH = /catch\(\s*\(\s*\)\s*=>\s*(?:\{\s*\}|undefined|null)\s*\)/g;
+
+async function countQuietCatches(): Promise<number> {
+  let total = 0;
+  const walk = async (dir: string): Promise<void> => {
+    const entries = await readdir(join(ROOT, dir), { recursive: true, withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      if (!/\.(ts|tsx)$/.test(entry.name)) continue;
+      const source = await readFile(join(entry.parentPath, entry.name), "utf8");
+      total += source.match(QUIET_CATCH)?.length ?? 0;
+    }
+  };
+  await walk("src");
+  await walk("client/src");
+  return total;
+}

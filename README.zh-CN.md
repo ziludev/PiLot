@@ -244,6 +244,7 @@ durable audit [n]       # 最近 n 条权限决定：谁、哪个会话、什么
 ./scripts/agentctl logs [n]
 ./scripts/agentctl doctor           # 本地自检（node/git、.env、DB、写者锁、进程数、端口、launchd 重启次数、worktree）
 ./scripts/agentctl backup|backups|restore <file>
+./scripts/agentctl rotate           # 立刻切分日志（5MB × 3，`LOG_MAX_BYTES` 可调）
 ./scripts/agentctl uninstall
 ```
 

@@ -5,7 +5,7 @@
 | suite | 检查什么 | 靠什么 |
 |---|---|---|
 | `guard` | 危险工具调用该不该拦、按哪个风险类记 | 真跑 `approvalReason()`（`src/approval.ts`），case 是数据 |
-| `contract` | `config.ts` 读的键 ↔ `.env.example` 允诺的键 ↔ README 写的命令 | 读文件、交叉比对 |
+| `contract` | `config.ts` 读的键 ↔ `.env.example` 允诺的键 ↔ README 写的命令；以及静默 `catch` 的预算 | 读文件、交叉比对 |
 
 ## 为什么是这两层
 
@@ -15,6 +15,8 @@
 2. **文档漂移**：代码读 `FEISHU_DONE_PING_SECONDS`，`.env.example` 里没有——这不是"文档不够好"，是没人能发现这个开关存在。
 
 模型在环那一层（同一批 prompt、同 persona、盲评、逃逸计数、多轮衰减）见最后的「下一步」。
+
+**静默 catch 的预算**（`contract/quiet-catch`）：`catch(() => {})` 和 `catch(() => undefined)` 一共多少处，写死在 `evals/budgets.json`。这个数字只能往下调 —— 新增一处就超预算、变红，作者必须在里面写日志或者在旁边写清楚为什么安全。大部分静默捕获是对的（审计写失败不能拖垮被记录的调用），所以不清零，只上棘轮：**下一个必须是决定，不是习惯**。数量自然降下来时，评测会提醒你把预算改小。
 
 ## 跑法
 

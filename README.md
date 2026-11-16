@@ -215,6 +215,7 @@ Conversation commands go through the local HTTP/WS bridge, so they work while la
 ./scripts/agentctl logs [n]
 ./scripts/agentctl doctor           # node/git, .env, DB, writer lock, process count, port, restarts, worktrees
 ./scripts/agentctl backup|backups|restore <file>
+./scripts/agentctl rotate           # trim the logs now (5 MB × 3, `LOG_MAX_BYTES` overrides)
 ```
 
 - The plist is a template (`launchd/*.plist.tmpl`) rendered at install time, so a different machine needs no edits.
