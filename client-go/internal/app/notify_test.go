@@ -2,7 +2,9 @@ package app
 
 import (
 	"testing"
+	"time"
 
+	"pitta/internal/notify"
 	"pitta/internal/protocol"
 )
 
@@ -42,5 +44,36 @@ func TestMaybeNotifyOnlyWhenHidden(t *testing.T) {
 	a.maybeNotify()
 	if a.notifiedID != "1" {
 		t.Fatalf("notified an empty answer: %q", a.notifiedID)
+	}
+}
+
+// TestNotificationCarriesItsChat checks the notification names the chat it
+// belongs to, so a click can open that chat rather than just the app.
+func TestNotificationCarriesItsChat(t *testing.T) {
+	saved := notify.Sender
+	defer func() { notify.Sender = saved }()
+	sent := make(chan string, 1)
+	notify.Sender = func(id, title, body string) error {
+		sent <- id
+		return nil
+	}
+	a := snapshotData(t)
+	a.focused = false
+	a.apply(func() {
+		a.current = 12
+		a.entries = []protocol.Entry{{ID: 900, Kind: "pi.assistant", Model: rawModel(map[string]any{
+			"role": "assistant", "content": "hello there",
+		})}}
+		a.notifiedID = ""
+	})
+	a.maybeNotify()
+	select {
+	case id := <-sent:
+		chatID, ok := notify.ChatFromID(id)
+		if !ok || chatID != 12 {
+			t.Fatalf("notification id %q names chat %d, %v", id, chatID, ok)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no notification was sent")
 	}
 }
