@@ -33,8 +33,8 @@ open "$HOME/Applications/Pitta.app"
 
 ## 图标
 
-`resources/icon.png`（1024×1024）是 `scripts/make-icon.py` 画出来的：rail 里那张琥珀色笑脸的同款。
-改配色后重跑 `python3 scripts/make-icon.py`，再由 `go tool mygo build` 打成 `AppIcon.icns`。
+`resources/icon.png`（1024×1024）由 `resources/pitta-logo-dark.svg` 渲染而来——就是 pitta-gpui 用的那套 logo（深色底 + 白色鸟形）。
+重跑 `./scripts/render-icon.sh` 刷新，`go tool mygo build` 会把它打成 `AppIcon.icns`。
 
 ## 目录
 
