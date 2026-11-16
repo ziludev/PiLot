@@ -244,3 +244,9 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 ### 2026-11 多窗口（第 29 轮）
 
 `⌘⇧N`（或侧栏会话的右键菜单「Open in new window」）把当前会话开到独立窗口。第二窗口与第一个共享 `*api.Client`，但有独立 transcript、面板与草稿；**审批轮询、Dock 角标、`~/.pitta/ui.json` 只由第一个窗口负责**（`App.secondary`），窗口关闭时 `win.OnClosed` 取消该窗口的 websocket（`App.cancel`），不会留下后台重连。
+
+### 2026-11 导出与菜单栏常驻（第 30 轮）
+
+- **File → Export chat…（⌘⇧E）**：把当前会话写成 Markdown——标题、每轮的问题、工具步骤、回答、引用注记，末尾一行 `cost $x · N tokens`；文件名是 `<标题> #<会话号>.md`，`/`、`:` 换成 `-`，走系统保存面板（`mygo.Dialog.Save`）。
+- **菜单栏图标**（`mygo.NewTray`）：点击回到窗口；菜单里有 Show window / New chat / Switch chat… / Toggle side panel / Quit；待批工具调用数会显示在图标标题旁（`tray.SetTitle`），窗口被挡住时也能看到。
+- Markdown 渲染仍是 `ui/markdown`，导出复用 `turns.GroupTurns` 的分组，所以文件里的顺序与界面一致。

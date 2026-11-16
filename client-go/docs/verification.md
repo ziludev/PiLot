@@ -125,3 +125,5 @@ $ go test ./internal/i18n -run TestEveryLiteralKeyExists -v
 | `TestProjectPanelAsksForADirectory` | 打开项目走目录面板并 POST `/api/projects` |
 | `TestSecondaryWindowKeepsTheOwnedState` | 第二窗口打开指定会话、共享客户端、不写 ui.json、不设角标 |
 | `TestRailOffersASecondWindow` | 会话菜单的开窗项把会话号交给 main 的窗口工厂 |
+| `TestExportWritesTheChatAsMarkdown` | 导出文件含标题/问题/回答/成本行 |
+| `TestExportNamesTheFileSafely` | 文件名不含路径分隔符，空标题回退 `chat #id.md` |
