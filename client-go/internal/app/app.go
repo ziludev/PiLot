@@ -390,7 +390,7 @@ func (a *App) Attach(win *mygo.Window) {
 }
 
 // railForWindow is the rail's starting width: 21% of the window, clamped to the
-// range react-resizable-panels allows.
+// range a draggable divider allows.
 func railForWindow(width float32) float32 {
 	rail := width * 0.21
 	if rail < 190 {

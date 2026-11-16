@@ -185,8 +185,8 @@ go tool mygo build -skip-dmg     # build/darwin-arm64/Pitta.app
 ```
 
 The window is drawn by mygo/ui from Go: no webview, no front-end build step. Screens, key
-bindings and the parity record with the React client this replaced are in
-[client-go/README.md](client-go/README.md) and [client-go/docs](client-go/docs); the React
+bindings and the parity record with the web client this replaced are in
+[client-go/README.md](client-go/README.md) and [client-go/docs](client-go/docs); the webview
 client it replaced was removed in this change, and `client-go/docs/history.md` says what it
 had that the Go one now covers.
 

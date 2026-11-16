@@ -89,7 +89,7 @@ func TestTextContrastsBackground(t *testing.T) {
 	}
 }
 
-// TestAccentIsPrimary checks that Apply wired the shadcn --primary (ink, not a
+// TestAccentIsPrimary checks that Apply wired --primary (ink, not a
 // hue) into the widget theme's accent, which is what a primary button uses.
 func TestAccentIsPrimary(t *testing.T) {
 	for _, dark := range []bool{false, true} {

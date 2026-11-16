@@ -1,7 +1,7 @@
 # Pitta（Go + mygo）
 
 pi-durable-agent 的桌面客户端，用 Go 和 [mygo](https://github.com/egoist/mygo) 的 `ui` 包原生渲染（GPU，Metal），不走 webview。渲染基于 `github.com/egoist/mygo` **v0.9.1**（`go.mod:5`；为什么不是 0.6.4 见 `docs/mygo-version.md`）。
-功能对齐基线是它替换掉的那个 React 客户端（已删除，逐条对照与差异记录在 [docs/history.md](docs/history.md)，原始对照表保留在 [docs/parity.md](docs/parity.md)）。
+功能对齐基线是它替换掉的那个 webview 客户端（已删除，覆盖核对与差异记录在 [docs/history.md](docs/history.md)，原始对照表保留在 [docs/parity.md](docs/parity.md)）。
 
 ## 构建与运行
 
@@ -46,7 +46,7 @@ internal/api            HTTP 客户端与 WS 订阅（自愈重连）
 internal/protocol       wire 类型（与后端 JSON 一一对应）
 internal/turns          回合切分、统计、live 阶段
 internal/diff           patch 解析与渲染
-internal/theme          shadcn zinc 配色、Geist 字体、每帧应用 ui.Theme
+internal/theme          zinc 配色 token、Geist 字体、每帧应用 ui.Theme
 internal/i18n           中英文案（183 键 + 3 个 attach*）
 internal/icons          lucide 图标
 internal/notify         回答完成通知（osascript）

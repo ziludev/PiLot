@@ -1,4 +1,4 @@
-// Package theme maps the earlier web client's shadcn zinc tokens
+// Package theme maps the earlier web client's zinc token set
 // (the old client/index.css) onto what mygo's ui package can color.
 package theme
 
@@ -25,10 +25,10 @@ type Tokens struct {
 	AccentFg ui.Color
 
 	// Warning is amber-500, the color the approval bar and running tasks use;
-	// shadcn has no token for it.
+	// that token set has no equivalent.
 	Warning ui.Color
 	// Selection is the highlight behind selected text, which mygo draws
-	// itself; shadcn leaves it to the browser, so these are mygo's own
+	// itself; a browser paints it, so these are mygo's own
 	// defaults, kept explicit so a theme change cannot make it invisible.
 	Selection   ui.Color
 	Destructive ui.Color
@@ -132,7 +132,7 @@ func Apply(c *ui.Context, t Tokens) {
 	base.Border = t.Border
 	base.Text = t.Foreground
 	base.TextMuted = t.MutedFg
-	// shadcn's --primary is ink, not a hue: buttons read as black on light.
+	// --primary there is ink, not a hue: buttons read as black on light.
 	base.Accent = t.Primary
 	base.AccentHover = t.Primary
 	base.AccentPressed = t.Primary
@@ -146,7 +146,7 @@ func Apply(c *ui.Context, t Tokens) {
 }
 
 // Hover is a color nudged ten percent toward its own text color, which is the
-// --primary/90 that shadcn paints on hover.
+// the --primary/90 hover mix.
 func Hover(base, text ui.Color) ui.Color {
 	return Composite(ui.RGBA(text.R, text.G, text.B, 26), base)
 }
