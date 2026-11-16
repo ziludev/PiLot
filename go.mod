@@ -4,6 +4,10 @@ go 1.27.3
 
 require (
 	github.com/coder/websocket v1.8.15
+	// The goal asked for v0.6.4; v0.9.1 is deliberate and explained in
+	// docs/mygo-version.md: 0.6.4 commits the in-progress IME composition
+	// before it handles Enter, so a half-typed pinyin leaked into the sent
+	// message. Nothing else in the app needs a post-0.6.4 API.
 	github.com/egoist/mygo v0.9.1
 )
 
