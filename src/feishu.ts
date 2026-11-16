@@ -143,6 +143,101 @@ function detailPanel(details: Omit<TurnDetails, "at">): Record<string, unknown> 
   };
 }
 
+/** A markdown table, as a card needs it: Feishu's markdown has no table syntax, so a table in an
+ *  answer turns into a wall of pipes unless it becomes a real `table` element. */
+export type TableBlock = { columns: string[]; rows: string[][] };
+
+// `|---|:---:|---:|` — the row that turns the line above it into a header.
+const TABLE_RULE = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+
+function cells(line: string): string[] {
+  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  // A `\|` inside a cell is the author escaping a pipe, not a column break.
+  return trimmed.split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/\\\|/g, "|"));
+}
+
+/** Splits markdown into text chunks and tables, in order. Text keeps its own newlines. */
+export function splitTables(markdown: string): Array<string | TableBlock> {
+  const lines = markdown.split("\n");
+  const parts: Array<string | TableBlock> = [];
+  let text: string[] = [];
+  const flush = (): void => {
+    if (text.length > 0) parts.push(text.join("\n"));
+    text = [];
+  };
+  for (let index = 0; index < lines.length; index += 1) {
+    const header = lines[index] ?? "";
+    const rule = lines[index + 1] ?? "";
+    if (!header.includes("|") || !TABLE_RULE.test(rule)) {
+      text.push(header);
+      continue;
+    }
+    const columns = cells(header);
+    const rows: string[][] = [];
+    index += 2;
+    for (; index < lines.length; index += 1) {
+      const row = lines[index] ?? "";
+      if (!row.includes("|")) {
+        index -= 1;
+        break;
+      }
+      // Pad short rows, drop extra cells: the table element needs every column filled.
+      rows.push(Array.from({ length: columns.length }, (_, at) => cells(row)[at] ?? ""));
+    }
+    flush();
+    parts.push({ columns, rows });
+  }
+  flush();
+  return parts;
+}
+
+/** Feishu's card markdown draws `backticks` literally, so inline code loses the ticks rather than
+ *  showing them. Fenced blocks are left alone: those do render. */
+export function stripInlineCode(markdown: string): string {
+  let fenced = false;
+  return markdown
+    .split("\n")
+    .map((line) => {
+      if (line.trim().startsWith("```")) {
+        fenced = !fenced;
+        return line;
+      }
+      return fenced ? line : line.replace(/`([^`\n]+)`/g, "$1");
+    })
+    .join("\n");
+}
+
+function tableElement(block: TableBlock): Record<string, unknown> {
+  return {
+    tag: "table",
+    page_size: 10,
+    row_height: "low",
+    header_style: { text_align: "left", text_size: "normal", background_style: "grey", bold: true, lines: 1 },
+    columns: block.columns.map((name, index) => ({
+      name: `col_${index}`,
+      display_name: name.length > 0 ? name : " ",
+      data_type: "text",
+      width: "auto",
+      horizontal_align: "left",
+    })),
+    rows: block.rows.map((row) => Object.fromEntries(block.columns.map((_, index) => [`col_${index}`, row[index] ?? ""]))),
+  };
+}
+
+/** The body of a card: prose as markdown, tables as tables. */
+function bodyElements(markdown: string): Array<Record<string, unknown>> {
+  const elements: Array<Record<string, unknown>> = [];
+  for (const part of splitTables(markdown)) {
+    if (typeof part === "string") {
+      const content = part.trim();
+      if (content.length > 0) elements.push({ tag: "markdown", content });
+    } else {
+      elements.push(tableElement(part));
+    }
+  }
+  return elements.length > 0 ? elements : [{ tag: "markdown", content: markdown }];
+}
+
 function card(
   markdown: string,
   meta?: string,
@@ -150,7 +245,7 @@ function card(
   header?: CardHeader,
   details?: Omit<TurnDetails, "at">,
 ): Record<string, unknown> {
-  const elements: Array<Record<string, unknown>> = [{ tag: "markdown", content: markdown }];
+  const elements: Array<Record<string, unknown>> = bodyElements(stripInlineCode(markdown));
   if (details !== undefined && details.steps.length > 0) {
     elements.push(detailPanel(details));
   }
