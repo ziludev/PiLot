@@ -325,3 +325,28 @@ func TestRailRowLiftsUnderThePointer(t *testing.T) {
 		t.Fatalf("hovered row y = %v, at rest %v: it did not lift", hovered.Y, rest)
 	}
 }
+
+// TestSnapshotTurn records one turn with tool steps, so the rounded timeline
+// rail and the answer block can be compared between themes.
+func TestSnapshotTurn(t *testing.T) {
+	a := snapshotData(t)
+	a.entries = turnEntries(4242, "why is the sky blue", "Rayleigh scattering favours short wavelengths.")
+	a.waits = nil
+	a.approvals = nil
+	a.live = nil
+	for _, dark := range []bool{false, true} {
+		tt := ui.NewTester(a.View, 1180, 720)
+		tt.SetDark(dark)
+		tt.Frame()
+		tt.Frame()
+		name := "turn-light"
+		if dark {
+			name = "turn-dark"
+		}
+		path := filepath.Join(snapshotDir(), name+".png")
+		writePNG(t, path, tt.Image())
+		if stat, err := os.Stat(path); err != nil || stat.Size() < 4000 {
+			t.Fatalf("%s: %v (%v bytes)", name, err, stat)
+		}
+	}
+}
