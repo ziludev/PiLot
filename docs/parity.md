@@ -97,7 +97,8 @@
 12. **飞书健康横幅**：已按 `Rail.tsx:426-435` 绘制（`ready=false && downMs>60000` 时画红条 + `PlugZap` + "飞书连接断开 Nm"），差别只在 React 的 hover 提示（`lastError`）没有 tooltip 承载，文案直接显示在条内。
 13. **新消息跳转是一条窄条而不是浮层**：`Transcript.tsx:331` 把「↓ N 条新消息」浮在列表右下角，mygo 没有绝对定位，所以画在 transcript 与 composer 之间的一条右对齐窄条（滚动离开末尾才出现，点击 `ScrollTo(0, MaxFloat32)`）；空会话用 `noConversation` 文案代替空白。
 14. **右栏拖宽用 `ui.Split`**：React 是 `PanelGroup + PanelResizeHandle`（比例伸缩），这里是 `Split` 定宽第一格（main），面板宽度取余量并写回 `prefs.SideWidth`；双击分隔条复位到 760 DIP。
-15. **日志入口**：React rail 底部有 open-logs 按钮，这里同样接了「日志」（`bridge.OpenLogs()` 用 Finder 打开 `<home>/logs`），行为一致。
+15. **真窗口记录**：新增 `docs/manual-checks/62-jump-bar.png`（真实窗口里「5 条新消息」跳转条出现，因为视图停在历史位置）。
+16. **日志入口**：React rail 底部有 open-logs 按钮，这里同样接了「日志」（`bridge.OpenLogs()` 用 Finder 打开 `<home>/logs`），行为一致。
 
 rail 的外观（头像、状态行、搜索命中）见 `docs/snapshots/rail-{light,dark}.png`，由 `TestSnapshotRail` 生成，可重跑。
 
