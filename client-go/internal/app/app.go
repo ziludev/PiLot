@@ -138,6 +138,7 @@ type App struct {
 	mergeOpen        bool
 	mainPane         float32
 	transcriptScroll ui.ScrollState
+	scrollViewH      float32
 	atBottom         bool
 	stickToBottom    bool
 	scrollY          float32
@@ -506,7 +507,7 @@ func (a *App) loadState(ctx context.Context) error {
 		a.feishu = st.Feishu
 	})
 	// The menu bar shows what is running, so the trays do not go stale.
-	a.publishRunning()
+	a.publishTray()
 	return nil
 }
 
@@ -770,6 +771,8 @@ func (a *App) View(c *ui.Context) {
 	c.OnWindowShortcut(ui.Cmd, ui.KeyN, func() {
 		a.apply(func() { a.newConversation() })
 	})
+	c.OnWindowShortcut(ui.Cmd, ui.KeyUp, func() { a.scrollPage(-1) })
+	c.OnWindowShortcut(ui.Cmd, ui.KeyDown, func() { a.scrollPage(1) })
 	c.OnWindowShortcut(ui.Cmd, ui.KeySlash, func() {
 		a.apply(func() { a.shortcutsOpen = true; a.invalidate() })
 	})

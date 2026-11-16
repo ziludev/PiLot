@@ -136,3 +136,5 @@ $ go test ./internal/i18n -run TestEveryLiteralKeyExists -v
 | `TestAnswerWhileHiddenDots` | 隐藏时收到回答算新消息，同一帧不重复计数 |
 | `TestCmdSlashListsTheKeys` | `⌘/` 打开快捷键面板并列出 ⌘K/⌘⇧N/⌘⇧Space |
 | `TestStartupReopensTheLastChat` | 启动回到上次会话；已归档/不存在的会话不恢复（真机：重启后 `logs/agent.log` 仍 attach `conversationId=37035`） |
+| `TestTrayApprovalsNameTheirChat` | 托盘审批行携带所属会话；未列出的 surface 返回 0 |
+| `TestCmdArrowsPageTheTranscript` | ⌘↑ 翻离最新一轮、⌘↓ 翻回来（真机跟随末尾时 Y=MaxFloat32 的处理） |

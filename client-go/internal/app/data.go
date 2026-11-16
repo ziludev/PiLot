@@ -97,6 +97,7 @@ func (a *App) loadApprovals(ctx context.Context) error {
 		a.syncBadge()
 		a.invalidate()
 	})
+	a.publishTray()
 	return nil
 }
 

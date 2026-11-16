@@ -51,6 +51,9 @@ func (a *App) transcript(c *ui.Context) {
 	}
 	scroll := ui.Scroll(c).Fill().TrackScroll(&a.transcriptScroll)
 	a.followScroll()
+	if bounds := scroll.Bounds(); bounds.H > 0 {
+		a.scrollViewH = bounds.H
+	}
 	scroll.Children(func() {
 		ui.Column(c).Fill().Padding(16, 20).Gap(8).Children(func() {
 			if len(built) == 0 {
