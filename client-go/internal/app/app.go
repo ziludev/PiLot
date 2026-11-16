@@ -177,6 +177,10 @@ type App struct {
 	modelsFav    []string
 	modelsRecent []string
 	modelQuery   string
+	// modelCollapsed remembers which provider groups the palette folded.
+	modelCollapsed map[string]bool
+	// modelList draws the palette rows, which mix headings and models.
+	modelList    ui.ListState
 	modelOpen    bool
 	stepOpen     map[int]bool
 	patchView    diff.View

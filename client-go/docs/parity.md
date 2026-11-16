@@ -204,3 +204,9 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 ### 7.4 记录的落点
 
 真窗口那一轮的操作、截图与逐项结论写在 `docs/manual-checks/results.txt`（截图同目录 `51-paste.png` … `55-cleared.png`）。要重做一次，跑 `scripts/manual-check.sh`，它按同样的步骤提示操作并逐步截图。
+
+### 2026-11 模型选择器（第 25 轮）
+
+`internal/app/modelpicker.go` 现在是 ModelPicker.tsx 的形状：触发器是 `M` 徽章 + 模型名 + 四格思考档条 + 档位文字 + 钥匙图标 + 折叠箭头；面板按 provider 分组（当前会话的 provider 默认展开，其余折叠，点组头折叠/展开，组头带钥匙图标与计数），组内收藏置顶，底部是 `Effort · 模型` + 档位与 `Set as default`/`Refresh`。
+
+代码高亮：React 的 `src/lib/markdown.tsx` 是自写的小子集渲染器（围栏代码只是等宽 `<pre>`，无 token 着色，无列表/表格/链接），Go 端用 mygo 的 `ui/markdown`，围栏块带语法着色、语言标签、Copy 按钮，另有表格、列表、引用、链接。这一项我们**多于**原版，不是缺失。

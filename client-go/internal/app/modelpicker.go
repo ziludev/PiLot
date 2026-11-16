@@ -90,7 +90,9 @@ func (a *App) modelPicker(c *ui.Context) {
 			ui.Text(c, "M").FontSize(9).TextColor(t.MutedFg)
 		})
 		ui.Text(c, a.modelLabel()).FontSize(11).TextColor(t.MutedFg).MaxLines(1)
+		a.levelBars(c, t, a.modelLevels(), a.thinkingLevel())
 		ui.Text(c, levelLabel(a.thinkingLevel())).FontSize(11).TextColor(t.MutedFg)
+		ui.Icon(c, icons.KeyRound).Size(12, 12).TextColor(t.MutedFg)
 		ui.Icon(c, icons.ChevronDown).Size(12, 12).TextColor(t.MutedFg)
 	})
 	trigger.OnClick(func() {
@@ -105,7 +107,6 @@ func (a *App) modelPicker(c *ui.Context) {
 	})
 }
 
-
 // modelPalette is the command palette of ModelPicker.tsx: a search field, the
 // models ordered favourites-first, and the thinking levels of the chosen one.
 func (a *App) modelPalette(c *ui.Context) {
@@ -116,37 +117,228 @@ func (a *App) modelPalette(c *ui.Context) {
 			Placeholder(i18n.T("searchModel")).Label(i18n.T("searchModel")).
 			OnTextKey(func(k ui.TextKey) bool { return a.modelKey(c, k) }).
 			OnSubmit(func() { a.pickModel() })
-		ui.Scroll(c).Height(200).Children(func() {
-			ui.Column(c).FillWidth().Gap(2).Children(func() {
-				models := a.visibleModels()
-				for i, entry := range models {
-					a.modelRowAt(c, t, entry, i == a.modelCursor)
+		sections := a.modelSections()
+		rows := paletteRows(sections)
+		ui.Column(c).FillWidth().Height(paletteHeight(len(rows))).Children(func() {
+			ui.List(c, &a.modelList, len(rows), func(i int) {
+				row := rows[i]
+				if !row.isEntry {
+					a.modelSectionHeader(c, t, row.section)
+					return
 				}
-			})
+				a.modelRowAt(c, t, row.entry, row.model == a.modelCursor)
+			}).Fill()
 		})
 		a.thinkingRow(c, t)
+		a.modelFooter(c, t)
 	})
 }
 
-// visibleModels is the list the picker draws: favourites first, then recents,
-// then the rest by provider, all narrowed by the query.
+// visibleModels is the list the picker draws, flattened for the arrow keys.
 func (a *App) visibleModels() []protocol.ModelEntry {
-	query := strings.ToLower(strings.TrimSpace(a.modelQuery))
-	rank := func(entry protocol.ModelEntry) int {
-		key := modelKey(protocol.ModelRef{Provider: entry.Provider, ModelID: entry.ID})
-		for _, fav := range a.modelsFav {
-			if fav == key {
-				return 0
-			}
+	var all []protocol.ModelEntry
+	for _, section := range a.modelSections() {
+		if section.Collapsed {
+			continue
 		}
-		for index, recent := range a.modelsRecent {
-			if recent == key {
-				return 1 + index
-			}
-		}
-		return 1000
+		all = append(all, section.Entries...)
 	}
-	var matched []protocol.ModelEntry
+	return all
+}
+
+// paletteHeight keeps the list as tall as its rows need, up to a cap, instead
+// of leaving a window-sized hole under two providers.
+func paletteHeight(rows int) float32 {
+	height := float32(rows) * 26
+	if height > 240 {
+		return 240
+	}
+	if height < 60 {
+		return 60
+	}
+	return height
+}
+
+// modelSection is one heading of the palette: the recents at the top or a
+// provider's group, as ModelPicker.tsx groups them.
+type modelSection struct {
+	Title     string
+	Provider  string
+	Entries   []protocol.ModelEntry
+	Collapsed bool
+}
+
+// paletteRow is one line of the palette: a heading or a model, so ui.List can
+// draw both with stable keys.
+type paletteRow struct {
+	section *modelSection
+	entry   protocol.ModelEntry
+	isEntry bool
+	model   int
+}
+
+// paletteRows flattens the sections, numbering the models so the arrow keys and
+// the highlight agree.
+func paletteRows(sections []modelSection) []paletteRow {
+	rows := make([]paletteRow, 0, 16)
+	index := 0
+	for i := range sections {
+		section := &sections[i]
+		rows = append(rows, paletteRow{section: section})
+		if section.Collapsed {
+			continue
+		}
+		for _, entry := range section.Entries {
+			rows = append(rows, paletteRow{entry: entry, isEntry: true, model: index})
+			index++
+		}
+	}
+	return rows
+}
+
+// modelSections is the palette in drawing order: the recents first while no
+// query narrows it, then one group per provider with the chat's own on top.
+func (a *App) modelSections() []modelSection {
+	matched := a.matchedModels()
+	byKey := make(map[string]protocol.ModelEntry, len(a.models))
+	for _, entry := range a.models {
+		byKey[modelKey(protocol.ModelRef{Provider: entry.Provider, ModelID: entry.ID})] = entry
+	}
+	var sections []modelSection
+	if strings.TrimSpace(a.modelQuery) == "" && len(a.modelsRecent) > 0 {
+		recents := make([]protocol.ModelEntry, 0, len(a.modelsRecent))
+		for _, key := range a.modelsRecent {
+			if entry, ok := byKey[key]; ok && containsModel(matched, entry) {
+				recents = append(recents, entry)
+			}
+		}
+		if len(recents) > 0 {
+			sections = append(sections, modelSection{Title: i18n.T("recent"), Entries: recents})
+		}
+	}
+	current := ""
+	if a.model != nil {
+		current = a.model.Provider
+	}
+	providers := make([]string, 0, 8)
+	grouped := map[string][]protocol.ModelEntry{}
+	for _, entry := range matched {
+		if _, seen := grouped[entry.Provider]; !seen {
+			providers = append(providers, entry.Provider)
+		}
+		grouped[entry.Provider] = append(grouped[entry.Provider], entry)
+	}
+	sort.SliceStable(providers, func(i, j int) bool {
+		if providers[i] == current {
+			return true
+		}
+		if providers[j] == current {
+			return false
+		}
+		return providers[i] < providers[j]
+	})
+	for _, provider := range providers {
+		entries := grouped[provider]
+		// Favourites float to the top inside their group.
+		sort.SliceStable(entries, func(i, j int) bool {
+			return a.favoriteRank(entries[i]) < a.favoriteRank(entries[j])
+		})
+		// Only the chat's own provider opens by default; with no model yet every
+		// group stays open, so the palette never opens empty. A group the reader
+		// folded or unfolded keeps that choice.
+		collapsed := current != "" && provider != current
+		if folded, ok := a.modelCollapsed[provider]; ok {
+			collapsed = folded
+		}
+		sections = append(sections, modelSection{
+			Title: provider, Provider: provider, Entries: entries, Collapsed: collapsed,
+		})
+	}
+	return sections
+}
+
+// modelSectionHeader draws one heading: its fold arrow, the provider's key, its
+// name and how many models it holds.
+func (a *App) modelSectionHeader(c *ui.Context, t theme.Tokens, section *modelSection) {
+	header := ui.Row(c).FillWidth().Height(18).Gap(5).Padding(0, 4).AlignItems(ui.Center)
+	header.Children(func() {
+		if section.Provider == "" {
+			ui.Text(c, strings.ToUpper(section.Title)).FontSize(9).TextColor(t.MutedFg).SingleLine()
+			return
+		}
+		if section.Collapsed {
+			ui.Icon(c, icons.ChevronRight).Size(11, 11).TextColor(t.MutedFg)
+		} else {
+			ui.Icon(c, icons.ChevronDown).Size(11, 11).TextColor(t.MutedFg)
+		}
+		ui.Icon(c, icons.KeyRound).Size(11, 11).TextColor(t.MutedFg)
+		ui.Text(c, section.Title).FontSize(11).TextColor(t.Foreground).SingleLine()
+		ui.Text(c, strconv.Itoa(len(section.Entries))).FontSize(9).TextColor(t.MutedFg).SingleLine().Width(20)
+	})
+	if section.Provider == "" {
+		return
+	}
+	provider, folded := section.Provider, section.Collapsed
+	header.OnClick(func() {
+		a.apply(func() {
+			if a.modelCollapsed == nil {
+				a.modelCollapsed = map[string]bool{}
+			}
+			a.modelCollapsed[provider] = !folded
+			a.invalidate()
+		})
+	})
+}
+
+// modelFooter is the palette's bottom bar: the effort in use, then the two
+// actions ModelPicker.tsx offers, setting the default and refreshing the list.
+func (a *App) modelFooter(c *ui.Context, t theme.Tokens) {
+	ui.Divider(c).Background(t.Border)
+	ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
+		ui.Text(c, i18n.T("effort")+" · "+a.modelLabel()).FontSize(10).TextColor(t.MutedFg).SingleLine()
+		ui.Row(c).Gap(3).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, icons.Sparkles).Size(10, 10).TextColor(t.Warning)
+			ui.Text(c, levelLabel(a.thinkingLevel())).FontSize(10).TextColor(t.Warning).SingleLine()
+		})
+	})
+	ui.Row(c).FillWidth().Gap(6).Children(func() {
+		ui.Button(c, i18n.T("setDefault")).FontSize(10).Padding(3, 8).
+			OnClick(func() { a.setDefaultModel() })
+		ui.Button(c, "").FontSize(10).Padding(3, 7).Label(i18n.T("refresh")).Children(func() {
+			ui.Icon(c, icons.RefreshCw).Size(10, 10).TextColor(t.MutedFg)
+		}).OnClick(func() {
+			a.goLoad(func() error {
+				if err := a.loadModels(context.Background()); err != nil {
+					return err
+				}
+				a.apply(func() { a.notice = i18n.T("refreshed") })
+				return nil
+			})
+		})
+	})
+}
+
+// setDefaultModel makes the current choice the default for new chats.
+func (a *App) setDefaultModel() {
+	if a.model == nil {
+		return
+	}
+	choice := api.ModelChoice{
+		Provider: a.model.Provider, ModelID: a.model.ModelID, ThinkingLevel: a.thinkingLevel(),
+	}
+	a.goLoad(func() error {
+		if err := a.api.SetDefaultModel(context.Background(), choice); err != nil {
+			return err
+		}
+		a.apply(func() { a.notice = i18n.T("defaultSet") })
+		return nil
+	})
+}
+
+// matchedModels is every model the query lets through, by name.
+func (a *App) matchedModels() []protocol.ModelEntry {
+	query := strings.ToLower(strings.TrimSpace(a.modelQuery))
+	matched := make([]protocol.ModelEntry, 0, len(a.models))
 	for _, entry := range a.models {
 		if query != "" {
 			haystack := strings.ToLower(entry.Name + " " + entry.Provider + " " + entry.ID)
@@ -156,14 +348,52 @@ func (a *App) visibleModels() []protocol.ModelEntry {
 		}
 		matched = append(matched, entry)
 	}
-	sort.SliceStable(matched, func(i, j int) bool {
-		ri, rj := rank(matched[i]), rank(matched[j])
-		if ri != rj {
-			return ri < rj
-		}
-		return matched[i].Name < matched[j].Name
-	})
+	sort.SliceStable(matched, func(i, j int) bool { return matched[i].Name < matched[j].Name })
 	return matched
+}
+
+// containsModel reports whether the slice holds this provider and id.
+func containsModel(entries []protocol.ModelEntry, want protocol.ModelEntry) bool {
+	for _, entry := range entries {
+		if entry.Provider == want.Provider && entry.ID == want.ID {
+			return true
+		}
+	}
+	return false
+}
+
+// favoriteRank orders a group's rows: favourites first, then by name.
+func (a *App) favoriteRank(entry protocol.ModelEntry) int {
+	key := modelKey(protocol.ModelRef{Provider: entry.Provider, ModelID: entry.ID})
+	for _, fav := range a.modelsFav {
+		if fav == key {
+			return 0
+		}
+	}
+	return 1
+}
+
+// levelBars is the four-step meter ModelPicker.tsx shows beside a model: the
+// bars up to the current level light up.
+func (a *App) levelBars(c *ui.Context, t theme.Tokens, levels []string, value string) {
+	index := 0
+	for i, level := range levels {
+		if level == value {
+			index = i
+			break
+		}
+	}
+	ui.Row(c).Gap(2).Height(10).AlignItems(ui.End).Children(func() {
+		for bar := 0; bar < 4; bar++ {
+			height := float32(4 + bar*2)
+			filled := index >= bar && index > 0
+			color := t.MutedFg.Alpha(0.4)
+			if filled {
+				color = ui.RGB(52, 211, 153)
+			}
+			ui.Row(c).Width(2).Height(height).Radius(1).Background(color)
+		}
+	})
 }
 
 // modelRow is one entry: initial, name, provider, price, context and star.
