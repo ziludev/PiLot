@@ -68,7 +68,7 @@ type CardAction = {
   context?: { open_message_id?: string; open_chat_id?: string };
 };
 
-const MAX_CARD_CHARS = 9_000;
+export const MAX_CARD_CHARS = 9_000;
 const HELP = [
   "**命令**",
   "- `/new` 换新上下文（历史不删，记忆保留）",
@@ -121,7 +121,9 @@ function standaloneHeader(reason: string | undefined): CardHeader {
 function detailPanel(details: Omit<TurnDetails, "at">): Record<string, unknown> {
   const lines = details.steps.map((step, index) => {
     const mark = step.ok ? "✅" : "⚠️";
-    return `${index + 1}. ${mark} **${step.name}**\n${step.preview.length > 0 ? `　${step.preview}` : "　（无输出）"}`;
+    // A tool's output is whatever the tool printed: aligned columns and pipes included, which the
+    // card markdown would flatten. The panel body goes through the same element conversion.
+    return `${index + 1}. ${mark} **${step.name}**\n\n${step.preview.length > 0 ? step.preview : "（无输出）"}`;
   });
   const summary = `${details.steps.length} 步 · ${details.seconds}s${
     details.costUsd > 0.00005 ? ` · $${details.costUsd.toFixed(4)}` : ""
@@ -139,7 +141,7 @@ function detailPanel(details: Omit<TurnDetails, "at">): Record<string, unknown> 
     border: { color: "grey", corner_radius: "5px" },
     vertical_spacing: "8px",
     padding: "8px 8px 8px 8px",
-    elements: [{ tag: "markdown", content: lines.join("\n\n") }],
+    elements: bodyElements(lines.join("\n\n")),
   };
 }
 
@@ -224,13 +226,40 @@ function tableElement(block: TableBlock): Record<string, unknown> {
   };
 }
 
-/** The body of a card: prose as markdown, tables as tables. */
-function bodyElements(markdown: string): Array<Record<string, unknown>> {
+// `---`, `***` and `___` on their own line: the card markdown has no rule either, so the line
+// would arrive as three dashes.
+const RULE_LINE = /^\s{0,3}([-*_])\s*(\1\s*){2,}$/;
+// `## Title` — headings are not markdown to Feishu; a bold line reads the same at this size.
+const HEADING_LINE = /^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$/;
+
+/** One text chunk, split on rules, with headings turned into bold lines. */
+function textBlockElements(chunk: string): Array<Record<string, unknown>> {
+  const elements: Array<Record<string, unknown>> = [];
+  let lines: string[] = [];
+  const flush = (): void => {
+    const content = lines.join("\n").trim();
+    lines = [];
+    if (content.length > 0) elements.push({ tag: "markdown", content });
+  };
+  for (const line of chunk.split("\n")) {
+    if (RULE_LINE.test(line)) {
+      flush();
+      elements.push({ tag: "hr" });
+      continue;
+    }
+    const heading = HEADING_LINE.exec(line);
+    lines.push(heading === null ? line : `**${heading[1] ?? ""}**`);
+  }
+  flush();
+  return elements;
+}
+
+/** The body of a card: prose as markdown, tables as tables, rules as rules. */
+export function bodyElements(markdown: string): Array<Record<string, unknown>> {
   const elements: Array<Record<string, unknown>> = [];
   for (const part of splitTables(markdown)) {
     if (typeof part === "string") {
-      const content = part.trim();
-      if (content.length > 0) elements.push({ tag: "markdown", content });
+      elements.push(...textBlockElements(part));
     } else {
       elements.push(tableElement(part));
     }
@@ -275,7 +304,9 @@ function card(
 function renderDetails(details: TurnDetails): string {
   const lines = details.steps.map((step, index) => {
     const mark = step.ok ? "✅" : "⚠️";
-    return `${index + 1}. ${mark} **${step.name}**\n${step.preview.length > 0 ? `　${step.preview}` : "　（无输出）"}`;
+    // A tool's output is whatever the tool printed: aligned columns and pipes included, which the
+    // card markdown would flatten. The panel body goes through the same element conversion.
+    return `${index + 1}. ${mark} **${step.name}**\n\n${step.preview.length > 0 ? step.preview : "（无输出）"}`;
   });
   const header = `本轮用了 **${details.steps.length}** 个工具，耗时 **${details.seconds}s**${
     details.costUsd > 0.00005 ? `，花费 **$${details.costUsd.toFixed(4)}**` : ""
@@ -341,8 +372,12 @@ function duration(ms: number): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-function clip(text: string): string {
-  return text.length <= MAX_CARD_CHARS ? text : `${text.slice(0, MAX_CARD_CHARS)}\n\n…（已截断）`;
+export function clip(text: string): string {
+  if (text.length <= MAX_CARD_CHARS) return text;
+  const cut = text.slice(0, MAX_CARD_CHARS);
+  // An unclosed fence would swallow the rest of the card as code.
+  const fences = cut.split("\n").filter((line) => line.trim().startsWith("```")).length;
+  return `${cut}${fences % 2 === 1 ? "\n```" : ""}\n\n…（已截断）`;
 }
 
 /**
@@ -391,7 +426,7 @@ export function renderLive(live: LiveSnapshot, trace?: CardTrace): string {
   } else {
     inner = "🤔 思考中…";
   }
-  return trace === undefined || trace.digest.length === 0 ? inner : `> ${trace.digest}\n\n${inner}`;
+  return trace === undefined || trace.digest.length === 0 ? inner : `▸ ${trace.digest}\n\n${inner}`;
 }
 
 type PostElement = { tag?: string; text?: string; image_key?: string };
@@ -826,6 +861,18 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     });
   }
 
+  /** A card when there is no message to reply to — text would show `**bold**` and `|` as they are. */
+  async function sendMarkdown(chatId: string, markdown: string, meta?: string, header?: CardHeader): Promise<void> {
+    await client.im.message.create({
+      params: { receive_id_type: "chat_id" },
+      data: {
+        receive_id: chatId,
+        msg_type: "interactive",
+        content: JSON.stringify(card(markdown, meta, undefined, header)),
+      },
+    });
+  }
+
   /**
    * A message for a turn that may be over: reply to what was asked, inside its topic when it had one.
    * Posting to the chat instead put a recovered answer outside the topic, and as a second copy of an
@@ -842,7 +889,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     header?: CardHeader,
   ): Promise<void> {
     if (messageId === undefined) {
-      await sendText(chatId, markdown);
+      await sendMarkdown(chatId, markdown, meta, header);
       return;
     }
     await client.im.message.reply({
@@ -919,10 +966,13 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       logError("feishu", "final card patch failed, falling back to text", error);
     }
     try {
-      await sendText(chatId, markdown);
-      log("feishu", "answer sent as plain text fallback");
+      await sendMarkdown(chatId, markdown, meta, header);
+      log("feishu", "answer sent as its own card after a failed patch");
     } catch (error) {
-      logError("feishu", "plain text fallback failed", error);
+      logError("feishu", "card fallback failed, sending text", error);
+      await sendText(chatId, stripInlineCode(markdown)).catch((inner: unknown) =>
+        logError("feishu", "plain text fallback failed", inner),
+      );
     }
   }
 
