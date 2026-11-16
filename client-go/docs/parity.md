@@ -77,8 +77,8 @@
 | `turn-state.ts` | 单回合 live 阶段 | `turns.State`/`Status` | done |
 | `diff.tsx` | patch 解析与渲染 | `internal/diff`（diff.go 解析 + render.go 渲染） | done |
 | `markdown.tsx` | Markdown 渲染 | `ui/markdown`（mygo 自带，View/Stream） | done |
-| `i18n.ts` | 中英文案 | `internal/i18n`（183 键逐字抽取） | done |
-| `motion.ts` | 入场/脉冲动画 | 未实现：mygo 帧循环无过渡 API | n/a |
+| `i18n.ts` | 中英文案 | `internal/i18n`（186 键逐字抽取，键集与 `i18n.ts` 严格一致） | done |
+| `motion.ts` | 入场/脉冲动画 | `internal/motion`（`Transition` + `AnimateTo` 曲线与时长） | diff：颜色/弹簧插值降级，见 `docs/ui-motion-todo.md` |
 | `avatar.ts` | 头像的 PIE 几何、mood 与配色 | `internal/avatar`（`Mood`/`Tones`） | done |
 
 ### 2026-11 视觉对齐
@@ -268,3 +268,4 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 - **托盘列审批**：`SetTrayHook` 现在收到 `TrayState{Running, Approvals}`，菜单在运行中会话之前先列出待批调用（`⚠ bash — rm -rf`），点击 `win.Show()` 并切到该 surface 所属会话；`publishTray` 由 `loadState` 与 `loadApprovals` 两处触发。
 - **`⌘↑`/`⌘↓` 翻页**：按视口高度的 85% 滚动；注意跟随末尾时 `transcriptScroll.Y` 停在 `MaxFloat32`，必须以 `scrollMaxY` 为起点计算，且要把 `stickToBottom` 一并关掉，否则下一帧会弹回底部。
 - 快捷键面板同步（10 条）。
+- §3 的两行过时描述已修：`motion.ts` 早已由 `internal/motion` 承接（不再是「未实现」），i18n 键数 183 → 186。
