@@ -20,6 +20,12 @@ type prefs struct {
 	SideWidth     float32  `json:"sideWidth,omitempty"`
 	Favorites     []string `json:"favorites,omitempty"` // model keys, provider/id
 	Recents       []string `json:"recents,omitempty"`
+	// Unread holds the chats whose answers arrived while nobody was looking;
+	// the rail dots them until they are opened.
+	Unread []int `json:"unread,omitempty"`
+	// LastChat is the chat that was open when the app last quit, so a restart
+	// lands where the reader left off instead of at the newest chat.
+	LastChat int `json:"lastChat,omitempty"`
 }
 
 // prefsPath is ~/.pitta/ui.json, next to the app's own state.

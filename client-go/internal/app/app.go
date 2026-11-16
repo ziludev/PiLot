@@ -149,8 +149,13 @@ type App struct {
 	changesLoading   bool
 	pushNote         string
 
-	menu     chatMenu
-	findOpen bool
+	menu          chatMenu
+	findOpen      bool
+	shortcutsOpen bool
+
+	// unread dots the chats whose answers arrived while the window was behind
+	// another app, or while they were not the open one.
+	unread map[int]bool
 
 	// focused is false while the window is behind another one; nothing is
 	// notified while the reader is looking at the answer.
@@ -274,6 +279,7 @@ func New(cfg Config) *App {
 		commitDiffs:  map[string]string{},
 		modelsFav:    p.Favorites,
 		modelsRecent: p.Recents,
+		unread:       unreadFromPrefs(p),
 		// A chat opens at its newest turn, as React's transcript does.
 		atBottom:      true,
 		stickToBottom: true,
@@ -319,7 +325,14 @@ func (a *App) Attach(win *mygo.Window) {
 		// forever in the background.
 		a.cancel()
 	})
-	win.OnFocus(func() { a.apply(func() { a.focused = true }) })
+	win.OnFocus(func() {
+		a.apply(func() {
+			a.focused = true
+			// Looking at the chat again clears its dot.
+			a.clearUnread(a.currentValue())
+			a.invalidate()
+		})
+	})
 	win.OnBlur(func() { a.apply(func() { a.focused = false }) })
 	go a.init()
 }
@@ -448,6 +461,12 @@ func (a *App) pollApprovals() {
 // openDefaultConversation selects the conversation the rail sorts first, as
 // the React client does on boot.
 func (a *App) openDefaultConversation() {
+	// The chat that was open last time comes back, as a desktop app's window
+	// does; a chat that is gone falls through to the newest one.
+	if last := a.prefs.LastChat; last != 0 && a.surfaceExists(last) {
+		a.selectConversation(last)
+		return
+	}
 	picked := 0
 	a.applyWait(func() {
 		if id := defaultConversationID(a.surfaces); id != 0 {
@@ -479,6 +498,7 @@ func (a *App) loadState(ctx context.Context) error {
 		return err
 	}
 	a.apply(func() {
+		a.noteTaskFinish(a.tasks, st.Tasks)
 		a.surfaces = st.Surfaces
 		a.tasks = st.Tasks
 		a.projects = st.Projects
@@ -490,6 +510,20 @@ func (a *App) loadState(ctx context.Context) error {
 }
 
 // reloadConversation loads the open conversation and (re)subscribes its socket.
+// hasNewAnswer reports whether a frame brought an answer the reader had not
+// seen, which is what a dot stands for.
+func hasNewAnswer(before, after []protocol.Entry) bool {
+	if len(after) <= len(before) {
+		return false
+	}
+	for _, entry := range after[len(before):] {
+		if entry.Kind == "pi.assistant" {
+			return true
+		}
+	}
+	return false
+}
+
 // growEntries takes the entries a frame carries and counts what arrived while
 // the reader is scrolled away from the newest turn.
 func (a *App) growEntries(entries []protocol.Entry) {
@@ -574,6 +608,9 @@ func (a *App) watch(conversationID int) {
 			a.conn = ConnOpen
 			a.reachable = true
 			a.lastOpen = time.Now()
+			if !a.focused && hasNewAnswer(a.entries, value.Entries) {
+				a.markUnread(conversationID)
+			}
 			a.growEntries(value.Entries)
 			if doc, ok := value.Docs["pi.live"]; ok {
 				a.live = &doc
@@ -594,7 +631,9 @@ func (a *App) watch(conversationID int) {
 
 // selectConversation opens a chat from the rail.
 func (a *App) selectConversation(conversationID int) {
+	a.savePrefsLater()
 	a.applyWait(func() {
+		a.clearUnread(conversationID)
 		if a.current == conversationID {
 			return
 		}
@@ -728,6 +767,9 @@ func (a *App) View(c *ui.Context) {
 	c.OnWindowShortcut(ui.Cmd, ui.KeyN, func() {
 		a.apply(func() { a.newConversation() })
 	})
+	c.OnWindowShortcut(ui.Cmd, ui.KeySlash, func() {
+		a.apply(func() { a.shortcutsOpen = true; a.invalidate() })
+	})
 	c.OnWindowShortcut(ui.Cmd|ui.Shift, ui.KeyN, func() {
 		a.openInNewWindow(a.currentValue())
 	})
@@ -744,6 +786,7 @@ func (a *App) View(c *ui.Context) {
 	a.switcherDialog(c, t)
 	a.chatMenuDialog(c, t)
 	a.taskDialog(c)
+	a.shortcutsDialog(c, t)
 	a.imageDialog(c, t)
 	a.previewDialog(c)
 	a.errorPanel(c, t)
@@ -966,4 +1009,15 @@ func (a *App) resetConversation() {
 		a.reloadConversation(id)
 		return nil
 	})
+}
+
+// surfaceExists reports whether the rail still lists a chat, which a restart
+// checks before reopening it.
+func (a *App) surfaceExists(conversationID int) bool {
+	for _, s := range a.surfaces {
+		if s.ConversationID == conversationID && !s.Archived {
+			return true
+		}
+	}
+	return false
 }

@@ -78,3 +78,11 @@ func (a *App) previewFile() {
 		}
 	}()
 }
+
+// MenuShortcuts opens the cheat sheet.
+func (a *App) MenuShortcuts() {
+	a.apply(func() {
+		a.shortcutsOpen = true
+		a.invalidate()
+	})
+}

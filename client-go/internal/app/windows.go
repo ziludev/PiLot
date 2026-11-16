@@ -1,6 +1,10 @@
 package app
 
-import "pitta/internal/api"
+import (
+	"runtime"
+
+	"pitta/internal/api"
+)
 
 // newWindowLabel names the rail's "open this chat in a window" item. React has
 // no such command, so it has no i18n key.
@@ -13,4 +17,12 @@ var windowOpener func(cfg Config, client *api.Client, conversationID int)
 // SetWindowOpener lets main.go hand the app its window factory.
 func SetWindowOpener(fn func(cfg Config, client *api.Client, conversationID int)) {
 	windowOpener = fn
+}
+
+// modKey is the label the cheat sheet uses for the platform's shortcut key.
+func modKey() string {
+	if runtime.GOOS == "darwin" {
+		return "⌘"
+	}
+	return "Ctrl"
 }
