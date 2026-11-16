@@ -10,4 +10,6 @@ export default defineConfig({
   out: "build",
   // The mark scripts/make-icon.py draws (the same amber face the rail shows).
   icon: "resources/icon.png",
+  // pitta://chat/123 opens that chat; ?window=new gives it its own window.
+  urlSchemes: ["pitta"],
 });
