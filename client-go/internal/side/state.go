@@ -21,6 +21,9 @@ type viewState struct {
 	file    ui.ListState
 	commits ui.ListState
 	patch   diff.View
+	// code holds the tokenized spans of the file in the viewer, so a frame
+	// does not re-tokenize the whole file.
+	code highlightCache
 
 	// commitOpen tracks the dialog edge so the draft is seeded from Message
 	// when it opens and kept while the reader types.
