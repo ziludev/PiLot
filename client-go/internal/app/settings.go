@@ -8,7 +8,7 @@ import (
 )
 
 // Words for the settings panel. Constants, not i18n keys: the dictionary has
-// to stay identical to client/src/i18n.ts.
+// to stay identical to internal/i18n/origin/i18n.ts.
 const (
 	settingsTitle    = "Settings"
 	settingsTheme    = "Appearance"

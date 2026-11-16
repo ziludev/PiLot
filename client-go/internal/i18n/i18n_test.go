@@ -8,8 +8,9 @@ import (
 	"testing"
 )
 
-// i18n.ts holds 183 keys in each of its two tables; attachImage/attachImageHint
-// and attach are ours, for the path-based picture picker mygo makes necessary.
+// origin/i18n.ts holds 183 keys in each of its two tables; attachImage,
+// attachImageHint and attach are ours, for the path-based picture picker a
+// native desktop app needs. TestOriginDictionaryStillMatches keeps that line.
 const wantKeys = 186
 
 // useLang switches the package language for one test and restores it after.
