@@ -17,10 +17,11 @@ func (a *App) errorPanel(c *ui.Context, t theme.Tokens) {
 	}
 	ui.Column(c).FillWidth().Padding(0, 8).Children(func() {
 		ui.Row(c).AlignSelf(ui.End).Children(func() {
-			ui.Row(c).Gap(5).Padding(2, 8).Radius(10).Border(1, t.Destructive).
-				Background(t.Muted).OnClick(func() {
-				a.apply(func() { a.errsOpen = !a.errsOpen; a.invalidate() })
-			}).Children(func() {
+			pill := ui.Row(c).Gap(5).Padding(2, 8).Radius(10).Material(pillGlass()).
+				OnClick(func() {
+					a.apply(func() { a.errsOpen = !a.errsOpen; a.invalidate() })
+				})
+			pill.Children(func() {
 				ui.Icon(c, icons.AlertTriangle).Size(11, 11).TextColor(t.Destructive)
 				ui.Text(c, itoa(len(a.errs))+" "+i18n.T("errors")).FontSize(10).TextColor(t.Destructive)
 			})

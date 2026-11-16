@@ -461,7 +461,12 @@ func (a *App) jumpBar(c *ui.Context) {
 		label = itoa(a.newMessages) + " " + i18n.T("newMessages")
 	}
 	ui.Row(c).FillWidth().Padding(0, 14, 4, 14).Justify(ui.End).Children(func() {
-		ui.Button(c, label).OnClick(func() {
+		pill := ui.ButtonBase(c).Radius(12).Padding(2, 10).Material(pillGlass()).
+			Cursor(ui.CursorPointer)
+		pill.Children(func() {
+			ui.Text(c, label).FontSize(10).TextColor(theme.Current(c).Primary)
+		})
+		pill.OnClick(func() {
 			a.apply(func() {
 				a.transcriptScroll.ScrollTo(0, math.MaxFloat32, ui.Animation{})
 				a.newMessages = 0

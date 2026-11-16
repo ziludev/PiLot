@@ -30,11 +30,11 @@ mygo 版本：v0.9.1（`go.mod`）。结论先行：**动效本身 mygo 完全�
 | 行内操作按钮渐显 | `opacity-0 group-hover/row:opacity-100`，`transition` 150 ms | 可做（`Opacity` + `AnimateTo`），但本客户端**刻意常显**（`rail.go` 注释：隐藏操作的行没人会去置顶），需要时再改 | 低 |
 | 面板打开的整体进场 | `animate-in fade-in slide-in-from-right-6` 200 ms | `motion.FadeIn()` 变体（`X:+24`） | 低 |
 
-## 3. 只能降级
+## 3. 只能降级（背景模糊一条已由 `plugins/glass` 解决，见 §1）
 
 | 项 | React | 这里 |
 | --- | --- | --- |
-| 毛玻璃（`.glass`） | `backdrop-filter: blur(22px) saturate(180%)`，用于 Popover、ChatMenu、Toast、错误胶囊、跳转条 | mygo 的 `Element.Blur` 是"模糊这个元素自己"，不是模糊背景。真正的背景模糊要写 `ui.Effect` 着色器读 `EffectBackdrop`（`ui/material.go:92` 的 `Blur` 字段）——**能做，但要自己写着色器**，故当前用不透明/半透明底色降级，记为 TODO（见 §4） |
+| 毛玻璃（`.glass`） | `backdrop-filter: blur(22px) saturate(180%)`，用于 Popover、ChatMenu、Toast、错误胶囊、跳转条 | **已做**：mygo 自带 `plugins/glass`，是 macOS 26 的 Liquid Glass 材质（背景结霜、边缘折射、细边高光），`internal/app/glass.go` 的 `panelGlass()`/`pillGlass()` 挂在会话菜单、Toast、错误胶囊、跳转条上。像素级验证见 `TestGlassSamplesWhatIsUnderIt` |
 | 饱和度补偿 | `saturate(180%)` | 无等价 API；`Effect` 着色器里可做，随上面一起 |
 | 颜色插值空间 | 浏览器 sRGB 过渡 | mygo `Animation.Oklab` 可在 Oklab 混合（更接近 shadcn 的观感），默认 sRGB；需要时对 `Transition` 打开 |
 | Radix 的 `data-state` 开/关动画 | `animate-in`/`animate-out` 工具类 | mygo 用 `Transition` + `Enter/Exit Motion` 表达，等价但需要逐个挂 |
@@ -43,9 +43,10 @@ mygo 版本：v0.9.1（`go.mod`）。结论先行：**动效本身 mygo 完全�
 ## 4. 明确不做 / 需要拍板
 
 - **`ui.List` 行上的 `Transition`**（颜色/阴影/位移的自动过渡）：mygo 会把带 `Transition` 的元素画进离屏图层，行在虚拟列表里合成时出现重复行与白色块。暂时用 `AnimateTo` 手动驱动位移，颜色与阴影即时切换。要恢复平滑过渡，得先确认 mygo 侧图层裁剪行为（属于库的行为，不是我们这层能绕过的）。
-- **背景模糊着色器**：投入产出比低（只有浮层用），且着色器在不同 GPU 上观感不一致。当前以 `t.Popover`（浅色 `#ffffff`／深色 `#171717`）+ 1px 边框近似。若坚持要毛玻璃，按 §3 写 `Effect`。
+- **`glass.Glass{Native: true}`**：走 macOS 26 的 `NSGlassEffectView`，但它采样的是窗口材质或 `ui.WebView` 的页面，不采样同一帧里画出的元素；我们的浮层下面就是自己画的 transcript，所以只能用着色器版（`glass.Glass{}`），观感是"像"而非系统材质。
+- **面板合并（`glass.Group`）**：macOS 的 `NSGlassEffectContainerView` 让相近的玻璃片融成一片；我们的浮层彼此不相邻，暂不需要。
 - **Radix 的 popover/dialog 遮罩渐变**：mygo `ui.Modal` 自带 `RGBA(0,0,0,0.4)` 遮罩与投影（`ui/widgets.go:689`），不再做二次动画。
 
 ## 5. 结论
 
-动效层面 mygo 与 React 一一对应，剩下的是"逐处挂 `Transition`"的体力活（§2 共 8 项，其中 3 项已做）。唯一真正的能力缺口是 `backdrop-filter`，需要自写着色器才能复刻，已记为 TODO；不影响交互与信息密度。
+动效层面 mygo 与 React 一一对应，剩下的是"逐处挂 `Transition`"的体力活（§2 共 8 项，其中 3 项已做）。`backdrop-filter` 这一条不再是缺口：mygo 的 `plugins/glass` 直接把 Liquid Glass 画出来，`internal/app/glass.go` 已挂在浮层上，`TestGlassSamplesWhatIsUnderIt` 钉住"背景真的透过来了"。唯一保留的差异是 `glass.Native`（系统 `NSGlassEffectView`）采样不到同帧元素，见 §4。

@@ -99,6 +99,7 @@
 14. **右栏拖宽用 `ui.Split`**：React 是 `PanelGroup + PanelResizeHandle`（比例伸缩），这里是 `Split` 定宽第一格（main），面板宽度取余量并写回 `prefs.SideWidth`；`SplitReset(760)` 是双击分隔条复位到的宽度。
 15. **真窗口记录**：`docs/manual-checks/62-jump-bar.png`（停在历史位置时出现「5 条新消息」跳转条）与 `63-follow-newest.png`（修好跟随之后，长会话 #35773 打开即在最新一轮，跳转条不再出现）。
 16. **日志入口**：React rail 底部有 open-logs 按钮，这里同样接了「日志」（`bridge.OpenLogs()` 用 Finder 打开 `<home>/logs`），行为一致。
+17. **毛玻璃用 mygo 的 `plugins/glass`**：React 用 `.glass`（`backdrop-filter: blur(22px) saturate(180%)`），这里用 Liquid Glass 材质（`internal/app/glass.go` 的 `panelGlass()`/`pillGlass()`），已挂在会话菜单、Toast、错误胶囊、跳转条上；像素级验证 `TestGlassSamplesWhatIsUnderIt`（背景透出、提亮、细边高光）。系统 `glass.Native`（`NSGlassEffectView`）采样不到同帧元素，故用着色器版。
 
 rail 的外观（头像、状态行、搜索命中）见 `docs/snapshots/rail-{light,dark}.png`，由 `TestSnapshotRail` 生成；默认写到临时目录，刷新留存副本用 `PITTA_SNAPSHOT_DIR=../../docs/snapshots go test ./internal/app -run TestSnapshotRail`。
 
