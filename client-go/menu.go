@@ -1,12 +1,18 @@
 package main
 
 import (
+	_ "embed"
 	"log"
 
 	"github.com/egoist/mygo"
 
 	"pitta/internal/app"
 )
+
+// trayIcon is the menu bar's copy of the app icon, 32 px for a Retina bar.
+//
+//go:embed resources/tray.png
+var trayIcon []byte
 
 // installMenu builds the menu bar. A native client gets the standard menus the
 // system expects — Edit's roles make ⌘C/⌘V/⌘A work in every text field, and
@@ -23,6 +29,7 @@ func installMenu(a *app.App) {
 	menu := mygo.NewMenu([]*mygo.MenuItem{
 		{Label: "File", Submenu: []*mygo.MenuItem{
 			item("New chat", "CmdOrCtrl+N", a.MenuNewChat),
+			item("Export chat…", "CmdOrCtrl+Shift+E", a.MenuExportChat),
 			item("Attach image…", "CmdOrCtrl+Shift+A", a.MenuAttachImage),
 			item("Open project…", "CmdOrCtrl+Shift+O", a.MenuOpenProject),
 			mygo.Separator(),
@@ -52,6 +59,36 @@ func installMenu(a *app.App) {
 		}},
 	})
 	mygo.App.SetMenu(menu)
+}
+
+// installTray puts the app in the menu bar. Its menu reaches the same actions
+// as the window's, so the agent stays usable while the window is behind
+// everything else; the title carries the number of pending approvals.
+func installTray(a *app.App, win *mygo.Window) *mygo.Tray {
+	item := func(label string, click func()) *mygo.MenuItem {
+		return &mygo.MenuItem{Label: label, Click: func(*mygo.MenuItem, *mygo.Window) { click() }}
+	}
+	show := func() { win.Show(); win.Focus() }
+	tray, err := mygo.NewTray(mygo.TrayOptions{
+		ID:      "pitta",
+		Icon:    trayIcon,
+		ToolTip: "Pitta",
+		Menu: mygo.NewMenu([]*mygo.MenuItem{
+			item("Show window", show),
+			item("New chat", func() { a.MenuNewChat(); show() }),
+			item("Switch chat…", func() { a.MenuSwitcher(); show() }),
+			mygo.Separator(),
+			item("Toggle side panel", a.MenuToggleSide),
+			mygo.Separator(),
+			item("Quit", func() { mygo.App.Quit() }),
+		}),
+	})
+	if err != nil {
+		log.Printf("menu: tray: %v", err)
+		return nil
+	}
+	tray.OnClick(show)
+	return tray
 }
 
 // registerHotkey binds a global shortcut that brings the window back from
