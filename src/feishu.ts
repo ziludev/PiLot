@@ -10,6 +10,8 @@ import { setApprovalDecider, setNotifier, type ApprovalRequest } from "./channel
 import { log, logError } from "./log.ts";
 import { recent, record } from "./audit.ts";
 import { collectKetchup, elapsed, formatKetchup } from "./ketchup.ts";
+import { collectDigest } from "./digest.ts";
+import { recordVerdict } from "./verdicts.ts";
 import { note } from "./notes.ts";
 import { lastRequestMessages } from "./context-guard.ts";
 
@@ -82,6 +84,7 @@ const HELP = [
   "- `/project` 看/切换工作仓库（带参数即切换）",
   "- `/id` 当前 chat / conversation / 模型（话题里会显示该话题用的模型）",
   "- `/ketchup`（或 `/进度`）自上次以来的动静 + 等你决定的事",
+  "- `/digest`（或 `/早报`）过夜那一轮汇总：哪些没达成、审批发生了什么",
   "- `/model` 换本会话模型（卡片按钮）；`/model <id>`、`/model thinking high`、`/model default <id>`",
   "",
   "直接说话就行：能查文件、跑命令、定时提醒、记长期记忆。",
@@ -1572,6 +1575,18 @@ const continuing = new Set<string>();
       });
       return;
     }
+    if (/^\/(digest|早报|昨晚)$/i.test(command)) {
+      if (!isOwner) {
+        await sendText(chatId, "只有 alex 能看这个。").catch(() => {});
+        return;
+      }
+      const body = await collectDigest(runtime.harness, context);
+      await replyCard(message.message_id, body, "🌅 早报", {
+        thread: threadFor(message),
+        mention: mentionFor(event, message),
+      });
+      return;
+    }
     if (/^\/(stop|abort|停止|中断)$/i.test(command)) {
       await conversation.abort(context);
       await sendText(chatId, "已中断当前任务。");
@@ -1928,6 +1943,26 @@ const continuing = new Set<string>();
       }
       if (settled.reason !== undefined) {
         decisions.push({ at: Date.now(), kind: "stop", text: `结束：${settled.reason}` });
+      }
+      // The card keeps the verdict in memory; the ring keeps it for `/digest`. A turn the system
+      // ended has no claim, and still has to appear in the morning — as a shortfall, not a silence.
+      const turnSeconds = Math.round((Date.now() - startedAt) / 100) / 10;
+      if (claim !== undefined) {
+        await recordVerdict(runtime.harness, context, {
+          chat: chatId,
+          met: claim.met,
+          why: claim.why,
+          seconds: turnSeconds,
+          ...(settled.reason === undefined ? {} : { reason: settled.reason }),
+        });
+      } else if (settled.reason !== undefined) {
+        await recordVerdict(runtime.harness, context, {
+          chat: chatId,
+          met: false,
+          why: "",
+          seconds: turnSeconds,
+          reason: settled.reason,
+        });
       }
 
       // Freeze live output first, then write the answer.

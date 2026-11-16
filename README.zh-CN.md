@@ -32,6 +32,7 @@
 | CLI | `durable ask "…"` / `durable chat`（REPL）、`durable sessions` |
 | 输入 | 文字、图片（飞书 image/post 消息；客户端粘贴截图）、语音（本地 whisper） |
 | 中断 | `/stop`、客户端停止按钮；后台任务不受影响 |
+| 早报 | 每天 `AGENT_DIGEST_AT` 发一条：近 12 小时干了几轮、几轮声明达成、没达成的每轮带原因、审批发生了什么、审计尾部。安静的一夜不发消息。`/digest`（或 `/早报`）随时手查 |
 | 回顾 | `/ketchup`（或 `/进度`）一句话回到现场：在跑的任务、排在后面的、每件**等你决定**的审批（含已等多久）、最近几条审计。只有主人能用，因为审批行会写你自己的工具调用 |
 | 完成提醒 | 答案只是**原地更新卡片**，飞书不会为"更新"推送通知。所以一轮超过 45 秒时，收尾会额外发一条短消息（`✅ 答完了 · 53s` + 结论前 60 字），这样锁屏也能收到；话题里的提问，这条也发在同一个话题里。`FEISHU_DONE_PING_SECONDS` 可调，设 0 关闭 |
 | 卡片状态 | 卡片顶部一直写着这轮处在哪：蓝 `⏳ 处理中` → 绿 `✅ 答完了`（续跑过一次写「续跑一次」）/ 绿 `✅ 目标达成`、橙 `⚠️ 目标未达成`（模型用 `report_done` 声明了结果）/ 橙 `⏸️ 到了 80 步上限` / 灰 `⚠️ 这次没答出来 · 原因` / 红 `❌ 出错了`。飞书的 patch 是**整张重建**，所以每次刷新都重新带上 header，否则状态条会在第一次流式刷新后消失 |
@@ -149,6 +150,7 @@
 | `FEISHU_ALLOWED_CHAT_IDS` | 固定成 `owner` 级别的会话（留空则每个会话都从 `closed` 开始） |
 | `AGENT_OWNER_NAME` | 提示词里怎么称呼主人；只影响措辞，不影响权限 |
 | `FEISHU_DONE_PING_SECONDS` | 超过多少秒额外发一条完成消息；`0` 关闭 |
+| `AGENT_DIGEST_AT` | 早报几点发（`08:30`，Asia/Shanghai）；`off` 关闭 |
 | `AGENT_PROVIDER`、`AGENT_MODEL`、`AGENT_THINKING` | 默认 provider、模型、思考档 |
 | `MAGPIE_BASE_URL`、`MAGPIE_API_KEY` | `AGENT_PROVIDER=magpie` 时的本机代理地址与 key |
 | `AGENT_WORKSPACE`、`AGENT_DB` | 工具能碰的目录，和那个 SQLite 文件 |
