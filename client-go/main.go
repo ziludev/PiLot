@@ -101,6 +101,13 @@ func main() {
 				a.OpenFromNotification(chatID)
 			}
 		})
+		// pitta://chat/123 from a terminal, a script or a chat message: the
+		// scheme is declared in mygo.config.ts.
+		mygo.App.OnOpenURL(func(raw string) {
+			win.Show()
+			win.Focus()
+			a.OpenDeepLink(raw)
+		})
 		installMenu(a)
 		registerHotkey(win)
 		// ⌘⇧N and the rail's menu open one chat in its own window: it shares
