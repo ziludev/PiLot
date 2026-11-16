@@ -98,6 +98,8 @@
 12. **飞书健康横幅**：已按 `Rail.tsx:426-435` 绘制（`ready=false && downMs>60000` 时画红条 + `PlugZap` + "飞书连接断开 Nm"），差别只在 React 的 hover 提示（`lastError`）没有 tooltip 承载，文案直接显示在条内。
 13. **日志入口**：React rail 底部有 open-logs 按钮，这里同样接了「日志」（`bridge.OpenLogs()` 用 Finder 打开 `<home>/logs`），行为一致。
 
+rail 的外观（头像、状态行、搜索命中）见 `docs/snapshots/rail-{light,dark}.png`，由 `TestSnapshotRail` 生成，可重跑。
+
 ## 5. 写类操作的真实后端验证
 
 `PITTA_LIVE=1 go test ./internal/app -run TestLiveWritePaths`，2026-11-16 对日常 agent（8787）执行：

@@ -207,3 +207,30 @@ func TestSnapshotChatMenu(t *testing.T) {
 		writePNG(t, "../../docs/snapshots/chat-menu-"+c.name+".png", tt.Image())
 	}
 }
+
+// TestSnapshotRail renders the rail with the cross-conversation hits open, so a
+// reader can see what /api/search returns without asking the bridge again.
+func TestSnapshotRail(t *testing.T) {
+	a := snapshotData(t)
+	a.searchHits = []protocol.SearchHit{
+		{ConversationID: 13, EntryID: 91, Kind: "pi.assistant", Snippet: "the parser drops trailing commas"},
+		{ConversationID: 12, EntryID: 88, Kind: "pi.user", Snippet: "deploy the feishu bridge again"},
+		{ConversationID: 11, EntryID: 74, Kind: "pi.tool-result", Snippet: "ok  pitta/internal/app  0.83s"},
+	}
+	a.filter = "parser"
+
+	for _, c := range []struct {
+		name string
+		tok  theme.Tokens
+		dark bool
+	}{{"light", theme.Light(), false}, {"dark", theme.Dark(), true}} {
+		tt := ui.NewTester(func(ctx *ui.Context) {
+			theme.Apply(ctx, c.tok)
+			a.railWidth = 260
+			a.rail(ctx)
+		}, 260, 560)
+		tt.SetDark(c.dark)
+		tt.Frame()
+		writePNG(t, "../../docs/snapshots/rail-"+c.name+".png", tt.Image())
+	}
+}

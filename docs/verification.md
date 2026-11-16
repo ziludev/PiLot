@@ -37,7 +37,7 @@ $ go test ./internal/app -run 'Snapshot|TestSelectAllHighlightsText' -v
 - 背景像素 == `Tokens.Background`，正文至少一处与背景不同色，主按钮像素 == `Tokens.Primary`，分隔线像素 == `Tokens.Border`（深色下按 alpha 合成后 ±2）。
 - 选区高亮必须半透明且合成后与背景至少差 8 级；把映射改回 `--accent` 时 `TestSelectAllHighlightsText` 会报 `0 pixels changed to the selection color`。
 - 渲染出来的文本只要"本身是字典 key"就判失败（`TestChatMenuDrawsLabels`、`TestImageDialogDrawsLabels` + `i18n.IsKey`）；把 key 写回 `renameChat` 时这两个用例会红。
-- 快照写到 `/tmp/pitta-app-{light,dark,side-*,modelpicker,approval}.png`。
+- 快照写到 `/tmp/pitta-app-{light,dark,side-*,modelpicker,approval}.png`；需要长期留存的（会话菜单、rail 与搜索命中）另存到仓库 `docs/snapshots/`（`TestSnapshotChatMenu`、`TestSnapshotRail`）。
 
 新增交互断言（同一命令可跑）：
 
