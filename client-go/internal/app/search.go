@@ -216,6 +216,7 @@ func findCount(index, total int) string {
 // worktree. Every write goes through the bridge and re-reads the rail.
 type chatMenu struct {
 	open  bool
+	id    int
 	title string
 	busy  bool
 	note  string
@@ -223,12 +224,28 @@ type chatMenu struct {
 
 // openChatMenu fills the dialog from the selected surface.
 func (a *App) openChatMenu() {
+	a.openChatMenuFor(a.currentValue())
+}
+
+// openChatMenuFor opens the actions of one chat, which the rail's row menu and
+// the header both do.
+func (a *App) openChatMenuFor(conversationID int) {
 	a.apply(func() {
 		a.menu.open = true
-		a.menu.title = a.surfaceTitleByID(a.current)
+		a.menu.id = conversationID
+		a.menu.title = a.surfaceTitleByID(conversationID)
 		a.menu.note = ""
 		a.invalidate()
 	})
+}
+
+// menuChatID is the chat the open menu acts on, falling back to the selected
+// one when the menu was opened without naming a row.
+func (a *App) menuChatID() int {
+	if a.menu.id != 0 {
+		return a.menu.id
+	}
+	return a.currentValue()
 }
 
 // surfaceArchived reports whether the chat is archived, which flips the label
@@ -269,7 +286,7 @@ func (a *App) chatMenuDialog(c *ui.Context, t theme.Tokens) {
 			}
 			ui.Row(c).Gap(6).Children(func() {
 				ui.PrimaryButton(c, i18n.T("save")).FontSize(11).OnClick(func() { a.renameChat() })
-				archived := a.surfaceArchived(a.currentValue())
+				archived := a.surfaceArchived(a.menuChatID())
 				label := i18n.T("archive")
 				if archived {
 					label = i18n.T("unarchive")
@@ -287,7 +304,7 @@ func (a *App) chatMenuDialog(c *ui.Context, t theme.Tokens) {
 
 // renameChat saves a new title, then reloads the rail.
 func (a *App) renameChat() {
-	conversationID := a.currentValue()
+	conversationID := a.menuChatID()
 	title := a.menu.title
 	if conversationID == 0 || strings.TrimSpace(title) == "" {
 		return
@@ -317,7 +334,7 @@ func (a *App) apiSurfaceMeta(conversationID int, title *string, archived *bool) 
 
 // archiveChat hides the chat from the rail, as the row's archive glyph does.
 func (a *App) archiveChat(archived bool) {
-	conversationID := a.currentValue()
+	conversationID := a.menuChatID()
 	if conversationID == 0 {
 		return
 	}
@@ -332,7 +349,7 @@ func (a *App) archiveChat(archived bool) {
 
 // removeWorktree drops the chat's worktree; the chat itself stays readable.
 func (a *App) removeWorktree() {
-	conversationID := a.currentValue()
+	conversationID := a.menuChatID()
 	if conversationID == 0 {
 		return
 	}

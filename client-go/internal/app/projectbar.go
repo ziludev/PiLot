@@ -21,11 +21,11 @@ func (a *App) projectBar(c *ui.Context, t theme.Tokens) {
 	if current != nil {
 		name = current.Name
 	}
-	ui.Row(c).Padding(8, 4).Children(func() {
-		ui.Button(c, "").FillWidth().Height(28).Padding(2, 6).Background(t.Sidebar).Children(func() {
-			ui.Row(c).Gap(6).Children(func() {
-				ui.Icon(c, icons.FolderGit2).Size(13, 13).TextColor(t.MutedFg)
-				ui.Text(c, name).FontSize(12).TextColor(t.SidebarFg)
+	ui.Row(c).Padding(6, 10, 2, 10).Children(func() {
+		ui.Button(c, "").FillWidth().Height(24).Padding(2, 6).Background(t.Sidebar).Children(func() {
+			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+				ui.Icon(c, icons.FolderGit2).Size(12, 12).TextColor(t.MutedFg)
+				ui.Text(c, name).FontSize(11.5).TextColor(t.SidebarFg).MaxLines(1)
 				ui.Row(c).Grow(1)
 				ui.Icon(c, icons.ChevronsUpDown).Size(11, 11).TextColor(t.MutedFg)
 			})

@@ -36,6 +36,12 @@ func TestMessageActionsCopyEditRetry(t *testing.T) {
 		{ID: 2, Kind: "pi.assistant", Model: rawModel(map[string]any{"role": "assistant", "content": "Rayleigh scattering."})},
 	}
 	tt := ui.NewTester(func(c *ui.Context) { a.transcript(c) }, 900, 420)
+	// The actions only show under the pointer, so park it on the message first.
+	hover := func() {
+		tt.Move(400, 90)
+		tt.Frame()
+	}
+	hover()
 	tt.Frame()
 
 	if err := tt.Click(i18n.T("copy")); err != nil {
@@ -44,13 +50,14 @@ func TestMessageActionsCopyEditRetry(t *testing.T) {
 	if got := tt.Clipboard(); got == "" {
 		t.Fatalf("copy left the clipboard empty; texts=%q", tt.Texts())
 	}
+	hover()
 	if err := tt.Click(i18n.T("edit")); err != nil {
 		t.Fatalf("click edit: %v", err)
 	}
 	if a.draft == "" {
 		t.Fatal("edit did not push the message into the composer")
 	}
-	tt.Frame()
+	hover()
 	if err := tt.Click(i18n.T("retry")); err != nil {
 		t.Fatalf("click retry: %v", err)
 	}
