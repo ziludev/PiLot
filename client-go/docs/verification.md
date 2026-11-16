@@ -96,6 +96,8 @@ $ open ~/Applications/Pitta.app
 
 装到 `~/Applications` 而不是 `/Applications`：后者已有一个旧的 mygo webview 版 Pitta（bundleID 同为 `com.example.agent`），不能覆盖。启动后 `logs/agent.log` 出现 `[http] client attached {"conversationId":…}`。
 
+- `TestRailSearchIsCentred`：搜索框占位符必须落在框体垂直中线上（±1.5 px），把高度从内容高度硬压到 24 px 会让它偏低 2.5 px——这正是肉眼看到的"文字没上下居中"。
+
 ## 5. 字面量 key 守卫
 
 ```

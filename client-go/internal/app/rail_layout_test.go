@@ -1,0 +1,80 @@
+package app
+
+import (
+	"image"
+	"testing"
+
+	"github.com/egoist/mygo/ui"
+
+	"pitta/internal/theme"
+)
+
+// TestRailSearchIsCentred pins the search field's placeholder to the middle of
+// its own box: forcing a height smaller than the text needs leaves the glyphs
+// sitting low, which is what it looked like.
+func TestRailSearchIsCentred(t *testing.T) {
+	a := New(Config{})
+	a.previewImage = -1
+	tokens := theme.Light()
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, tokens)
+		ui.Column(c).Width(240).Padding(8).Children(func() {
+			a.railSearch(c, tokens)
+		})
+	}, 260, 90)
+	tt.Frame()
+	img := tt.Image()
+
+	boxTop, boxBottom := -1, -1
+	for y := 0; y < img.Bounds().Dy(); y++ {
+		if isBorder(img, 120, y, tokens.Border) {
+			if boxTop < 0 {
+				boxTop = y
+			}
+			boxBottom = y
+		}
+	}
+	if boxTop < 0 || boxBottom-boxTop < 16 {
+		t.Fatalf("search box not found: top=%d bottom=%d", boxTop, boxBottom)
+	}
+	textTop, textBottom := -1, -1
+	for y := boxTop + 1; y < boxBottom; y++ {
+		if hasDarkPixel(img, 20, 100, y, tokens.Foreground) {
+			if textTop < 0 {
+				textTop = y
+			}
+			textBottom = y
+		}
+	}
+	if textTop < 0 {
+		t.Fatal("placeholder is not drawn")
+	}
+	textMid := float32(textTop+textBottom) / 2
+	boxMid := float32(boxTop+boxBottom) / 2
+	if diff := textMid - boxMid; diff > 1.5 || diff < -1.5 {
+		t.Fatalf("placeholder sits %.1fpx off centre (text %d..%d, box %d..%d)",
+			diff, textTop, textBottom, boxTop, boxBottom)
+	}
+}
+
+// isBorder reports whether the pixel at x,y is the border color.
+func isBorder(img *image.RGBA, x, y int, border ui.Color) bool {
+	if x >= img.Bounds().Dx() || y >= img.Bounds().Dy() {
+		return false
+	}
+	pixel := img.RGBAAt(x, y)
+	return nearColor(pixel.R, border.R) && nearColor(pixel.G, border.G) && nearColor(pixel.B, border.B)
+}
+
+// hasDarkPixel reports whether a row holds glyph pixels between x0 and x1.
+func hasDarkPixel(img *image.RGBA, x0, x1, y int, ink ui.Color) bool {
+	// Anything darker than the field's fill is text, placeholder included: the
+	// placeholder is muted, not the foreground, so compare against the fill.
+	for x := x0; x < x1 && x < img.Bounds().Dx(); x++ {
+		pixel := img.RGBAAt(x, y)
+		if pixel.R < 200 && pixel.G < 200 && pixel.B < 200 {
+			return true
+		}
+	}
+	return false
+}
