@@ -18,9 +18,6 @@ import (
 // i18n key because the shared dictionary holds exactly what i18n.ts holds.
 const switcherHint = "Jump to a chat…"
 
-// paletteHint is what the field says once ">" turns it into a command list.
-const paletteHint = "Run a command…  (⌫ to search chats)"
-
 // switcher is the Cmd+K jump list: every chat, newest first, narrowed as you
 // type. It exists because a native window can bind a shortcut that the earlier client
 // client only reached through the rail's search field.
