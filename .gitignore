@@ -9,11 +9,6 @@ tmp/
 backups/
 
 mcp.json
-client/build/
-client/dist/
-client/.mygo/
-client/node_modules/
-
 .DS_Store
 
 .worktrees/
