@@ -9,6 +9,7 @@ import { watchLive, type LiveSnapshot } from "./live.ts";
 import { setApprovalDecider, setNotifier, type ApprovalRequest } from "./channel.ts";
 import { log, logError } from "./log.ts";
 import { recent, record } from "./audit.ts";
+import { collectKetchup, formatKetchup } from "./ketchup.ts";
 import { note } from "./notes.ts";
 import { lastRequestMessages } from "./context-guard.ts";
 
@@ -78,6 +79,7 @@ const HELP = [
   "- `/memo` 看本群专属记忆；`/memo add 内容` 添加；`/memo del 3` 删第 3 条；`/memo clear` 清空",
   "- `/project` 看/切换工作仓库（带参数即切换）",
   "- `/id` 当前 chat / conversation / 模型（话题里会显示该话题用的模型）",
+  "- `/ketchup`（或 `/进度`）自上次以来的动静 + 等你决定的事",
   "- `/model` 换本会话模型（卡片按钮）；`/model <id>`、`/model thinking high`、`/model default <id>`",
   "",
   "直接说话就行：能查文件、跑命令、定时提醒、记长期记忆。",
@@ -1539,6 +1541,20 @@ const continuing = new Set<string>();
         chatId,
         started === undefined ? "压缩没起来，看日志。" : "已开始压缩这段对话（后台任务），好了这里会多一条记录。",
       );
+      return;
+    }
+    // A digest, not a log: what moved since the owner last looked, and what waits on them.
+    // Owner only, because the approval lines name the owner's own tool calls.
+    if (/^\/(ketchup|进度|怎么样了)$/i.test(command)) {
+      if (!isOwner) {
+        await sendText(chatId, "只有 alex 能看这个。").catch(() => {});
+        return;
+      }
+      const digest = await collectKetchup(runtime.harness, context);
+      await replyCard(message.message_id, formatKetchup(digest), "📋 回顾", {
+        thread: threadFor(message),
+        mention: mentionFor(event, message),
+      });
       return;
     }
     if (/^\/(stop|abort|停止|中断)$/i.test(command)) {
