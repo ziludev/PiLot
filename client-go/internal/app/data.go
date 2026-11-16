@@ -94,6 +94,7 @@ func (a *App) loadApprovals(ctx context.Context) error {
 	}
 	a.apply(func() {
 		a.approvals = approvals
+		a.notifyAttention(approvals)
 		a.syncBadge()
 		a.invalidate()
 	})

@@ -61,7 +61,8 @@ func (a *App) dropImage(index int) {
 	a.invalidate()
 }
 
-// attachImage reads one picture from disk. A path is the only way in: mygo's
+// attachImage reads one picture from disk, either from the system picker or
+// from the path field, which is the way in for a build without a window. mygo's
 // clipboard is text only, so paste cannot carry a screenshot.
 func (a *App) attachImage(path string) {
 	path = strings.TrimSpace(strings.Trim(path, `"'`))
@@ -201,20 +202,68 @@ func (a *App) imagePreviews(c *ui.Context, t theme.Tokens, images []imagePart) {
 	})
 }
 
-// previewDialog shows one conversation picture at full size.
-func (a *App) previewDialog(c *ui.Context) {
+// previewDialog shows one conversation picture full size, with the zoom a
+// picture needs when the answer is about a detail: clicking it doubles the
+// size, and ± steps in halves.
+func (a *App) previewDialog(c *ui.Context, t theme.Tokens) {
 	if a.previewImage < 0 || a.previewImage >= len(a.previewSet) {
 		return
 	}
+	tokens := t
 	open := true
 	ui.Modal(c, &open, func() {
-		if image := a.previewSet[a.previewImage]; image.bitmap != nil {
-			ui.Image(c, image.bitmap).MaxHeight(640)
-		}
+		image := a.previewSet[a.previewImage]
+		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, image.Name).FontSize(11).TextColor(tokens.MutedFg).SingleLine()
+			ui.Row(c).Grow(1)
+			ui.Button(c, "−").FontSize(11).Disabled(a.previewScale <= 0.5).OnClick(func() {
+				a.zoomPreview(-0.5)
+			})
+			ui.Text(c, zoomPercent(a.previewScale)).FontSize(10).Width(34).AlignSelf(ui.Center).TextColor(tokens.MutedFg)
+			ui.Button(c, "+").FontSize(11).Disabled(a.previewScale >= 4).OnClick(func() {
+				a.zoomPreview(0.5)
+			})
+			ui.Button(c, "1:1").FontSize(11).OnClick(func() {
+				a.apply(func() { a.previewScale = 1; a.invalidate() })
+			})
+		})
+		ui.ScrollBoth(c).Grow(1).FillWidth().Children(func() {
+			if image.bitmap == nil {
+				return
+			}
+			picture := ui.Image(c, image.bitmap).MaxHeight(640 * a.previewScale).MaxWidth(900 * a.previewScale)
+			picture.Scale(a.previewScale, a.previewScale)
+			picture.OnClick(func() { a.zoomPreview(1) })
+		})
 	})
 	if !open {
-		a.apply(func() { a.previewImage = -1; a.previewSet = nil; a.invalidate() })
+		a.apply(func() {
+			a.previewImage, a.previewScale = -1, 1
+			a.previewSet = nil
+			a.invalidate()
+		})
 	}
+}
+
+// zoomPreview moves the scale by delta, kept inside the range the buttons
+// offer so the picture never shrinks into its border or past the panel.
+func (a *App) zoomPreview(delta float32) {
+	a.apply(func() {
+		scale := a.previewScale + delta
+		if scale < 0.5 {
+			scale = 0.5
+		}
+		if scale > 4 {
+			scale = 4
+		}
+		a.previewScale = scale
+		a.invalidate()
+	})
+}
+
+// zoomPercent words the scale the way a photo viewer does.
+func zoomPercent(scale float32) string {
+	return itoa(int(scale*100+0.5)) + "%"
 }
 
 // submitImages converts the pending pictures to what the bridge takes, once.

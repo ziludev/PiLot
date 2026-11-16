@@ -276,3 +276,9 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 - **`⌘↑`/`⌘↓` 平滑翻页**：180ms `EaseOut` 滑行；`pageGliding` 期间 `followScroll` 让位，落地后恢复判断。
 - **`⌘1`…`⌘9`**：按 rail 里会话的顺序直达前九个（`chatForQuickKey`），不足九个时按到空号不做任何事。
 - 快捷键面板同步为 11 条。
+### 2026-11 图片缩放、圆角时间轴、审批提醒（第 36 轮）
+
+- **图片查看器可缩放**：`−` / `+` 半档步进（0.5×–4×）、`1:1` 复位、点击图片放大一档，容器 `ui.ScrollBoth` 可拖动查看细节；标题行显示文件名与百分比。
+- **步骤时间轴换成 2px 圆角竖轨**：原来是 1px 边框（读起来像表格线），现在是 `ui.Column(c).Width(2).Radius(1)` 的圆角轨，包在 `FillHeight` 里随步骤高度伸展。
+- **审批提醒**：新审批到达时 `mygo.Shell.Beep()` + Dock 图标弹跳（`App.Dock.Bounce`），等待结束后 `CancelBounce`；同一批等待只响一次（`seenApprovals` 记忆），第二窗口不参与。
+- **附件走系统文件面板**：`SetPicker` + `mygo.Dialog.Open`（`image/*`、多选），保留路径输入框作为无窗口构建的兜底。

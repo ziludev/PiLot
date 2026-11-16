@@ -143,3 +143,6 @@ $ go test ./internal/i18n -run TestEveryLiteralKeyExists -v
 | `TestApprovalBarSlidesIn` | 审批条滑入而非两帧之间出现 |
 | `TestStreamingCaretBlinks` | 流式回答末尾的光标明灭（只统计光标窄带的主色像素） |
 | `TestQuickKeysSwitchTheFirstChats` | ⌘2 切到 rail 第二个会话；不足九个时 ⌘9 无动作 |
+| `TestPreviewZoomStepsAndClamps` | 图片查看器 +/1:1 与 0.5×–4× 夹取 |
+| `TestStepsHangOffARoundedRail` | 步骤时间轴是 2px 圆角轨（1px 边框会红） |
+| `TestAttentionSoundsOncePerWait` | 审批提醒只响一次，结束时通知取消 |
