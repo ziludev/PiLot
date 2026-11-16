@@ -127,3 +127,7 @@ $ go test ./internal/i18n -run TestEveryLiteralKeyExists -v
 | `TestRailOffersASecondWindow` | 会话菜单的开窗项把会话号交给 main 的窗口工厂 |
 | `TestExportWritesTheChatAsMarkdown` | 导出文件含标题/问题/回答/成本行 |
 | `TestExportNamesTheFileSafely` | 文件名不含路径分隔符，空标题回退 `chat #id.md` |
+| `TestSearchHitMarksTheEntry` | 搜索命中的条目被标记，跳转清空后不再标记 |
+| `TestCopyCarriesMarkdown` | 剪贴板同时携带 `text/markdown` 与纯文本 |
+| `TestRunningChatsListsBusyOnes` | 托盘运行列表按会话去重、只列忙碌的 |
+| `TestRunningHookSkipsSecondWindows` | 第二窗口不发布运行列表 |

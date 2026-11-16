@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/egoist/mygo/transfer"
 
 	"github.com/egoist/mygo/ui"
 
@@ -98,5 +101,49 @@ func TestRailReorderSavesTheOrder(t *testing.T) {
 	}
 	if got := a.sortedSurfaces()[0].ConversationID; got != 11 {
 		t.Fatalf("the dragged chat sorts first, got %d", got)
+	}
+}
+
+// TestSearchHitMarksTheEntry checks the ring the cross-chat search leaves: the
+// rail hands an entry id to the transcript, and that line is the one drawn with
+// the accent border.
+func TestSearchHitMarksTheEntry(t *testing.T) {
+	a := snapshotData(t)
+	a.current = 11
+	a.entries = turnEntries(11, "why is the sky blue", "Rayleigh scattering.")
+	a.focusEntry = a.entries[len(a.entries)-1].ID
+	if !a.isHit(a.entries[len(a.entries)-1]) {
+		t.Fatal("the matched entry is not marked")
+	}
+	if a.isHit(a.entries[0]) {
+		t.Fatal("the question is marked too")
+	}
+	// A jump clears the ring once the reader moves on.
+	a.focusEntry = 0
+	if a.isHit(a.entries[len(a.entries)-1]) {
+		t.Fatal("the ring outlives the jump")
+	}
+}
+
+// TestCopyCarriesMarkdown checks the richer clipboard: a markdown editor
+// pasting the answer keeps its structure.
+func TestCopyCarriesMarkdown(t *testing.T) {
+	copied := New(Config{})
+	tt := ui.NewTester(func(c *ui.Context) {
+		if copied.draft != "" {
+			return
+		}
+		copied.copyText(c, "# Title\n\nbody")
+		copied.draft = "done"
+	}, 400, 200)
+	tt.Frame()
+	tt.Frame()
+	data := tt.ClipboardData()
+	markdown, err := data.Read(transfer.Markdown)
+	if err != nil || !strings.Contains(string(markdown), "body") {
+		t.Fatalf("markdown form is %q (%v)", markdown, err)
+	}
+	if plain := tt.Clipboard(); !strings.Contains(plain, "body") {
+		t.Fatalf("plain form is %q", plain)
 	}
 }
