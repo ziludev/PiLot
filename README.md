@@ -25,6 +25,7 @@ A personal assistant that runs on [Pi Durable](https://earendil.com/posts/pi-dur
 | Input | Text, images (Feishu image/post messages, pasted screenshots), voice (local whisper). |
 | Interrupt | `/stop` or the client's stop button. Background tasks keep running. |
 | Notifications | A Feishu card answer is an *update*, and Feishu does not notify on updates. So a turn longer than 45 s also sends one short message (`✅ done · 53s` plus the first line), in the same topic. `FEISHU_DONE_PING_SECONDS` tunes it, `0` turns it off. |
+| Catch up | `/ketchup` (or `/进度`) answers "what happened?" without scrolling: runs in flight, tasks queued behind them, every approval still waiting on you with how long it has waited, and the last few audit rows. Owner only, because the approval lines name your own tool calls. |
 
 ### The card says how it ended
 
