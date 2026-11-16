@@ -148,6 +148,8 @@ type App struct {
 	waitingAlert  bool
 	// quitAsk holds the ⌘Q confirmation open while a turn is still running.
 	quitAsk bool
+	// othersOpen is the rail's "other projects" fold, restored from prefs.
+	othersOpen bool
 	// railCursor is the chat the rail's keyboard walk is on, which is the open
 	// chat unless the walk moved without opening.
 	railCursor int
@@ -296,6 +298,7 @@ func New(cfg Config) *App {
 		api:           api.New(cfg.BaseURL, cfg.Token),
 		railWidth:     width,
 		sideWidth:     sideWidth,
+		othersOpen:    !p.OthersCollapsed,
 		sideTab:       SideChanges,
 		prefs:         p,
 		focused:       true,

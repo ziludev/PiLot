@@ -24,10 +24,10 @@ func railFixture(t *testing.T) *App {
 	lang := i18n.Current()
 	t.Cleanup(func() {
 		i18n.Set(lang)
-		railOthersOpen = true
+		a.othersOpen = true
 	})
 	i18n.Set(i18n.EN)
-	railOthersOpen = true
+	a.othersOpen = true
 	a.project = "alpha"
 	a.projects = []protocol.Project{
 		{ID: "alpha", Name: "Alpha"},
@@ -179,7 +179,7 @@ func TestRailFoldsOtherProjects(t *testing.T) {
 	if !tt.HasText(i18n.T("otherProjects")) || !tt.HasText("Beta chat") {
 		t.Fatalf("rail is missing the other project's chat or its header, shows %q", tt.Texts())
 	}
-	railOthersOpen = false
+	a.othersOpen = false
 	tt.Frame()
 	if !tt.HasText(i18n.T("otherProjects")) {
 		t.Fatalf("rail lost the folded header, shows %q", tt.Texts())

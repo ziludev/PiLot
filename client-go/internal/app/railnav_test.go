@@ -81,3 +81,16 @@ func quietAPI(t *testing.T) *api.Client {
 	t.Cleanup(srv.Close)
 	return api.New(srv.URL, "")
 }
+
+// TestOtherProjectsFoldIsRemembered checks the fold survives a restart: the
+// React client kept it in component state and forgot it on every reload.
+func TestOtherProjectsFoldIsRemembered(t *testing.T) {
+	savePrefsFile(prefs{OthersCollapsed: true})
+	if a := New(Config{}); a.othersOpen {
+		t.Fatal("a collapsed fold came back open")
+	}
+	savePrefsFile(prefs{})
+	if a := New(Config{}); !a.othersOpen {
+		t.Fatal("a fresh install started folded")
+	}
+}

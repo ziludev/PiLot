@@ -21,10 +21,11 @@ import (
 // the React rail's rows have.
 const railRowHeight float32 = 28
 
-// railOthersOpen remembers whether the other projects' chats are folded away.
+// othersOpen is the fold state of the "other projects" group. It lives on the
+// App, not in a package variable, so that it survives a restart through prefs
+// the way the React client's localStorage did.
 // The rail has no per-window field for it, and a value rebuilt every frame
 // would fold the block again the moment the pointer left its header.
-var railOthersOpen = true
 
 // rail is the left pane: the app's name and project, the way into the chats,
 // the chats themselves, the tasks running behind them, and the buttons that
@@ -472,7 +473,7 @@ func (a *App) railOthersHeader(c *ui.Context, t theme.Tokens, count int) {
 	}
 	button.Children(func() {
 		chevron := icons.ChevronRight
-		if railOthersOpen {
+		if a.othersOpen {
 			chevron = icons.ChevronDown
 		}
 		ui.Icon(c, chevron).Size(10, 10).TextColor(t.MutedFg)
@@ -481,7 +482,9 @@ func (a *App) railOthersHeader(c *ui.Context, t theme.Tokens, count int) {
 		ui.Text(c, itoa(count)).FontSize(9).TextColor(t.MutedFg)
 	})
 	button.OnClick(func() {
-		railOthersOpen = !railOthersOpen
+		a.othersOpen = !a.othersOpen
+		a.prefs.OthersCollapsed = !a.othersOpen
+		a.savePrefsLater()
 		a.invalidate()
 	})
 }
