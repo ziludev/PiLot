@@ -31,6 +31,9 @@ func (a *App) composer(c *ui.Context) {
 			// handler only ever saw text.
 			OnPaste(func(text string) bool { return a.pasteImage(c) }).
 			OnTextKey(func(k ui.TextKey) bool {
+				if k.Key == ui.KeyUp || k.Key == ui.KeyDown {
+					return a.recallKey(k, k.Text())
+				}
 				if k.Key != ui.KeyEnter || k.Mods&(ui.Super|ui.Ctrl) == 0 {
 					return false
 				}
