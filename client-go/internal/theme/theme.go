@@ -145,6 +145,12 @@ func Apply(c *ui.Context, t Tokens) {
 	c.SetTheme(&base)
 }
 
+// Hover is a color nudged ten percent toward its own text color, which is the
+// --primary/90 that shadcn paints on hover.
+func Hover(base, text ui.Color) ui.Color {
+	return Composite(ui.RGBA(text.R, text.G, text.B, 26), base)
+}
+
 // Composite blends a over an opaque bg, which is what a translucent highlight
 // looks like on screen and what a pixel test can compare against.
 func Composite(a, bg ui.Color) ui.Color {

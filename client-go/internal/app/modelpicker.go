@@ -76,18 +76,35 @@ func (a *App) pickModel() {
 // for picking a row.
 func (a *App) modelPicker(c *ui.Context) {
 	t := theme.Current(c)
-	ui.Button(c, a.modelLabel()).FontSize(10).Padding(3, 8).TextColor(t.MutedFg).
-		OnClick(func() {
-			a.apply(func() {
-				a.modelOpen = !a.modelOpen
-				if a.modelOpen {
-					a.modelQuery = ""
-					a.modelCursor = 0
-				}
-				a.invalidate()
-			})
+	// ModelPicker.tsx's trigger: an M badge, the model, its thinking level and
+	// a chevron, all 11 px and quiet until the pointer arrives.
+	trigger := ui.ButtonBase(c).Gap(6).Padding(2, 4).Radius(6).Cursor(ui.CursorPointer)
+	trigger.Label(i18n.T("model"))
+	trigger.Tooltip(i18n.T("model"))
+	if trigger.Hovered() {
+		trigger.Background(t.Accent)
+	}
+	trigger.Children(func() {
+		ui.Row(c).Size(14, 14).Radius(3).Background(t.Muted).AlignItems(ui.Center).
+			Justify(ui.Center).Children(func() {
+			ui.Text(c, "M").FontSize(9).TextColor(t.MutedFg)
 		})
+		ui.Text(c, a.modelLabel()).FontSize(11).TextColor(t.MutedFg).MaxLines(1)
+		ui.Text(c, levelLabel(a.thinkingLevel())).FontSize(11).TextColor(t.MutedFg)
+		ui.Icon(c, icons.ChevronDown).Size(12, 12).TextColor(t.MutedFg)
+	})
+	trigger.OnClick(func() {
+		a.apply(func() {
+			a.modelOpen = !a.modelOpen
+			if a.modelOpen {
+				a.modelQuery = ""
+				a.modelCursor = 0
+			}
+			a.invalidate()
+		})
+	})
 }
+
 
 // modelPalette is the command palette of ModelPicker.tsx: a search field, the
 // models ordered favourites-first, and the thinking levels of the chosen one.

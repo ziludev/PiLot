@@ -81,6 +81,14 @@
 | `motion.ts` | 入场/脉冲动画 | 未实现：mygo 帧循环无过渡 API | n/a |
 | `avatar.ts` | 头像的 PIE 几何、mood 与配色 | `internal/avatar`（`Mood`/`Tones`） | done |
 
+### 2026-11 视觉对齐
+
+- 顶栏 48 px：标题 13/500、标识 10 px 等宽字体，右侧图标按钮 24 px 无底色、`PanelRight` 固定最右。
+- 会话行 28 px 单行（图标 + 标题 + 花费），`#id` / 菜单 / 置顶在指针下出现，与 `SessionRow` 一致。
+- 会话区头部一行：`SESSIONS` + 紧凑 Select（`All · 3`）+ 归档/新建图标；页脚一行：重启/备份/日志 + `~/…` 路径。
+- 气泡 13 px、圆角 12、内边距 8/12；回合间距 8；消息操作只在悬停时出现。
+- 左栏默认 21% 窗宽（16%–30%），右栏默认 26%（18%–34%），与 `react-resizable-panels` 的 defaultSize/minSize/maxSize 对应。
+
 ## 4. 已知差异
 
 1. **无 localStorage**：偏好存 `~/.pitta/ui.json`（原子写），字段与 localStorage 键一一对应。

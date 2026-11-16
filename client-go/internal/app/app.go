@@ -266,9 +266,29 @@ func (a *App) Attach(win *mygo.Window) {
 	// A finished answer should reach the owner when the window is behind
 	// another one, as the React client notifies only while hidden.
 	a.focused = win.IsFocused()
+	// React's rail panel defaults to 21% of the window and may be dragged
+	// between 16% and 30%; without a stored width, start there.
+	if a.prefs.RailWidth == 0 {
+		if width, _ := win.ContentSize(); width > 0 {
+			a.railWidth = railForWindow(float32(width))
+		}
+	}
 	win.OnFocus(func() { a.apply(func() { a.focused = true }) })
 	win.OnBlur(func() { a.apply(func() { a.focused = false }) })
 	go a.init()
+}
+
+// railForWindow is the rail's starting width: 21% of the window, clamped to the
+// range react-resizable-panels allows.
+func railForWindow(width float32) float32 {
+	rail := width * 0.21
+	if rail < 190 {
+		return 190
+	}
+	if rail > width*0.30 {
+		return width * 0.30
+	}
+	return rail
 }
 
 // apply runs fn on the UI thread. Without a window (tests) it runs inline.
@@ -764,36 +784,60 @@ func (a *App) main(c *ui.Context) {
 // puts reset and stop above the transcript.
 func (a *App) mainHeader(c *ui.Context) {
 	t := theme.Current(c)
-	ui.Row(c).Padding(8, 14).Gap(10).Children(func() {
-		ui.Column(c).Gap(1).Children(func() {
-			ui.Text(c, a.currentTitle()).FontSize(12).TextColor(t.Foreground)
-			ui.Text(c, a.currentMeta()).FontSize(9).TextColor(t.MutedFg)
+	// h-12 px-3.5 gap-2, title 13/medium over a 10 px mono line: App.tsx's header.
+	ui.Row(c).Height(48).PaddingX(14).Gap(8).AlignItems(ui.Center).Children(func() {
+		ui.Column(c).Grow(1).Gap(1).Children(func() {
+			ui.Text(c, a.currentTitle()).FontSize(13).FontWeight(500).
+				TextColor(t.Foreground).MaxLines(1)
+			ui.Text(c, a.currentMeta()).FontSize(10).Font("monospace").
+				TextColor(t.MutedFg).MaxLines(1)
 		})
 		if a.findOpen {
 			a.findBar(c, t)
 		}
-		ui.Row(c).Grow(1).Children(func() {})
-		iconButton(c, icons.Search).OnClick(func() {
+		iconButton(c, icons.Search, i18n.T("findShort")).OnClick(func() {
 			a.apply(func() { a.findOpen = !a.findOpen; a.invalidate() })
 		})
-		if a.current != 0 {
-			iconButton(c, icons.MessagePlus).OnClick(func() { a.openChatMenu() })
-		}
-		iconButton(c, icons.RotateCw).OnClick(func() { a.resetConversation() })
-		iconButton(c, icons.PanelRight).OnClick(func() { a.toggleSide() })
-		stop := iconButton(c, icons.Square)
+		// The React titles are the commands themselves: /new and /stop.
+		iconButton(c, icons.SquarePen, "/new").OnClick(func() { a.resetConversation() })
+		stop := iconButton(c, icons.Square, "/stop")
 		if a.busy || a.live != nil {
+			// Busy turns the stop red, as the header tints it text-rose-500.
 			stop.OnClick(func() { a.abort() })
 		}
+		// Last on the right: it is the edge the panel opens from.
+		panel := "Show panel"
+		if a.sideOpen {
+			panel = "Hide panel"
+		}
+		side := iconButtonTint(c, icons.PanelRight, panel, t.MutedFg)
+		if a.sideOpen {
+			side = iconButtonTint(c, icons.PanelRight, panel, t.Primary)
+		}
+		side.OnClick(func() { a.toggleSide() })
 	})
 }
 
 // iconButton is a borderless button holding one icon, as the React header's
-// ghost icon buttons are.
-func iconButton(c *ui.Context, icon *ui.SVG) ui.Element {
-	return ui.Button(c, "").Padding(5, 7).Children(func() {
-		ui.Icon(c, icon).Size(12, 12)
+// ghost icon buttons are: no fill until the pointer is on it, 24 square.
+func iconButton(c *ui.Context, icon *ui.SVG, label string) ui.Element {
+	return iconButtonTint(c, icon, label, theme.Current(c).MutedFg)
+}
+
+// iconButtonTint is the same button with the icon in a given color, which the
+// right-panel toggle uses to show the panel is open.
+func iconButtonTint(c *ui.Context, icon *ui.SVG, label string, tint ui.Color) ui.Element {
+	t := theme.Current(c)
+	button := ui.ButtonBase(c).Size(24, 24).Radius(6).Cursor(ui.CursorPointer)
+	button.Label(label)
+	button.Tooltip(label)
+	if button.Hovered() {
+		button.Background(t.Accent)
+	}
+	button.Children(func() {
+		ui.Icon(c, icon).Size(12, 12).TextColor(tint)
 	})
+	return button
 }
 
 // currentTitle is the open chat's name.

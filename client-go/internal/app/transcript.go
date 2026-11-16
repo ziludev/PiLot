@@ -51,7 +51,7 @@ func (a *App) transcript(c *ui.Context) {
 	scroll := ui.Scroll(c).Fill().TrackScroll(&a.transcriptScroll)
 	a.followScroll()
 	scroll.Children(func() {
-		ui.Column(c).Fill().Padding(16, 20).Gap(14).Children(func() {
+		ui.Column(c).Fill().Padding(16, 20).Gap(8).Children(func() {
 			if len(built) == 0 {
 				// A chat nobody picked is not the same as a quiet one: React
 				// says so instead of drawing an empty pane (Transcript.tsx:340).
@@ -179,10 +179,16 @@ func (a *App) userBubble(c *ui.Context, t theme.Tokens, text string, images []im
 	if strings.TrimSpace(text) == "" && len(images) == 0 {
 		return
 	}
-	ui.Row(c).Fill().Children(func() {
+	// The actions live under the pointer, as MessageActions.tsx hides them
+	// until the message is hovered, so a quiet transcript stays quiet.
+	row := ui.Row(c).Fill().Gap(2).AlignItems(ui.Center)
+	hovered := row.Hovered()
+	row.Children(func() {
 		ui.Row(c).Grow(1).Children(func() {})
-		a.messageActions(c, t, text, text)
-		ui.Column(c).MaxWidth(760).Padding(8, 11).Gap(6).Radius(10).Background(t.Muted).Children(func() {
+		if hovered {
+			a.messageActions(c, t, text, text)
+		}
+		ui.Column(c).MaxWidth(760).Padding(8, 12).Gap(6).Radius(12).Background(t.Muted).Children(func() {
 			if len(images) > 0 {
 				a.imagePreviews(c, t, images)
 			}
@@ -198,12 +204,16 @@ func (a *App) answerBlock(c *ui.Context, t theme.Tokens, text string, retryText 
 	if strings.TrimSpace(text) == "" {
 		return
 	}
-	ui.Row(c).Fill().Gap(2).AlignItems(ui.Start).Children(func() {
-		ui.Column(c).MaxWidth(760).Padding(8, 11).Radius(10).Border(1, t.Border).Background(t.Card).Children(func() {
+	row := ui.Row(c).Fill().Gap(2).AlignItems(ui.Center)
+	hovered := row.Hovered()
+	row.Children(func() {
+		ui.Column(c).MaxWidth(760).Padding(8, 12).Radius(12).Border(1, t.Border).Background(t.Card).Children(func() {
 			markdown.View(c, text, &a.md)
 		})
+		if hovered {
+			a.messageActions(c, t, text, retryText)
+		}
 		ui.Row(c).Grow(1).Children(func() {})
-		a.messageActions(c, t, text, retryText)
 	})
 }
 
@@ -270,12 +280,16 @@ func (a *App) stepRow(c *ui.Context, t theme.Tokens, step turns.Step) {
 		label = "tool"
 	}
 	ui.Column(c).Gap(4).Children(func() {
-		ui.Row(c).Gap(6).Children(func() {
-			// TurnRail at row scale: a dot per step, coloured by what the step
-			// was, so the shape of a long run reads before the labels do.
-			ui.Row(c).Size(6, 6).Radius(3).Background(stepColor(step, t))
-			ui.Icon(c, icons.ChevronRight).Size(9, 9).TextColor(t.MutedFg)
-			ui.Text(c, label).FontSize(10).TextColor(t.MutedFg)
+		// One line per step: a dot, the chevron that says it opens, the label.
+		// All three centre on the same baseline as Transcript.tsx's StepRow.
+		ui.Row(c).Gap(6).AlignItems(ui.Center).PaddingY(1).Children(func() {
+			ui.Row(c).Size(5, 5).Radius(3).Background(stepColor(step, t))
+			chevron := icons.ChevronRight
+			if open {
+				chevron = icons.ChevronDown
+			}
+			ui.Icon(c, chevron).Size(10, 10).TextColor(t.MutedFg)
+			ui.Text(c, label).FontSize(10.5).TextColor(t.MutedFg)
 		}).OnClick(func() {
 			a.apply(func() {
 				a.stepOpen[step.Entry.ID] = !open
@@ -354,7 +368,7 @@ func (a *App) liveLine(c *ui.Context, t theme.Tokens, turn *turns.Turn) {
 		if strings.TrimSpace(state.Text) != "" {
 			// Stream, not View: half-written Markdown must not flicker between
 			// frames as the parser re-reads it.
-			ui.Column(c).Fill().Padding(8, 11).Radius(10).Border(1, t.Border).Background(t.Card).Children(func() {
+			ui.Column(c).Fill().Padding(8, 12).Radius(12).Border(1, t.Border).Background(t.Card).Children(func() {
 				markdown.Stream(c, state.Text, &a.md)
 			})
 		}

@@ -16,7 +16,7 @@ import (
 // the draft, and the row that sends it.
 func (a *App) composer(c *ui.Context) {
 	t := theme.Current(c)
-	ui.Column(c).FillWidth().Padding(12, 14).Gap(8).Children(func() {
+	ui.Column(c).FillWidth().PaddingY(12).PaddingX(16).Gap(8).Children(func() {
 		if len(a.approvals) > 0 {
 			a.approvalBar(c, t)
 		}
@@ -33,15 +33,28 @@ func (a *App) composer(c *ui.Context) {
 			a.sendText(text)
 			return true
 		})
-		ui.Row(c).FillWidth().Gap(8).Children(func() {
+		// The bottom row of Composer.tsx: picker, a hairline, the steer box on
+		// the left; the send button on the right.
+		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
 			a.modelPicker(c)
-			iconButton(c, icons.Paperclip).OnClick(func() {
+			ui.Box(c).Width(1).Height(14).Background(t.Border)
+			ui.Checkbox(c, &a.steer, i18n.T("steer")).FontSize(11)
+			iconButton(c, icons.Paperclip, i18n.T("attachImage")).OnClick(func() {
 				a.apply(func() { a.imageOpen = true; a.invalidate() })
 			})
-			ui.Text(c, "|").FontSize(10).TextColor(t.Border)
-			ui.Checkbox(c, &a.steer, i18n.T("steer"))
 			ui.Row(c).Grow(1).Children(func() {})
-			ui.PrimaryButton(c, i18n.T("send")).OnClick(func() { a.submit() })
+			send := ui.ButtonBase(c).Padding(5, 12).Radius(6).Cursor(ui.CursorPointer).
+				Background(t.Primary).Gap(6).AlignItems(ui.Center)
+			send.Label(i18n.T("send"))
+			send.Tooltip(i18n.T("send"))
+			if send.Hovered() {
+				send.Background(theme.Hover(t.Primary, t.PrimaryFg))
+			}
+			send.Children(func() {
+				ui.Icon(c, icons.Send).Size(14, 14).TextColor(t.PrimaryFg)
+				ui.Text(c, i18n.T("send")).FontSize(12).TextColor(t.PrimaryFg)
+			})
+			send.OnClick(func() { a.submit() })
 		})
 	})
 }

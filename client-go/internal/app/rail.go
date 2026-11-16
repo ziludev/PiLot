@@ -17,9 +17,9 @@ import (
 	"pitta/internal/theme"
 )
 
-// railRowHeight is one chat's box: a name and a line under it, with the room
+// railRowHeight is one chat's box: a single line of 11.5 px text, with the room
 // the React rail's rows have.
-const railRowHeight float32 = 44
+const railRowHeight float32 = 28
 
 // railOthersOpen remembers whether the other projects' chats are folded away.
 // The rail has no per-window field for it, and a value rebuilt every frame
@@ -51,17 +51,21 @@ func (a *App) rail(c *ui.Context) {
 // railHeader names the app and the project it works in, and holds the two
 // switches the rail owns: the language and the theme.
 func (a *App) railHeader(c *ui.Context, t theme.Tokens) {
-	ui.Row(c).FillWidth().Padding(7, 10).Gap(2).AlignItems(ui.Center).
+	// px-3 py-2: avatar, name over status, then the theme toggle and the
+	// language button that shows the language it switches to.
+	ui.Row(c).FillWidth().Padding(8, 12).Gap(8).AlignItems(ui.Center).
 		BorderWidth(0, 0, 1, 0).BorderColor(t.SidebarBorder).Children(func() {
 		mood, tone := a.avatarLook()
-		avatar.View(c, 20, mood, tone)
+		avatar.View(c, 24, mood, tone)
 		ui.Column(c).Grow(1).Gap(1).Children(func() {
-			ui.Text(c, i18n.T("appName")).FontSize(13).FontWeight(600).
+			ui.Text(c, i18n.T("appName")).FontSize(14).FontWeight(600).
 				TextColor(t.SidebarFg).MaxLines(1)
-			ui.Text(c, a.railStatus()).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
-		})
-		railGlyph(c, t, i18n.T("language"), func() { a.toggleLang() }, func() {
-			ui.Icon(c, icons.Languages).Size(12, 12).TextColor(t.MutedFg)
+			status := ui.Text(c, a.railStatus()).FontSize(11).MaxLines(1)
+			if a.busy {
+				status.TextColor(t.Primary)
+			} else {
+				status.TextColor(t.MutedFg)
+			}
 		})
 		railGlyph(c, t, themeLabel(a.prefs.Theme), func() { a.toggleTheme() }, func() {
 			switch a.prefs.Theme {
@@ -73,6 +77,24 @@ func (a *App) railHeader(c *ui.Context, t theme.Tokens) {
 				ui.Icon(c, icons.Monitor).Size(12, 12).TextColor(t.MutedFg)
 			}
 		})
+		// The language button shows the language it switches to, as Rail.tsx's
+		// does with its EN / 中 label.
+		next := "EN"
+		if i18n.Current() != i18n.ZH {
+			next = "中"
+		}
+		lang := ui.ButtonBase(c).Height(22).PaddingX(6).Radius(5).Gap(4).
+			AlignItems(ui.Center).Cursor(ui.CursorPointer)
+		lang.Label(i18n.T("language"))
+		lang.Tooltip(i18n.T("language"))
+		if lang.Hovered() {
+			lang.Background(t.Accent)
+		}
+		lang.Children(func() {
+			ui.Icon(c, icons.Languages).Size(12, 12).TextColor(t.MutedFg)
+			ui.Text(c, next).FontSize(11).TextColor(t.MutedFg)
+		})
+		lang.OnClick(func() { a.toggleLang() })
 	})
 }
 
@@ -111,7 +133,7 @@ func (a *App) railFeishu(c *ui.Context, t theme.Tokens) {
 // sortedSurfaces, which every view of the list goes through.
 func (a *App) railSearch(c *ui.Context, t theme.Tokens) {
 	ui.Row(c).FillWidth().Padding(6, 10, 4, 10).Children(func() {
-		ui.TextInput(c, &a.query).Fill().Height(26).FontSize(11).
+		ui.TextInput(c, &a.query).Fill().Height(24).FontSize(11.5).
 			Placeholder(i18n.T("searchShort")).
 			OnSubmit(func() {
 				a.apply(func() {
@@ -164,23 +186,40 @@ func (a *App) searchHitsPanel(c *ui.Context, t theme.Tokens) {
 // railFilters is the line between the search field and the list: what the list
 // shows, how many chats that is, and whether it keeps the archived ones.
 func (a *App) railFilters(c *ui.Context, t theme.Tokens, count int) {
-	ui.Row(c).FillWidth().Padding(4, 10).Gap(6).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, i18n.T("sessions")+" "+itoa(count)).FontSize(10).FontWeight(600).
-			TextColor(t.MutedFg).Grow(1).MaxLines(1)
-		a.railArchiveToggle(c, t)
-	})
-	ui.Row(c).FillWidth().Padding(0, 10, 5, 10).Children(func() {
-		picked := railFilterIndex(a.prefs.SurfaceFilter)
-		chosen := picked
-		ui.Segmented(c, &chosen, i18n.T("allChats"), i18n.T("clientChats"), i18n.T("feishuChats")).
-			Label(i18n.T("sessions")).FillEqually().Height(22).FontSize(10)
-		if chosen == picked || chosen < 0 || chosen >= len(railFilters) {
-			return
+	// Rail.tsx's one-row header: an uppercase label, a compact select that
+	// says how many chats each view holds, and the archive toggle at the end.
+	picked := railFilterIndex(a.prefs.SurfaceFilter)
+	counts := []int{count, 0, 0}
+	for _, surface := range a.surfaces {
+		switch surfaceKind(surface) {
+		case "client":
+			counts[1]++
+		case "feishu":
+			counts[2]++
 		}
-		a.prefs.SurfaceFilter = railFilters[chosen]
+	}
+	labels := []string{
+		i18n.T("allChats") + " · " + itoa(counts[0]),
+		i18n.T("clientChats") + " · " + itoa(counts[1]),
+		i18n.T("feishuChats") + " · " + itoa(counts[2]),
+	}
+	chosen := labels[picked]
+	ui.Row(c).FillWidth().Padding(6, 10).Gap(4).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, strings.ToUpper(i18n.T("sessions"))).FontSize(10).FontWeight(600).
+			TextColor(t.MutedFg).MaxLines(1)
+		ui.Select(c, &chosen, labels).FontSize(10.5).Height(20).Label(i18n.T("sessions"))
+		ui.Row(c).Grow(1).Children(func() {})
+		a.railArchiveToggle(c, t)
+		railIconAction(c, i18n.T("newChat"), icons.Plus, func() { go a.newConversation() })
+	})
+	for index, label := range labels {
+		if label != chosen || index == picked {
+			continue
+		}
+		a.prefs.SurfaceFilter = railFilters[index]
 		a.savePrefsLater()
 		a.invalidate()
-	})
+	}
 }
 
 // railArchiveToggle folds the archived chats in and out. It is drawn always,
@@ -271,7 +310,9 @@ func (a *App) railEmpty(c *ui.Context, t theme.Tokens) {
 }
 
 // railRow draws one line of the list: a chat, or the header that folds another
-// project's chats away.
+// project's chats away. A chat is a single line — icon, title, cost — with its
+// #id, menu and pin appearing over the right end under the pointer, as
+// Rail.tsx's SessionRow does.
 func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 	if row.kind == railOtherProjects {
 		a.railOthersHeader(c, t, row.count)
@@ -280,7 +321,7 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 	s := row.surface
 	selected := s.ConversationID == a.current
 	pinned := a.isPinned(s.ConversationID)
-	line := ui.Row(c).FillWidth().Height(railRowHeight).PaddingX(6).Gap(6).Radius(6).
+	line := ui.Row(c).FillWidth().Height(railRowHeight).PaddingX(6).Gap(4).Radius(6).
 		Cursor(ui.CursorPointer)
 	if row.topic {
 		// A fork sits under the chat it forked from, as the React rail indents
@@ -315,34 +356,39 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 		case row.topic:
 			ui.Icon(c, icons.CornerDownRight).Size(10, 10).TextColor(t.MutedFg)
 		case surfaceKind(s) == "client":
-			ui.Icon(c, icons.Monitor).Size(11, 11).TextColor(t.Primary)
+			ui.Icon(c, icons.Monitor).Size(10, 10).TextColor(t.Primary)
 		case surfaceKind(s) == "feishu":
-			ui.Icon(c, icons.MessagesSquare).Size(11, 11).TextColor(t.MutedFg)
+			ui.Icon(c, icons.MessagesSquare).Size(10, 10).TextColor(t.MutedFg)
 		}
-		ui.Column(c).Grow(1).Gap(1).Children(func() {
-			title := ui.Text(c, surfaceTitle(s)).FontSize(12).TextColor(t.SidebarFg).
-				MaxLines(1)
-			if selected {
-				title.FontWeight(500)
-			}
-			if s.Archived {
-				title.Strikethrough().TextColor(t.MutedFg)
-			}
-			ui.Text(c, railRowMeta(row)).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
-		})
-		// The row's own buttons stay drawn at low contrast instead of
-		// appearing under the pointer: a row that hides its actions is a row
-		// nobody pins.
-		tint := t.MutedFg
-		if hovered || selected {
-			tint = t.SidebarFg
+		title := ui.Text(c, surfaceTitle(s)).FontSize(11.5).TextColor(t.SidebarFg).
+			Grow(1).MaxLines(1)
+		if selected {
+			title.FontWeight(500)
 		}
-		pinTint := tint
+		if s.Archived {
+			title.Strikethrough().TextColor(t.MutedFg)
+		}
+		if s.Cost >= 0.005 {
+			// Under half a cent the number is noise, as in Rail.tsx.
+			ui.Text(c, railCost(s.Cost)).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
+		}
+		// The #id, the menu and the pin appear under the pointer, as the
+		// cluster Rail.tsx positions over the right end of the row.
+		if hovered {
+			ui.Text(c, "#"+itoa(s.ConversationID)).FontSize(9.5).TextColor(t.MutedFg)
+			railRowButton(c, icons.MoreHorizontal, i18n.T("rename"), t.MutedFg, func() {
+				a.openChatMenuFor(s.ConversationID)
+			})
+		}
+		pinTint := t.MutedFg
 		if pinned {
 			pinTint = t.Primary
 		}
-		railRowButton(c, icons.Pin, i18n.T("pinned"), pinTint, func() { a.togglePin(s.ConversationID) })
-		railRowButton(c, icons.Archive, i18n.T("archived"), tint, func() { a.archiveSurface(s) })
+		if hovered || pinned {
+			railRowButton(c, icons.Pin, i18n.T("pinned"), pinTint, func() {
+				a.togglePin(s.ConversationID)
+			})
+		}
 	})
 }
 
@@ -418,16 +464,16 @@ func (a *App) railTasks(c *ui.Context, t theme.Tokens) {
 // railFooter is the rail's last line: a new chat, the agent's controls, and
 // where its home is.
 func (a *App) railFooter(c *ui.Context, t theme.Tokens) {
-	ui.Column(c).FillWidth().Gap(4).Padding(6, 8).
+	// One row, as Rail.tsx's footer: the three agentctl buttons, then the
+	// workspace path at the right end.
+	ui.Row(c).FillWidth().Padding(6, 10).Gap(2).AlignItems(ui.Center).
 		BorderWidth(1, 0, 0, 0).BorderColor(t.SidebarBorder).Children(func() {
-		ui.Row(c).FillWidth().Gap(2).Children(func() {
-			railAction(c, t, i18n.T("newChat"), icons.Plus, func() { go a.newConversation() })
-			railIconAction(c, i18n.T("restart"), icons.RotateCw, func() { go a.control("restart") })
-			railIconAction(c, i18n.T("backup"), icons.Database, func() { go a.control("backup") })
-			railIconAction(c, i18n.T("logs"), icons.Folder, func() { bridge.OpenLogs() })
-		})
-		ui.Text(c, a.cfg.Home).FontSize(9).TextColor(t.MutedFg).MaxLines(1).
-			TruncateMiddle()
+		railIconAction(c, i18n.T("restart"), icons.RotateCw, func() { go a.control("restart") })
+		railIconAction(c, i18n.T("backup"), icons.Database, func() { go a.control("backup") })
+		railIconAction(c, i18n.T("logs"), icons.Folder, func() { bridge.OpenLogs() })
+		ui.Row(c).Grow(1).Children(func() {})
+		ui.Text(c, shortPath(a.cfg.Home)).FontSize(9.5).TextColor(t.MutedFg).
+			MaxLines(1).TruncateMiddle()
 	})
 }
 
