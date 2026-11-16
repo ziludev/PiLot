@@ -103,6 +103,9 @@ func (a *App) loadApprovals(ctx context.Context) error {
 // syncBadge puts the pending approvals on the Dock icon, where a native app
 // says "something waits for you" without stealing the window.
 func (a *App) syncBadge() {
+	if a.secondary {
+		return
+	}
 	a.badge = len(a.approvals)
 	if badgeHook != nil {
 		badgeHook(a.badge)

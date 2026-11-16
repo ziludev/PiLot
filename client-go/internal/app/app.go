@@ -80,6 +80,13 @@ type App struct {
 	cfg Config
 	api *api.Client
 	win *mygo.Window
+	// secondary windows skip what only one window may own: the approval poll,
+	// the Dock badge and the preference file.
+	secondary bool
+	// ctx ends the chat's watcher when the window closes, so a closed window
+	// does not keep a websocket alive.
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	// currentID mirrors current for goroutines: with a window, currentChanges
 	// only on the UI thread, so a background read of it would race.
@@ -250,7 +257,10 @@ func New(cfg Config) *App {
 	if p.SideWidth > 220 && p.SideWidth < 700 {
 		sideWidth = p.SideWidth
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	return &App{
+		ctx:          ctx,
+		cancel:       cancel,
 		cfg:          cfg,
 		api:          api.New(cfg.BaseURL, cfg.Token),
 		railWidth:    width,
@@ -270,6 +280,27 @@ func New(cfg Config) *App {
 	}
 }
 
+// NewSecondary builds a window that shares the first one's client: it keeps its
+// own transcript and panels, while the approval poll, the Dock badge and the
+// preference file stay with the first window, which owns them.
+func NewSecondary(cfg Config, client *api.Client, conversationID int) *App {
+	a := New(cfg)
+	a.api = client
+	a.secondary = true
+	a.current = conversationID
+	a.currentID.Store(int64(conversationID))
+	return a
+}
+
+// openInNewWindow asks main.go for a second window on this chat. The opener is
+// nil in the headless tests, which is why the rail hides nothing when absent.
+func (a *App) openInNewWindow(conversationID int) {
+	if windowOpener == nil || a.secondary {
+		return
+	}
+	windowOpener(a.cfg, a.api, conversationID)
+}
+
 // Attach takes the window and starts the first load.
 func (a *App) Attach(win *mygo.Window) {
 	a.win = win
@@ -283,6 +314,11 @@ func (a *App) Attach(win *mygo.Window) {
 			a.railWidth = railForWindow(float32(width))
 		}
 	}
+	win.OnClosed(func() {
+		// The window is gone: end the websocket instead of letting it reconnect
+		// forever in the background.
+		a.cancel()
+	})
 	win.OnFocus(func() { a.apply(func() { a.focused = true }) })
 	win.OnBlur(func() { a.apply(func() { a.focused = false }) })
 	go a.init()
@@ -389,6 +425,10 @@ func (a *App) init() {
 		a.lastOpen = time.Now()
 		a.invalidate()
 	})
+	if a.secondary {
+		a.reloadConversation(a.currentValue())
+		return
+	}
 	a.openDefaultConversation()
 	go a.pollApprovals()
 }
@@ -515,7 +555,7 @@ func (a *App) goLoad(fn func() error) {
 // watch keeps the conversation's socket open; api.Watch reconnects on its own
 // and closes the channel when ctx is cancelled.
 func (a *App) watch(conversationID int) {
-	ctx := context.Background()
+	ctx := a.ctx
 	a.apply(func() {
 		a.conn = ConnConnecting
 		a.invalidate()
@@ -685,6 +725,9 @@ func (a *App) View(c *ui.Context) {
 	})
 	c.OnWindowShortcut(ui.Cmd, ui.KeyN, func() {
 		a.apply(func() { a.newConversation() })
+	})
+	c.OnWindowShortcut(ui.Cmd|ui.Shift, ui.KeyN, func() {
+		a.openInNewWindow(a.currentValue())
 	})
 	c.OnWindowShortcut(ui.Cmd, ui.KeyB, func() {
 		a.apply(func() { a.toggleSide(); a.invalidate() })

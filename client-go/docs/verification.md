@@ -123,3 +123,5 @@ $ go test ./internal/i18n -run TestEveryLiteralKeyExists -v
 | `TestRightClickCopiesAMessage` | 右键菜单不误改剪贴板 |
 | `TestAttachUsesTheSystemPanel` | 系统面板返回的图片变成附件（过滤器为 `image/*`） |
 | `TestProjectPanelAsksForADirectory` | 打开项目走目录面板并 POST `/api/projects` |
+| `TestSecondaryWindowKeepsTheOwnedState` | 第二窗口打开指定会话、共享客户端、不写 ui.json、不设角标 |
+| `TestRailOffersASecondWindow` | 会话菜单的开窗项把会话号交给 main 的窗口工厂 |

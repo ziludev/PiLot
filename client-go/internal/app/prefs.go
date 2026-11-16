@@ -81,6 +81,10 @@ func savePrefs(p prefs) {
 
 // savePrefsLater persists the current preferences off the UI thread.
 func (a *App) savePrefsLater() {
+	if a.secondary {
+		// One window owns the file; a second writing it would race.
+		return
+	}
 	p := a.prefs
 	p.RailWidth = a.railWidth
 	p.SideWidth = a.sideWidth
