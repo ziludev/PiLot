@@ -102,7 +102,7 @@ func (a *App) turnBlock(c *ui.Context, t theme.Tokens, turn *turns.Turn, live, f
 			a.noteLine(c, t, noteText(note))
 		}
 		if turn.User != nil {
-			a.userBubble(c, t, turns.Text(*turn.User), imagesOf(*turn.User))
+			a.userBubble(c, t, turns.Text(*turn.User), imagesOf(*turn.User), a.isHit(*turn.User))
 		}
 		for _, report := range turn.Reports {
 			a.reportBlock(c, t, turns.Text(report))
@@ -120,7 +120,7 @@ func (a *App) turnBlock(c *ui.Context, t theme.Tokens, turn *turns.Turn, live, f
 			if turn.User != nil {
 				retry = turns.Text(*turn.User)
 			}
-			a.answerBlock(c, t, turns.Text(final), retry)
+			a.answerBlock(c, t, turns.Text(final), retry, a.isHit(final))
 		}
 		if live {
 			a.liveLine(c, t, turn)
@@ -176,7 +176,7 @@ func phaseLegend(turn *turns.Turn) string {
 
 // userBubble is the message the person typed, right aligned as in the React
 // transcript.
-func (a *App) userBubble(c *ui.Context, t theme.Tokens, text string, images []imagePart) {
+func (a *App) userBubble(c *ui.Context, t theme.Tokens, text string, images []imagePart, hit bool) {
 	if strings.TrimSpace(text) == "" && len(images) == 0 {
 		return
 	}
@@ -190,10 +190,14 @@ func (a *App) userBubble(c *ui.Context, t theme.Tokens, text string, images []im
 			a.messageActions(c, t, text, text)
 		}
 		bubble := ui.Column(c).MaxWidth(760).Padding(8, 12).Gap(6).Radius(12).Background(t.Muted)
+		if hit {
+			// The line a cross-chat search matched wears a ring, so the jump
+			// lands on the sentence and not just on the turn.
+			bubble.Border(1, t.Primary)
+		}
 		bubble.ContextMenu(func(m *ui.Menu) {
 			if m.Item(i18n.T("copy")).Shortcut(ui.Cmd, ui.KeyC).Chosen() {
-				c.Services().WriteClipboard(text)
-				c.Toast(i18n.T("copied"))
+				a.copyText(c, text)
 			}
 			if m.Item(i18n.T("edit")).Chosen() {
 				a.apply(func() { a.draft = text; a.invalidate() })
@@ -214,7 +218,7 @@ func (a *App) userBubble(c *ui.Context, t theme.Tokens, text string, images []im
 }
 
 // answerBlock renders the agent's reply as Markdown, which is what it writes.
-func (a *App) answerBlock(c *ui.Context, t theme.Tokens, text string, retryText string) {
+func (a *App) answerBlock(c *ui.Context, t theme.Tokens, text string, retryText string, hit bool) {
 	if strings.TrimSpace(text) == "" {
 		return
 	}
@@ -222,10 +226,12 @@ func (a *App) answerBlock(c *ui.Context, t theme.Tokens, text string, retryText 
 	hovered := row.Hovered()
 	row.Children(func() {
 		block := ui.Column(c).MaxWidth(760).Padding(8, 12).Radius(12).Border(1, t.Border).Background(t.Card)
+		if hit {
+			block.BorderColor(t.Primary)
+		}
 		block.ContextMenu(func(m *ui.Menu) {
 			if m.Item(i18n.T("copy")).Shortcut(ui.Cmd, ui.KeyC).Chosen() {
-				c.Services().WriteClipboard(text)
-				c.Toast(i18n.T("copied"))
+				a.copyText(c, text)
 			}
 			if retryText != "" && m.Item(i18n.T("retry")).Chosen() {
 				a.sendText(retryText)
@@ -253,8 +259,7 @@ func (a *App) answerBlock(c *ui.Context, t theme.Tokens, text string, retryText 
 func (a *App) messageActions(c *ui.Context, t theme.Tokens, text string, retryText string) {
 	ui.Row(c).Gap(1).Padding(0, 2).Children(func() {
 		a.actionIcon(c, t, icons.Copy, i18n.T("copy"), func() {
-			c.Services().WriteClipboard(text)
-			c.Toast(i18n.T("copied"))
+			a.copyText(c, text)
 		})
 		a.actionIcon(c, t, icons.Pencil, i18n.T("edit"), func() {
 			a.apply(func() { a.draft = retryText; a.invalidate() })
@@ -555,4 +560,24 @@ func (a *App) scrollToNewest() {
 		a.transcriptScroll.Y = math.MaxFloat32
 		a.invalidate()
 	})
+}
+
+// isHit reports whether the search the reader ran points at this entry: the
+// rail's cross-chat hits carry an entry id, so the answer itself can be marked
+// instead of only its turn.
+func (a *App) isHit(entry protocol.Entry) bool {
+	return a.focusEntry != 0 && entry.ID == a.focusEntry
+}
+
+// copyText puts an answer on the clipboard as both Markdown source and plain
+// text: pasting into a Markdown editor keeps the structure, pasting anywhere
+// else reads as prose. A page can only reach the clipboard through the async
+// API, which drops the richer form in some browsers.
+func (a *App) copyText(c *ui.Context, text string) {
+	data := transfer.New(transfer.NewItem(
+		transfer.Bytes(transfer.Text, []byte(text)),
+		transfer.Bytes(transfer.Markdown, []byte(text)),
+	))
+	c.Services().WriteClipboardData(data)
+	c.Toast(i18n.T("copied"))
 }

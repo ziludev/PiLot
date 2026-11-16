@@ -250,3 +250,9 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 - **File → Export chat…（⌘⇧E）**：把当前会话写成 Markdown——标题、每轮的问题、工具步骤、回答、引用注记，末尾一行 `cost $x · N tokens`；文件名是 `<标题> #<会话号>.md`，`/`、`:` 换成 `-`，走系统保存面板（`mygo.Dialog.Save`）。
 - **菜单栏图标**（`mygo.NewTray`）：点击回到窗口；菜单里有 Show window / New chat / Switch chat… / Toggle side panel / Quit；待批工具调用数会显示在图标标题旁（`tray.SetTitle`），窗口被挡住时也能看到。
 - Markdown 渲染仍是 `ui/markdown`，导出复用 `turns.GroupTurns` 的分组，所以文件里的顺序与界面一致。
+
+### 2026-11 搜索命中定位、富剪贴板、托盘任务（第 31 轮）
+
+- `/api/search` 的命中现在落到**具体那一条**：`jumpToHit` 带 `entryId`，transcript 用 `isHit` 给用户消息或回答描主色边框（`a.focusEntry` 同时决定窗口锚点）。
+- 复制走 `WriteClipboardData`：同时给 `text/plain` 与 `text/markdown`，粘到 Markdown 编辑器保留结构（`mygo/ui/markdown` 没有 HTML 渲染器，故不给 `text/html`）。
+- 托盘的菜单随任务变化重建：正在跑的会话以「● 标题」逐条列出，点一条 `win.Show()` + 选中该会话；第二窗口不参与（`publishRunning` 里 `secondary` 直接返回）。

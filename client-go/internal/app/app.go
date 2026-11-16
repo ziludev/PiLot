@@ -484,6 +484,8 @@ func (a *App) loadState(ctx context.Context) error {
 		a.projects = st.Projects
 		a.feishu = st.Feishu
 	})
+	// The menu bar shows what is running, so the trays do not go stale.
+	a.publishRunning()
 	return nil
 }
 

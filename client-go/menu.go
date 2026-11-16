@@ -63,31 +63,51 @@ func installMenu(a *app.App) {
 
 // installTray puts the app in the menu bar. Its menu reaches the same actions
 // as the window's, so the agent stays usable while the window is behind
-// everything else; the title carries the number of pending approvals.
+// everything else; the title carries the number of pending approvals, and the
+// running chats are listed so one click lands in them.
 func installTray(a *app.App, win *mygo.Window) *mygo.Tray {
 	item := func(label string, click func()) *mygo.MenuItem {
 		return &mygo.MenuItem{Label: label, Click: func(*mygo.MenuItem, *mygo.Window) { click() }}
 	}
 	show := func() { win.Show(); win.Focus() }
-	tray, err := mygo.NewTray(mygo.TrayOptions{
-		ID:      "pitta",
-		Icon:    trayIcon,
-		ToolTip: "Pitta",
-		Menu: mygo.NewMenu([]*mygo.MenuItem{
+	build := func(running []app.RunningChat) *mygo.Menu {
+		items := []*mygo.MenuItem{
 			item("Show window", show),
 			item("New chat", func() { a.MenuNewChat(); show() }),
 			item("Switch chat…", func() { a.MenuSwitcher(); show() }),
+		}
+		if len(running) > 0 {
+			items = append(items, mygo.Separator())
+			for _, chat := range running {
+				chat := chat
+				items = append(items, item("● "+chat.Title, func() {
+					show()
+					a.MenuOpenChat(chat.ID)
+				}))
+			}
+		}
+		items = append(items,
 			mygo.Separator(),
 			item("Toggle side panel", a.MenuToggleSide),
 			mygo.Separator(),
 			item("Quit", func() { mygo.App.Quit() }),
-		}),
+		)
+		return mygo.NewMenu(items)
+	}
+	tray, err := mygo.NewTray(mygo.TrayOptions{
+		ID:      "pitta",
+		Icon:    trayIcon,
+		ToolTip: "Pitta",
+		Menu:    build(nil),
 	})
 	if err != nil {
 		log.Printf("menu: tray: %v", err)
 		return nil
 	}
 	tray.OnClick(show)
+	app.SetRunningHook(func(running []app.RunningChat) {
+		tray.SetMenu(build(running))
+	})
 	return tray
 }
 
