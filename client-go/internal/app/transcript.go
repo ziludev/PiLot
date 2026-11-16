@@ -11,6 +11,7 @@ import (
 	"pitta/internal/diff"
 	"pitta/internal/i18n"
 	"pitta/internal/icons"
+	"pitta/internal/motion"
 	"pitta/internal/protocol"
 	"pitta/internal/theme"
 	"pitta/internal/turns"
@@ -58,7 +59,9 @@ func (a *App) transcript(c *ui.Context) {
 				if a.conn == ConnDown {
 					title, hint = i18n.T("bridgeDownTitle"), i18n.T("bridgeRetrying")
 				}
-				ui.Column(c).Padding(16, 0).Gap(3).Children(func() {
+				// The empty state comes in the way React's does (#072): a 350 ms
+				// fade while it rises 8 px.
+				ui.Column(c).Padding(16, 0).Gap(3).Transition(motion.FadeIn()).Children(func() {
 					ui.Text(c, title).FontSize(12).TextColor(t.MutedFg).Wrap()
 					if hint != "" {
 						ui.Text(c, hint).FontSize(11).TextColor(t.MutedFg).Wrap()
@@ -286,7 +289,10 @@ func (a *App) stepRow(c *ui.Context, t theme.Tokens, step turns.Step) {
 		if strings.TrimSpace(text) == "" {
 			return
 		}
-		a.stepOutput(c, t, text, failed)
+		// TurnRail's accordion: the output grows into place over 350 ms
+		// instead of appearing at its full height.
+		ui.Column(c).Key(step.Entry.ID).Transition(motion.AccordionTransition()).
+			Children(func() { a.stepOutput(c, t, text, failed) })
 	})
 }
 
