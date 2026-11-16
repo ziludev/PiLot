@@ -60,7 +60,7 @@ func TestCmdKOpensTheSwitcher(t *testing.T) {
 	a.switcher.query = ""
 }
 
-// TestDropImageAttachesIt drops a PNG on the window, which the React client
+// TestDropImageAttachesIt drops a PNG on the window, which the earlier web client
 // could not accept at all.
 func TestDropImageAttachesIt(t *testing.T) {
 	a := snapshotData(t)

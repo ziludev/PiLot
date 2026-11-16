@@ -6,7 +6,7 @@ import (
 	"pitta/internal/theme"
 )
 
-// A native client can offer a键盘 cheat sheet; the React client had none, so
+// A native client can offer a键盘 cheat sheet; the earlier web client had none, so
 // these labels are literals rather than dictionary entries — the Go dictionary
 // must stay identical to i18n.ts.
 

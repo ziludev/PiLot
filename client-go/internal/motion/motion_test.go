@@ -28,9 +28,9 @@ func TestCurvesAreEasings(t *testing.T) {
 	}
 }
 
-// TestTransitionsCarryTheReactNumbers keeps the ports honest: changing a
+// TestTransitionsCarryTheOldNumbers keeps the ports honest: changing a
 // duration here means changing motion.ts too, or the clients drift apart.
-func TestTransitionsCarryTheReactNumbers(t *testing.T) {
+func TestTransitionsCarryTheOldNumbers(t *testing.T) {
 	if Hover().Duration != HoverLift || !Hover().Colors || !Hover().Shadows {
 		t.Fatalf("Hover = %+v", Hover())
 	}

@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Title is the notification heading the React client used for a finished
+// Title is the notification heading the earlier web client used for a finished
 // answer.
 const Title = "Agent · 回答完成"
 

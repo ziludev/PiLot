@@ -1,6 +1,6 @@
 package i18n
 
-// Dictionaries copied verbatim from the React client's i18n.ts, which is kept
+// Dictionaries copied verbatim from the earlier web client's i18n.ts, which is kept
 // under origin/ for comparison; keep the two tables key-for-key aligned.
 
 var zh = map[string]string{

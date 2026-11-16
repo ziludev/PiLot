@@ -40,7 +40,7 @@ func (a *App) projectBar(c *ui.Context, t theme.Tokens) {
 }
 
 // currentProject resolves the selected project, falling back to the first one
-// the bridge listed, as React does.
+// the bridge listed, as the earlier client does.
 func (a *App) currentProject() *protocol.Project {
 	for i := range a.projects {
 		if a.projects[i].ID == a.project {
@@ -217,7 +217,7 @@ func (a *App) confirmRemoveProject() {
 	})
 }
 
-// shortPath replaces the home prefix with ~, as the React menu does.
+// shortPath replaces the home prefix with ~, as the earlier client menu does.
 func shortPath(path string) string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {

@@ -11,7 +11,7 @@ import (
 )
 
 // noRawKeys fails when a view draws a dictionary key instead of its text. The
-// chat menu once asked for "renameChat" and "archiveChat", keys the React
+// chat menu once asked for "renameChat" and "archiveChat", keys the earlier client
 // dictionary never had, so the buttons read "renameChat" and "archiveChat".
 func noRawKeys(t *testing.T, tt *ui.Tester) {
 	t.Helper()
@@ -47,7 +47,7 @@ func TestChatMenuDrawsLabels(t *testing.T) {
 }
 
 // TestChatMenuOffersUnarchive is the archived case: the entry has to offer the
-// opposite action, as the React menu does.
+// opposite action, as the earlier client menu does.
 func TestChatMenuOffersUnarchive(t *testing.T) {
 	a := New(Config{})
 	a.previewImage = -1

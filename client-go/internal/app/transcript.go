@@ -25,7 +25,7 @@ func (a *App) transcript(c *ui.Context) {
 	t := theme.Current(c)
 	built := turns.GroupTurns(a.entries, a.waits)
 	// The window keeps the first frame of a 500-entry chat cheap; the button
-	// opens the rest, as Transcript.tsx's TURN_WINDOW does.
+	// opens the rest, as the transcript's TURN_WINDOW does.
 	window := a.turnWindow
 	if window <= 0 || window > len(built) {
 		window = len(built)
@@ -58,13 +58,13 @@ func (a *App) transcript(c *ui.Context) {
 	scroll.Children(func() {
 		ui.Column(c).Fill().Padding(16, 20).Gap(8).Children(func() {
 			if len(built) == 0 {
-				// A chat nobody picked is not the same as a quiet one: React
-				// says so instead of drawing an empty pane (Transcript.tsx:340).
+				// A chat nobody picked is not the same as a quiet one: the earlier client
+				// says so instead of drawing an empty pane (the transcript view:340).
 				title, hint := i18n.T("noConversation"), i18n.T("noSessionsHint")
 				if a.conn == ConnDown {
 					title, hint = i18n.T("bridgeDownTitle"), i18n.T("bridgeRetrying")
 				}
-				// The empty state comes in the way React's does (#072): a 350 ms
+				// The empty state comes in the way the earlier client's does (#072): a 350 ms
 				// fade while it rises 8 px.
 				ui.Column(c).Padding(16, 0).Gap(3).Transition(motion.FadeIn()).Children(func() {
 					ui.Text(c, title).FontSize(12).TextColor(t.MutedFg).Wrap()
@@ -113,7 +113,7 @@ func (a *App) turnBlock(c *ui.Context, t theme.Tokens, turn *turns.Turn, live, f
 			a.reportBlock(c, t, turns.Text(report))
 		}
 		if len(turn.Steps) > 0 {
-			// The steps hang off a rounded 2px rail, as Transcript.tsx's
+			// The steps hang off a rounded 2px rail, as the transcript's
 			// TurnRail does: a hairline border reads as a table rule instead of
 			// a timeline.
 			ui.Row(c).Gap(7).Children(func() {
@@ -165,7 +165,7 @@ func (a *App) phaseBar(c *ui.Context, t theme.Tokens, turn *turns.Turn) {
 	ui.Text(c, phaseLegend(turn)).FontSize(9).TextColor(t.MutedFg).MaxLines(1)
 }
 
-// phaseLegend names what the bar's colours mean, as TurnDurations.tsx does.
+// phaseLegend names what the bar's colours mean, as the phase bar does.
 func phaseLegend(turn *turns.Turn) string {
 	phases := turn.Stats.Phases
 	parts := make([]string, 0, 3)
@@ -184,13 +184,13 @@ func phaseLegend(turn *turns.Turn) string {
 	return strings.Join(parts, " · ")
 }
 
-// userBubble is the message the person typed, right aligned as in the React
+// userBubble is the message the person typed, right aligned as in the earlier client
 // transcript.
 func (a *App) userBubble(c *ui.Context, t theme.Tokens, text string, images []imagePart, hit bool) {
 	if strings.TrimSpace(text) == "" && len(images) == 0 {
 		return
 	}
-	// The actions live under the pointer, as MessageActions.tsx hides them
+	// The actions live under the pointer, as the earlier client's view hides them
 	// until the message is hovered, so a quiet transcript stays quiet.
 	row := ui.Row(c).Fill().Gap(2).AlignItems(ui.Center)
 	hovered := row.Hovered()
@@ -263,7 +263,7 @@ func (a *App) answerBlock(c *ui.Context, t theme.Tokens, text string, retryText 
 	})
 }
 
-// messageActions is the copy / edit / retry trio of Transcript.tsx:20-46. React
+// messageActions is the copy / edit / retry trio of the transcript view:20-46. the earlier client
 // shows it on hover; mygo has no group hover, so it stays visible in muted
 // grey, which costs a few pixels and hides nothing.
 func (a *App) messageActions(c *ui.Context, t theme.Tokens, text string, retryText string) {
@@ -293,7 +293,7 @@ func (a *App) actionIcon(c *ui.Context, t theme.Tokens, icon *ui.SVG, label stri
 	button.OnClick(onClick)
 }
 
-// reportBlock is an app.feature-report entry: a titled card, as the React
+// reportBlock is an app.feature-report entry: a titled card, as the earlier client
 // client draws it with a puzzle emoji header.
 func (a *App) reportBlock(c *ui.Context, t theme.Tokens, text string) {
 	if strings.TrimSpace(text) == "" {
@@ -327,7 +327,7 @@ func (a *App) stepRow(c *ui.Context, t theme.Tokens, step turns.Step) {
 	}
 	ui.Column(c).Gap(4).Children(func() {
 		// One line per step: a dot, the chevron that says it opens, the label.
-		// All three centre on the same baseline as Transcript.tsx's StepRow.
+		// All three centre on the same baseline as the transcript's StepRow.
 		ui.Row(c).Gap(6).AlignItems(ui.Center).PaddingY(1).Children(func() {
 			ui.Row(c).Size(5, 5).Radius(3).Background(stepColor(step, t))
 			chevron := icons.ChevronRight
@@ -520,7 +520,7 @@ func noteText(entry protocol.Entry) string {
 	return ""
 }
 
-// jumpBar is the "N new messages / jump to latest" strip Transcript.tsx:331
+// jumpBar is the "N new messages / jump to latest" strip the transcript view:331
 // floats over the end of the chat: it only appears once the user has scrolled
 // away from the newest turn.
 func (a *App) jumpBar(c *ui.Context) {
@@ -549,7 +549,7 @@ func (a *App) jumpBar(c *ui.Context) {
 }
 
 // followScroll keeps the newest turn in view until the user scrolls away, and
-// counts what arrives while they are away: Transcript.tsx:231 starts stuck and
+// counts what arrives while they are away: the transcript view:231 starts stuck and
 // :286 jumps to the end whenever entries grow.
 func (a *App) followScroll() {
 	state := &a.transcriptScroll

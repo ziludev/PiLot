@@ -99,7 +99,7 @@ func TestIMECompositionDoesNotSend(t *testing.T) {
 		t.Fatalf("draft after commit = %q", a.draft)
 	}
 
-	// Cmd+Enter sends what is committed, as the React composer does.
+	// Cmd+Enter sends what is committed, as the earlier client composer does.
 	tt.Key(ui.Super, ui.KeyEnter)
 	tt.Frame()
 	select {

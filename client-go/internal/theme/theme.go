@@ -1,5 +1,5 @@
-// Package theme maps the React client's shadcn zinc tokens
-// (client/src/index.css) onto what mygo's ui package can color.
+// Package theme maps the earlier web client's shadcn zinc tokens
+// (the old client/index.css) onto what mygo's ui package can color.
 package theme
 
 import "github.com/egoist/mygo/ui"
@@ -42,7 +42,7 @@ type Tokens struct {
 	SidebarBorder ui.Color
 }
 
-// Light is :root from client/src/index.css, oklch converted to sRGB.
+// Light is :root from the old client/index.css, oklch converted to sRGB.
 func Light() Tokens {
 	return Tokens{
 		Background: ui.Hex("#ffffff"),
@@ -75,7 +75,7 @@ func Light() Tokens {
 	}
 }
 
-// Dark is .dark from client/src/index.css. The borders are white at 10% and
+// Dark is .dark from the old client/index.css. The borders are white at 10% and
 // 15% there, so they stay translucent here.
 func Dark() Tokens {
 	return Tokens{

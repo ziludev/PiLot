@@ -1,6 +1,6 @@
 // Package api is the Go client of the local pi-durable-agent bridge: the same
-// HTTP paths and socket the React client (client/src/lib/api.ts,
-// client/src/store.ts) uses.
+// HTTP paths and socket the earlier web client (the old client/lib/api.ts,
+// the old client/the old client's store) uses.
 package api
 
 import (
@@ -33,7 +33,7 @@ func New(baseURL, token string) *Client {
 	}
 }
 
-// StatusError is a non-2xx reply. Its message matches the React client's
+// StatusError is a non-2xx reply. Its message matches the earlier web client's
 // "GET /api/state → 500 Internal Server Error".
 type StatusError struct {
 	Method string

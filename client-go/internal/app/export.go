@@ -107,6 +107,6 @@ func exportName(title string, conversationID int) string {
 	return fmt.Sprintf("%s #%d.md", name, conversationID)
 }
 
-// i18nExported is the confirmation the export leaves in the rail; the React
+// i18nExported is the confirmation the export leaves in the rail; the earlier client
 // client has no export, so it has no key in the dictionary.
 const i18nExported = "Chat exported"

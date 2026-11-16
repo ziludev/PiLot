@@ -220,7 +220,7 @@ func TestFindBarJumpsToAnOldTurn(t *testing.T) {
 	}
 }
 
-// TestCmdFOpensFindBar covers the window-wide shortcut ConvSearch.tsx binds:
+// TestCmdFOpensFindBar covers the window-wide shortcut the earlier client's view binds:
 // the root's OnShortcut has to fire even with nothing focused.
 func TestCmdFOpensFindBar(t *testing.T) {
 	a := New(Config{})

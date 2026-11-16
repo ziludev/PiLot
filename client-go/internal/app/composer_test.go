@@ -39,7 +39,7 @@ func composerServer(t *testing.T) (*httptest.Server, <-chan struct {
 }
 
 // TestCmdEnterSendsEnterBreaksTheLine is the composer's keyboard contract, as
-// the React one has it: Cmd+Enter sends, Enter and Shift+Enter break the line
+// the earlier client one has it: Cmd+Enter sends, Enter and Shift+Enter break the line
 // so a Chinese input session can confirm candidates with Enter.
 func TestCmdEnterSendsEnterBreaksTheLine(t *testing.T) {
 	srv, sent := composerServer(t)

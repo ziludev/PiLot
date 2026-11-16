@@ -75,7 +75,7 @@ func TestRailTitlesFallBackToTheKind(t *testing.T) {
 			t.Fatalf("rail is missing %q, shows %q", want, tt.Texts())
 		}
 	}
-	// Rows spend: cents under a dollar, tenths above it, as the React rail.
+	// Rows spend: cents under a dollar, tenths above it, as the rail.
 	for _, want := range []string{"$0.50", "$2.0"} {
 		if !tt.HasText(want) {
 			t.Fatalf("rail is missing the spend %q, shows %q", want, tt.Texts())

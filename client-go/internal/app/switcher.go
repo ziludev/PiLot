@@ -22,7 +22,7 @@ const switcherHint = "Jump to a chat…"
 const paletteHint = "Run a command…  (⌫ to search chats)"
 
 // switcher is the Cmd+K jump list: every chat, newest first, narrowed as you
-// type. It exists because a native window can bind a shortcut that the React
+// type. It exists because a native window can bind a shortcut that the earlier client
 // client only reached through the rail's search field.
 type switcher struct {
 	open  bool
@@ -174,7 +174,7 @@ func switcherIcon(c *ui.Context, t theme.Tokens, s protocol.Surface) {
 }
 
 // dropPaths handles files dropped on the window: images become attachments,
-// other files open in the viewer. The React client could only offer a path
+// other files open in the viewer. The earlier web client could only offer a path
 // field.
 func (a *App) dropPaths(paths []string) {
 	for _, path := range paths {

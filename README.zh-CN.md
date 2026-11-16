@@ -13,7 +13,7 @@
 - **存储**：SQLite（`.data/agent.sqlite`），单进程独占，重启原样恢复。
 - **三个入口**：
   - 飞书自建应用（长连接，不需要公网 IP / 域名 / 证书）
-  - `client/`：MyGo 桌面 app（Go 窗口 + React + shadcn/ui Nova）
+  - `client-go/`：原生 macOS 桌面 app（Go + mygo/ui，Metal 直绘，无 webview）
   - `durable`：CLI
 
 ![三个入口，一个进程，一份 SQLite](assets/readme/architecture.svg)
@@ -200,14 +200,13 @@ durable doctor            # 同一套读回校验，随时可跑
 ### 桌面客户端
 
 ```bash
-cd client
-npm install
-npm run dev      # 开发：Go 窗口 + Vite 热更新
-npm run build        # 产出 build/darwin-arm64/Pitta.app 与 .dmg
-npm run install-app  # 同一份装进 /Applications（应用列表里能看到）
+cd client-go
+go run .                         # 直接连本地桥，开窗
+go tool mygo build -skip-dmg     # 产出 build/darwin-arm64/Pitta.app
 ```
 
-前端栈：shadcn/ui **Nova**（`radix-nova`）+ Tailwind v4 · Lucide 图标 · Motion 动效 · react-resizable-panels 三栏 · dnd-kit 会话排序 · Zustand 状态 · next-themes 主题。
+窗口由 mygo/ui 在 Metal 上直绘：没有 webview，也没有前端构建步骤。功能对照、快捷键与
+与旧 React 客户端（本次删除）的差异记录见 `client-go/README.md` 与 `client-go/docs`。
 
 ---
 
@@ -299,11 +298,11 @@ src/
 evals/             离线评测台：guard（审批判定）+ contract（config↔.env.example↔README），`npm run eval`
 docs/            只有一页需要细读的：飞书控制台按菜单列，以及每行配错会出现的报错
 
-client/            MyGo 桌面 app
-  main.go          Go 窗口 + 绑定（桥接地址/token、agentctl 控制、原生通知）
-  src/components/  Transcript / TurnRail（步骤时间线）/ Composer / SideRail / SidePanel（改动·提交·用量·记忆）…
-  src/store.ts     Zustand：会话/条目/live/记忆/改动/审批/项目/语言
-  src/lib/turn-state.ts  一轮渲染成什么（idle/thinking/tool/streaming/settled），窗口自己没有第二套判断
+client-go/        桌面 app（Go + mygo/ui，无 webview）
+  main.go         窗口、菜单、快捷键与系统集成（通知、托盘、深链）
+  internal/app    窗口与视图：会话栏、transcript、composer、模型选择、命令面板、多窗口
+  internal/side   改动 / 文件 / 提交面板      internal/ops  记忆 / 访问 / 用量
+  internal/turns  一轮渲染成什么（idle/thinking/tool/streaming/settled），窗口没有第二套判断
 ```
 
 ---

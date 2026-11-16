@@ -177,6 +177,5 @@ async function countQuietCatches(): Promise<number> {
     }
   };
   await walk("src");
-  await walk("client/src");
   return total;
 }

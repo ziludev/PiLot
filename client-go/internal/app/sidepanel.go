@@ -13,13 +13,13 @@ import (
 	"pitta/internal/theme"
 )
 
-// sidePanel is the right-hand column: the four tabs of SidePanel.tsx, each
+// sidePanel is the right-hand column: the four tabs of the earlier client's view, each
 // reading data the app already loaded and every action sent back through a
 // callback.
 func (a *App) sidePanel(c *ui.Context) {
 	t := theme.Current(c)
 	// Switching tabs swaps the panel's content: it rises into place as the
-	// React side panel's tab panels do.
+	// the earlier client side panel's tab panels do.
 	ui.Column(c).Fill().Background(t.Sidebar).Key(string(a.sideTab)).
 		Transition(motion.FadeIn()).Children(func() {
 		a.sideTabs(c, t)

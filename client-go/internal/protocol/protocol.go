@@ -1,5 +1,5 @@
-// Package protocol holds the wire shapes of the agent bridge, as the React
-// client declared them in client/src/lib/api.ts and client/src/store.ts.
+// Package protocol holds the wire shapes of the agent bridge, as the earlier client
+// client declared them in the old client/lib/api.ts and the old client/the old client's store.
 //
 // Entries are the one shape the backend keeps extending: their Data (and
 // Model) stay raw JSON here so that a field this client does not know yet

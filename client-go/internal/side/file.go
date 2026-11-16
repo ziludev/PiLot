@@ -26,7 +26,7 @@ type FileProps struct {
 }
 
 // FileView draws one numbered line per row and scrolls sideways on long
-// lines, as the React FileViewer scrolls its pre block.
+// lines, as the earlier client FileViewer scrolls its pre block.
 func FileView(c *ui.Context, p FileProps) {
 	t := theme.Current(c)
 	ui.Column(c).Fill().Background(t.Background).Children(func() {

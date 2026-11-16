@@ -22,12 +22,12 @@ func (a *App) composer(c *ui.Context) {
 			a.approvalBar(c, t)
 		}
 		a.imageStrip(c, t)
-		// Enter breaks the line and Cmd+Enter sends, as the React composer
+		// Enter breaks the line and Cmd+Enter sends, as the earlier client composer
 		// does: a Chinese input session confirms candidates with Enter, so
 		// sending on it would cut sentences short.
 		ui.TextArea(c, &a.draft).Fill().FontSize(13).MinHeight(64).Placeholder(i18n.T("placeholder")).
 			// An image on the clipboard becomes an attachment instead of a
-			// paste, which the React client could not do at all: its paste
+			// paste, which the earlier web client could not do at all: its paste
 			// handler only ever saw text.
 			OnPaste(func(text string) bool { return a.pasteImage(c) }).
 			OnTextKey(func(k ui.TextKey) bool {
@@ -42,7 +42,7 @@ func (a *App) composer(c *ui.Context) {
 				a.sendText(text)
 				return true
 			})
-		// The bottom row of Composer.tsx: picker, a hairline, the steer box on
+		// The bottom row of the composer: picker, a hairline, the steer box on
 		// the left; the send button on the right.
 		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
 			a.modelPicker(c)
@@ -118,7 +118,7 @@ func waitedSuffix(createdAt int64) string {
 	return "  " + i18n.T("waited") + " " + strconv.FormatInt(seconds, 10) + "s"
 }
 
-// truncate cuts s to max runes, as the React bar slices summaries to 240.
+// truncate cuts s to max runes, as the earlier client bar slices summaries to 240.
 func truncate(s string, max int) string {
 	runes := []rune(s)
 	if len(runes) <= max {

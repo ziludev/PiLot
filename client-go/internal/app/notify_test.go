@@ -8,7 +8,7 @@ import (
 	"pitta/internal/protocol"
 )
 
-// TestMaybeNotifyOnlyWhenHidden checks the rule the React transcript followed:
+// TestMaybeNotifyOnlyWhenHidden checks the rule the transcript followed:
 // nothing is posted while the window has focus, one answer is posted once, and
 // an empty answer is never posted.
 func TestMaybeNotifyOnlyWhenHidden(t *testing.T) {

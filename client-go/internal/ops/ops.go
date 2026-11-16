@@ -1,4 +1,4 @@
-// Package ops draws the four read-only panels the React client's side panel and
+// Package ops draws the four read-only panels the earlier web client's side panel and
 // task dialog show: memory, access, the usage calendar and one task's detail.
 //
 // The panels own no data. Every value arrives in Props and every action leaves
@@ -16,8 +16,8 @@ import (
 	"pitta/internal/theme"
 )
 
-// The dictionary carries the React client's copy, and these labels have no key
-// there because the React panels hardcode them inline: the English words stand
+// The dictionary carries the earlier web client's copy, and these labels have no key
+// there because the earlier client panels hardcode them inline: the English words stand
 // in for both languages.
 const (
 	levelLabelAll    = "All"

@@ -1,6 +1,7 @@
 # 功能对齐表（React 客户端 → Go/mygo）
 
-基线：`/Users/alexwang/learn/pi-durable-agent/client/src`（React 19 + shadcn + zustand）。
+基线：被替换的 React 客户端（React 19 + shadcn + zustand）；该目录已在「只保留 mygo 客户端」这次改动里删除，
+本文与 `docs/history.md` 一起保留其记录。
 本仓：`/Users/alexwang/work/pitta-mygo`（Go + mygo/ui v0.9.1，原生 GPU 渲染；版本选择与降级实验见 `docs/mygo-version.md`）。
 状态用词：`TODO` 未开始 / `WIP` 进行中 / `done` 已对齐 / `diff` 已实现但与 React 有差异 / `n/a` 不复刻（并说明原因）。
 
@@ -37,7 +38,7 @@
 | `composerDraft` | 「编辑重发」推入输入框 | `App.draft` ← 气泡上的 `messageActions` 编辑按钮 | done |
 | `surfaceFilter` | all/client/feishu 过滤 | `App.prefs.SurfaceFilter` | done |
 
-## 2. 组件（`client/src/components` 下 24 个 `.tsx`，另有 shadcn 的 `ui/` 目录）
+## 2. 组件（原 React 客户端的 24 个组件文件，另有 shadcn 的 `ui/` 目录）
 
 | 组件 | 职责 | Go 落点 | 状态 |
 | --- | --- | --- | --- |
@@ -66,9 +67,9 @@
 | `BotAvatar.tsx` | rail 里会随工作状态下表情的饼脸头像 | `internal/avatar`（`avatar.View`） | done |
 | `Images.tsx` | 输入区图片附件（粘贴）、会话内缩略图与全屏预览 | `internal/app/images.go`（Paperclip→路径对话框、`ui.DecodeBitmap` 缩略图、预览弹层、上限 3 张） | diff |
 
-`client/src/components/ui`（17 个 shadcn 原语）不复刻：mygo `ui` 包自带 Button/Select/Popover/Modal/Tabs/Segmented/Tooltip 等，外观由 `internal/theme` 的 shadcn token 决定。
+原客户端 `components/ui`（17 个 shadcn 原语）不复刻：mygo `ui` 包自带 Button/Select/Popover/Modal/Tabs/Segmented/Tooltip 等，外观由 `internal/theme` 的 shadcn token 决定。
 
-## 3. lib 模块（`client/src/lib`，8 个文件）
+## 3. lib 模块（原客户端 `lib`，8 个文件）
 
 | 模块 | 职责 | Go 落点 | 状态 |
 | --- | --- | --- | --- |
@@ -291,7 +292,7 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 ### 2026-11 窗口位置、⌘Q 确认、审批跨窗口同步（第 38 轮）
 
 - **窗口 frame 记忆**：`prefs` 增 `windowX/Y/W/H`，关闭时 `rememberFrame` 写入、启动时 `restoreFrame` 还原；坐标 (0,0) 视为「从未放置」，交给窗口管理器决定。
-- **⌘Q 有回合在跑时先确认**：`askQuit` 检查 `busy`/`live.Run`/任务状态（running/queued/pending/waiting），有活就弹 Modal（`A turn is still running`），确认后 `savePrefsNow()` + `mygo.App.Quit()`。文案是常量而非 i18n 键，因为字典要与 `client/src/i18n.ts` 保持同键。
+- **⌘Q 有回合在跑时先确认**：`askQuit` 检查 `busy`/`live.Run`/任务状态（running/queued/pending/waiting），有活就弹 Modal（`A turn is still running`），确认后 `savePrefsNow()` + `mygo.App.Quit()`。文案是常量而非 i18n 键，因为字典要与内置的 `internal/i18n/origin/i18n.ts` 保持同键。
 - **审批在两个窗口间同步**：`broadcastApprovals` 与 `broadcastSurfaces` 同一个 hub，审批列表变化立即推到其他窗口（含角标与标题刷新），不必等各自的 5 秒轮询。
 - 快捷键面板 13 条（加 ⌘Q）。
 ### 2026-11 设置面板、长等待闪烁、多窗口共用会话（第 39 轮）

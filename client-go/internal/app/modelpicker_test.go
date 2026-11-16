@@ -136,7 +136,7 @@ func TestThinkingRowOnlyOffersWhatTheModelHas(t *testing.T) {
 	}
 }
 
-// TestModelPickerWalksWithArrowKeys covers ModelPicker.tsx's keyboard path:
+// TestModelPickerWalksWithArrowKeys covers the earlier client's view's keyboard path:
 // the search box keeps focus, the arrows move the highlight, Enter picks.
 func TestModelPickerWalksWithArrowKeys(t *testing.T) {
 	chosen := make(chan map[string]any, 4)

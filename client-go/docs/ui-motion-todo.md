@@ -1,6 +1,6 @@
 # React 客户端的 UI/UX 与动效：在 mygo 上复刻到什么程度
 
-对照对象：`client/src/index.css`、`client/src/lib/motion.ts`、各组件里的 Tailwind 类与 Framer Motion 用法。
+对照对象：被删除的 React 客户端的 `index.css`、`lib/motion.ts`、各组件里的 Tailwind 类与 Framer Motion 用法（记录留档，见 `docs/history.md`）。
 mygo 版本：v0.9.1（`go.mod`）。结论先行：**动效本身 mygo 完全接得住**（`Transition`、`AnimateTo`、弹簧 `Smooth/Snappy/Bouncy`、`CubicBezier`、`Enter`/`Exit` 的 `Motion{Collapse,Opacity,X,Y}`），**接不住的是"背景模糊"这一类合成效果**（`backdrop-filter`）。
 
 曲线与时长已按 React 的 `motion.ts` 原值搬到 `internal/motion/motion.go`（`EaseInOutCubic`/`EaseOutCubic`、`Accordion 350ms`、`Popover 280/150ms`、`Tabs 250ms`、`HoverLift 300ms`、`EmptyState 350ms`、位移 2/6/8 px），并有 `internal/motion/motion_test.go` 钉住端点与单调性。
