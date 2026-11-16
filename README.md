@@ -157,16 +157,10 @@ git clone https://github.com/ziludev/pitta.git && cd pitta
    which menu fixes it.
 6. **launchd** — hands the job over so it starts at login and restarts after a crash.
 
-What to click in the Feishu developer console (open.feishu.cn → your app):
-
-| Menu | Set |
-|---|---|
-| 添加应用能力 | 机器人 |
-| 权限管理 | `im:message`, `im:message:send_as_bot`, `im:message.p2p_msg:readonly`, `im:message.group_at_msg:readonly`; add `im:message.group_msg` if you want topic replies without an @mention; add `contact:user.base:readonly` so cards and quotes name people instead of showing `ou_…` |
-| 事件与回调 → 订阅方式 | **使用长连接接收事件** — no public IP, domain or certificate |
-| 事件与回调 → 回调 | `card.action.trigger` (the approval and Continue buttons) |
-| 事件与回调 → 事件 | `im.message.receive_v1` |
-| 版本管理与发布 | 创建版本 → 申请发布. An unpublished change is not a change |
+What to click in the Feishu developer console (open.feishu.cn → your app) is one page:
+**[docs/feishu-setup.md](docs/feishu-setup.md)** — bot capability, six scopes, long connection, one
+callback, one event, and publishing. `setup`'s read-back names the same items, so a ✗ tells you
+which row of that page you skipped.
 
 Then:
 
@@ -260,6 +254,7 @@ src/
   ketchup.ts       the on-demand "what happened" read
 
 evals/             the offline bench: guard (approval decisions) and contract (config ↔ .env.example ↔ README)
+docs/              the one page with edges: the Feishu console, by menu, with the failures each row causes
 client/            MyGo app: main.go (window and bindings) + src/ (Transcript, TurnRail, Composer, SidePanel, store)
 ```
 
