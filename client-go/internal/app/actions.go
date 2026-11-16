@@ -1,5 +1,10 @@
 package app
 
+import (
+	"log"
+	"os/exec"
+)
+
 // The exported actions below are what the application menu calls. They hop to
 // the UI thread through apply, so the menu can live on the main thread while
 // the state stays where the view owns it.
@@ -57,3 +62,19 @@ func (a *App) MenuRestartBridge() { a.control("restart") }
 
 // MenuBackup runs the agent's backup script.
 func (a *App) MenuBackup() { a.control("backup") }
+
+// previewFile opens the file in the system's preview window, which reads PDFs,
+// images and Office documents that the line view cannot show. qlmanage is the
+// Quick Look helper every macOS install carries; elsewhere the file opens in
+// whatever handles it.
+func (a *App) previewFile() {
+	if a.filePath == "" {
+		return
+	}
+	path := a.filePath
+	go func() {
+		if err := exec.Command("qlmanage", "-p", path).Start(); err != nil {
+			log.Printf("app: preview %s: %v", path, err)
+		}
+	}()
+}
