@@ -87,6 +87,7 @@ type App struct {
 	// Layout and widget state: UI thread only, never read from a goroutine.
 	railWidth     float32
 	railListState ui.ListState
+	rows          []railRow
 	prefs         prefs
 	md            markdown.Options
 	steer         bool

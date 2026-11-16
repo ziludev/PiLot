@@ -128,8 +128,17 @@ func TestSnapshotApprovalAndModels(t *testing.T) {
 
 	a = snapshotData(t)
 	a.modelOpen = false
+	// Two pending calls, so this frame differs from the plain main window: an
+	// approval snapshot that is byte-identical to the light one proves nothing.
+	a.approvals = append(a.approvals, protocol.PendingApproval{
+		CallID: "call_2", GrantKey: "grant_2", Tool: "edit", Reason: "写入仓库文件",
+		Summary: "internal/app/rail.go", SurfaceID: "client:abc", CreatedAt: time.Now().UnixMilli() - 12_000,
+	})
 	tt = ui.NewTester(a.View, 1180, 820)
 	tt.Frame()
+	if !tt.HasText("internal/app/rail.go") {
+		t.Fatalf("second approval did not draw: %q", tt.Texts())
+	}
 	writePNG(t, "/tmp/pitta-app-approval.png", tt.Image())
 	if !tt.HasText("destructive command") {
 		t.Fatal("approval bar did not draw")

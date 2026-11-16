@@ -20,34 +20,33 @@
 | `access` / `audit` | 授权表与审计尾 | `ops.AccessPanel` + `loadAccess` | done |
 | `taskDetail` | 任务详情弹窗 | `App.taskOpen` → `ops.TaskDialog` | done |
 | `changes` / `changesLoading` / `commitDiffs` | 未提交改动、提交补丁缓存 | `App.changes/changesLoading/commitDiffs` → `side.ChangesView/CommitsView` | done |
-| `order` / `pinned` | localStorage 排序/置顶 | `App.prefs.Order/Pinned` | done |
+| `order` / `pinned` | 拖拽排序与置顶（落盘） | `App.prefs.Order/Pinned` ← `railListState.Reorder` → `reorderChats`（拖到首行会置顶，同 `Rail.tsx:302-316`） | done |
 | `tab` | SidePanel 的 changes/memory/access/usage | `App.sideTab` + `App.sideOpen` | done |
 | `view`（transcript / file） | transcript 与文件视图互斥 | `App.view`/`file`/`filePath` → `side.FileView` | done |
 | `filter` | 会话列表按标题过滤 | `App.query`（输入即过滤，`sortedSurfaces` 用 `strings.Contains`） | done |
 | `review` | 行级评审批注（可发送给 agent） | `App.review/reviewDraft/reviewPick` + `side.ChangesView` | done |
 | `focusEntry` | 搜索命中后把视图滚到那一条 | `App.focusEntry` → `transcript` 的窗口锚点 `focusedTurn()` | done |
-| `convQuery` / `convMatchIndex` | 命中轮次列表与当前命中下标 | `App.convQuery/convMatches/matchIndex` → `findBar` 的 `N/M` 与上下步进 | done |
 | `showArchived` | 是否显示已归档会话 | `App.showArchived` → `railArchiveToggle` | done |
 | `model` / `thinkingLevel` / `models` / `modelsLoadedAt` | 模型与思考档 | `App.model/thinking/models` | done |
 | `favorites` / `recents` | 收藏与最近模型 | `App.modelsFav/modelsRecent`（落盘 prefs） | done |
 | `usageDays` / `usage` | 用量日历与花费 | `ops.UsageCalendar` + `App.usage/usageDays` | done |
 | `approvals` / `approvalWaits` | 待批工具调用、等待时间窗 | `App.approvals/waits` → `approvalBar` | done |
-| `convQuery` / `convMatches` / `matchIndex` | 会话内搜索（rail 列表） | `findBar` + `searchTurns/stepMatch/focusedTurn` | diff |
+| `convQuery` / `convMatches` / `matchIndex` | 会话内查找：命中轮次、当前命中下标（⌘F） | `App.convQuery/convMatches/matchIndex` → `findBar` 的 `N/M` 与上下步进（`searchTurns/stepMatch/focusedTurn`） | done |
 | `errors` | 错误面板（角标 + 列表 + 清空） | `App.errs` → `errorPanel` | done |
-| `git` / `feishu` | 侧栏 Git 与飞书健康 | `App.git` → `side.CommitsView`；`App.feishu` 仅数据 | diff |
-| `composerDraft` | 「编辑重发」推入输入框 | `App.draft` | done |
+| `git` / `feishu` | 侧栏 Git 与飞书健康 | `App.git` → `side.CommitsView`；`App.feishu` → `railFeishu` 断连横幅（数据 + 渲染） | done |
+| `composerDraft` | 「编辑重发」推入输入框 | `App.draft` ← 气泡上的 `messageActions` 编辑按钮 | done |
 | `surfaceFilter` | all/client/feishu 过滤 | `App.prefs.SurfaceFilter` | done |
 
 ## 2. 组件（`client/src/components` 下 24 个 `.tsx`，另有 shadcn 的 `ui/` 目录）
 
 | 组件 | 职责 | Go 落点 | 状态 |
 | --- | --- | --- | --- |
-| `Rail.tsx` | 会话列表、过滤、置顶/归档、任务、底部控制 | `internal/app/rail.go` + `railview.go` | done |
+| `Rail.tsx` | 会话列表、拖拽排序、过滤、置顶/归档、任务、底部控制 | `internal/app/rail.go` + `railview.go`（`ListState.Reorder` → `reorderChats`，拖到首行即置顶） | done |
 | `ConvSearch.tsx` | ⌘F 打开的会话内查找条（上一个/下一个命中） | `findBar`（Search.go） | done |
 | `ProjectBar.tsx` | 项目切换 / 打开 / 移除 | `internal/app/projectbar.go` | done |
-| `Transcript.tsx` | 回合列表、左右气泡、统计条、窗口化、通知 | `internal/app/transcript.go`（60 轮窗口 + earlierTurns） | diff |
-| `TurnRail.tsx` | 每步的阶段色点竖轨 | `stepRow` 前置色点（无竖连线） | diff |
-| `TurnDurations.tsx` | 思考/工具/等待耗时分段条 | `phaseBar`（180×3px 分段条，无图例） | diff |
+| `Transcript.tsx` | 回合列表、左右气泡、复制/编辑/重试、窗口化、通知 | `internal/app/transcript.go`（60 轮窗口 + earlierTurns） | diff |
+| `TurnRail.tsx` | 每步的阶段色点竖轨 | `stepRow` 前置色点 + 步骤组左侧 1px 竖线（`transcript.go` 的 `BorderWidth(0,0,0,1)`） | diff |
+| `TurnDurations.tsx` | 思考/工具/等待耗时分段条 | `phaseBar`（180×3px 分段条 + `phaseLegend` 逐段时长） | diff |
 | `ToolOutput.tsx` | 工具输出（diff/文本/失败色） | `stepOutput` + `diff.View` | done |
 | `Composer.tsx` | 输入、steer、发送、模型入口 | `internal/app/composer.go`（Cmd/Ctrl+Enter 发送） | done |
 | `ApprovalBar.tsx` | 审批三按钮 + 等待秒数 | `approvalBar`（composer.go） | done |
@@ -99,6 +98,10 @@
 13. **日志入口**：React rail 底部有 open-logs 按钮，这里同样接了「日志」（`bridge.OpenLogs()` 用 Finder 打开 `<home>/logs`），行为一致。
 
 rail 的外观（头像、状态行、搜索命中）见 `docs/snapshots/rail-{light,dark}.png`，由 `TestSnapshotRail` 生成，可重跑。
+
+消息级操作（复制 / 编辑重发 / 重试，`Transcript.tsx:20-46`）实现在 `internal/app/transcript.go` 的 `messageActions`：复制走 `c.Services().WriteClipboard` + `c.Toast("已复制")`，编辑把原文写回 `App.draft`，重试重发该回合的用户输入。React 是 hover 才显形（`group-hover:opacity-100`），mygo 没有分组 hover，这里常显为淡灰小图标。
+
+拖拽排序用 mygo 的 `ui.List` 原生行拖拽（`ListState.Reorder(func(rows []int, to int))`），落盘到 `prefs.Order`；`sortedSurfaces` 按「置顶 → order 下标 → 会话号倒序」排序，与 `Rail.tsx:227-239` 一致。差别只有 React 的 dnd-kit 有拖拽预览浮层，这里用列表自带的拖影。
 
 ## 5. 写类操作的真实后端验证
 

@@ -100,7 +100,11 @@ func (a *App) turnBlock(c *ui.Context, t theme.Tokens, turn *turns.Turn, live, f
 			})
 		}
 		for _, final := range turn.Finals {
-			a.answerBlock(c, t, turns.Text(final))
+			retry := ""
+			if turn.User != nil {
+				retry = turns.Text(*turn.User)
+			}
+			a.answerBlock(c, t, turns.Text(final), retry)
 		}
 		if live {
 			a.liveLine(c, t, turn)
@@ -162,6 +166,7 @@ func (a *App) userBubble(c *ui.Context, t theme.Tokens, text string, images []im
 	}
 	ui.Row(c).Fill().Children(func() {
 		ui.Row(c).Grow(1).Children(func() {})
+		a.messageActions(c, t, text, text)
 		ui.Column(c).MaxWidth(760).Padding(8, 11).Gap(6).Radius(10).Background(t.Muted).Children(func() {
 			if len(images) > 0 {
 				a.imagePreviews(c, t, images)
@@ -174,13 +179,47 @@ func (a *App) userBubble(c *ui.Context, t theme.Tokens, text string, images []im
 }
 
 // answerBlock renders the agent's reply as Markdown, which is what it writes.
-func (a *App) answerBlock(c *ui.Context, t theme.Tokens, text string) {
+func (a *App) answerBlock(c *ui.Context, t theme.Tokens, text string, retryText string) {
 	if strings.TrimSpace(text) == "" {
 		return
 	}
-	ui.Column(c).Fill().Padding(8, 11).Radius(10).Border(1, t.Border).Background(t.Card).Children(func() {
-		markdown.View(c, text, &a.md)
+	ui.Row(c).Fill().Gap(2).AlignItems(ui.Start).Children(func() {
+		ui.Column(c).MaxWidth(760).Padding(8, 11).Radius(10).Border(1, t.Border).Background(t.Card).Children(func() {
+			markdown.View(c, text, &a.md)
+		})
+		ui.Row(c).Grow(1).Children(func() {})
+		a.messageActions(c, t, text, retryText)
 	})
+}
+
+// messageActions is the copy / edit / retry trio of Transcript.tsx:20-46. React
+// shows it on hover; mygo has no group hover, so it stays visible in muted
+// grey, which costs a few pixels and hides nothing.
+func (a *App) messageActions(c *ui.Context, t theme.Tokens, text string, retryText string) {
+	ui.Row(c).Gap(1).Padding(0, 2).Children(func() {
+		a.actionIcon(c, t, icons.Copy, i18n.T("copy"), func() {
+			c.Services().WriteClipboard(text)
+			c.Toast(i18n.T("copied"))
+		})
+		a.actionIcon(c, t, icons.Pencil, i18n.T("edit"), func() {
+			a.apply(func() { a.draft = retryText; a.invalidate() })
+		})
+		if retryText != "" {
+			a.actionIcon(c, t, icons.RotateCcw, i18n.T("retry"), func() { a.sendText(retryText) })
+		}
+	})
+}
+
+// actionIcon is a borderless icon button, the size MessageActions uses.
+func (a *App) actionIcon(c *ui.Context, t theme.Tokens, icon *ui.SVG, label string, onClick func()) {
+	button := ui.ButtonBase(c).Size(20, 20).Radius(4).Cursor(ui.CursorPointer)
+	button.Label(label)
+	button.Tooltip(label)
+	if button.Hovered() {
+		button.Background(t.Accent)
+	}
+	button.Children(func() { ui.Icon(c, icon).Size(11, 11).TextColor(t.MutedFg) })
+	button.OnClick(onClick)
 }
 
 // reportBlock is an app.feature-report entry: a titled card, as the React

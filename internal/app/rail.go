@@ -31,6 +31,7 @@ var railOthersOpen = true
 func (a *App) rail(c *ui.Context) {
 	t := theme.Current(c)
 	rows := a.railRows()
+	a.rows = rows
 	ui.Column(c).Fill().Background(t.Sidebar).Border(1, t.SidebarBorder).Children(func() {
 		a.railHeader(c, t)
 		if a.conn == ConnDown {
@@ -220,6 +221,16 @@ func (a *App) railList(c *ui.Context, t theme.Tokens, rows []railRow) {
 		a.railEmpty(c, t)
 		return
 	}
+	a.railListState.Key = func(row int) any {
+		if row < 0 || row >= len(rows) {
+			return row
+		}
+		if rows[row].kind != railChatRow {
+			return "header"
+		}
+		return rows[row].surface.ConversationID
+	}
+	a.railListState.Reorder = func(moved []int, to int) { a.reorderChats(moved, to) }
 	ui.List(c, &a.railListState, len(rows), func(i int) {
 		a.railRow(c, t, rows[i])
 	}).Grow(1).FillWidth()
@@ -462,10 +473,16 @@ func (a *App) sortedSurfaces() []protocol.Surface {
 		}
 		out = append(out, s)
 	}
+	// Pinned chats keep their own order, then the drag order the user saved,
+	// then newest first — the comparison Rail.tsx:227-239 uses.
 	sort.SliceStable(out, func(i, j int) bool {
 		pi, pj := a.isPinned(out[i].ConversationID), a.isPinned(out[j].ConversationID)
 		if pi != pj {
 			return pi
+		}
+		oi, oj := a.orderIndex(out[i].ConversationID), a.orderIndex(out[j].ConversationID)
+		if oi >= 0 && oj >= 0 {
+			return oi < oj
 		}
 		return out[i].ConversationID > out[j].ConversationID
 	})
@@ -591,4 +608,93 @@ func (a *App) runningTasks() int {
 		}
 	}
 	return n
+}
+
+// orderIndex is where the user last dragged this chat, or -1 when they never
+// have: prefs.Order holds conversation ids front to back.
+func (a *App) orderIndex(conversationID int) int {
+	for i, id := range a.prefs.Order {
+		if id == conversationID {
+			return i
+		}
+	}
+	return -1
+}
+
+// reorderChats saves the drag the list reported: the rows moved, and the row
+// they now sit above. Rows include the header of a folded project, so the
+// mapping goes through the row list drawn last frame.
+func (a *App) reorderChats(moved []int, to int) {
+	if len(moved) == 0 {
+		return
+	}
+	order := make([]int, 0, len(a.prefs.Order)+len(moved))
+	for _, surface := range a.sortedSurfaces() {
+		order = append(order, surface.ConversationID)
+	}
+	if len(order) == 0 {
+		return
+	}
+	// The drag reported row indices of the drawn list; translate them to ids.
+	ids := make([]int, 0, len(moved))
+	for _, row := range moved {
+		if id, ok := a.chatIDAtRow(row); ok {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	next := make([]int, 0, len(order))
+	for _, id := range order {
+		if !containsInt(ids, id) {
+			next = append(next, id)
+		}
+	}
+	at := len(next)
+	if id, ok := a.chatIDAtRow(to); ok {
+		at = indexOfInt(next, id)
+	} else if to >= len(next) {
+		at = len(next)
+	}
+	if at < 0 {
+		at = 0
+	}
+	next = append(next[:at], append(ids, next[at:]...)...)
+	a.apply(func() {
+		a.prefs.Order = next
+		// Dragging to the very top pins, as Rail.tsx:302-316 does.
+		if at == 0 {
+			for _, id := range ids {
+				if !a.isPinned(id) {
+					a.prefs.Pinned = append(a.prefs.Pinned, id)
+				}
+			}
+		}
+	})
+	a.savePrefsLater()
+	a.invalidate()
+}
+
+func containsInt(list []int, want int) bool { return indexOfInt(list, want) >= 0 }
+
+func indexOfInt(list []int, want int) int {
+	for i, v := range list {
+		if v == want {
+			return i
+		}
+	}
+	return -1
+}
+
+// chatIDAtRow maps a drawn row index to the chat it shows; project headers and
+// task rows have no chat.
+func (a *App) chatIDAtRow(row int) (int, bool) {
+	if row < 0 || row >= len(a.rows) {
+		return 0, false
+	}
+	if a.rows[row].kind != railChatRow {
+		return 0, false
+	}
+	return a.rows[row].surface.ConversationID, true
 }

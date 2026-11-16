@@ -42,12 +42,14 @@ $ go test ./internal/app -run 'Snapshot|TestSelectAllHighlightsText' -v
 新增交互断言（同一命令可跑）：
 
 ```
-$ go test ./internal/app -run 'TestModelPickerWalks|TestRailHeader|TestSearchHits|TestAvatar' -v
+$ go test ./internal/app -run 'TestModelPickerWalks|TestRailHeader|TestSearchHits|TestAvatar|TestMessageActions|TestRailReorder' -v
 --- PASS: TestModelPickerWalksWithArrowKeys      Tab 聚焦搜索框 → ↑↓ 移动高亮 → Enter 选中
 --- PASS: TestRailStatusFollowsTheBridge         rail 头部状态行跟着连接/忙碌变化
 --- PASS: TestAvatarMoodsFollowTheRun            运行=思考、刚完成=微笑 2.5s、有后台任务=委派配色
 --- PASS: TestRailHeaderDrawsAvatarAndStatus     头部同时画出头像与状态文案
 --- PASS: TestSearchHitsPanelShowsHits           提交搜索后列出 `#会话 · 类型` 与摘要，点击跳转
+--- PASS: TestMessageActionsCopyEditRetry        气泡上的复制/编辑重发/重试三个按钮真的生效
+--- PASS: TestRailReorderSavesTheOrder           拖拽后写回 prefs.Order，拖到首行会置顶
 ```
 
 跨会话搜索走的是后端 `/api/search?q=`（`api.Search` → `protocol.SearchHit`），命中列表在 rail 的搜索框下方；点击命中会切换会话并把窗口移到含该 entry 的回合（`turnOfEntry`）。
