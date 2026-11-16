@@ -332,9 +332,15 @@ func (a *App) Attach(win *mygo.Window) {
 	}
 	win.OnClosed(func() {
 		// The window is gone: end the websocket instead of letting it reconnect
-		// forever in the background.
+		// forever in the background, and stop hearing the other windows.
+		// Where the window was is where it should come back: the last chat,
+		// the divider widths, the filters.
+		a.savePrefsNow()
 		a.cancel()
+		unsubscribeSurfaces(a)
 	})
+	subscribeSurfaces(a)
+	go a.tickTitle()
 	win.OnFocus(func() {
 		a.apply(func() {
 			a.focused = true
@@ -517,6 +523,8 @@ func (a *App) loadState(ctx context.Context) error {
 	})
 	// The menu bar shows what is running, so the trays do not go stale.
 	a.publishTray()
+	// The other windows share the client, so they share this list too.
+	broadcastSurfaces(a, st.Surfaces)
 	return nil
 }
 
@@ -673,6 +681,13 @@ func (a *App) syncTitle() {
 			break
 		}
 	}
+	// A wait for approval is the one thing worth reading off the window
+	// switcher, where a hidden window still shows its title.
+	if waited := a.waitedSuffix(); waited != "" {
+		title = "⚠ " + waited + " · " + title
+	} else if unread := a.unreadCount(); unread > 0 {
+		title = "(" + itoa(unread) + ") " + title
+	}
 	a.win.SetTitle(title)
 }
 
@@ -790,6 +805,13 @@ func (a *App) View(c *ui.Context) {
 			}
 		})
 	}
+	// ⌘W closes the window the way the red button does, which is what a
+	// desktop app's owner expects from the key.
+	c.OnWindowShortcut(ui.Cmd, ui.KeyW, func() {
+		if a.win != nil {
+			a.win.Close()
+		}
+	})
 	c.OnWindowShortcut(ui.Cmd, ui.KeySlash, func() {
 		a.apply(func() { a.shortcutsOpen = true; a.invalidate() })
 	})

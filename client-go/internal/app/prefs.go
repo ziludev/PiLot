@@ -100,3 +100,22 @@ func (a *App) savePrefsLater() {
 	p.LastChat = a.currentValue()
 	go savePrefs(p)
 }
+
+// savePrefsNow writes the preference file from the window's current state. The
+// lazy writer batches drags; a closing window has no next frame, so it writes
+// once, here.
+func (a *App) savePrefsNow() {
+	if a.secondary {
+		return
+	}
+	p := a.prefs
+	p.RailWidth = a.railWidth
+	if side := a.sideWidthOf(); side > 0 {
+		p.SideWidth = side
+	}
+	p.Favorites = a.modelsFav
+	p.Recents = a.modelsRecent
+	p.Unread = a.unreadIDs()
+	p.LastChat = a.currentValue()
+	savePrefs(p)
+}
