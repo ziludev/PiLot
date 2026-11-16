@@ -12,6 +12,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
+	"pitta/internal/api"
 	"pitta/internal/app"
 	"pitta/internal/bridge"
 	"pitta/internal/notify"
@@ -60,6 +61,24 @@ func main() {
 		})
 		installMenu(a)
 		registerHotkey(win)
+		// ⌘⇧N and the rail's menu open one chat in its own window: it shares
+		// the client, while approvals, the badge and the preference file stay
+		// with the first window.
+		app.SetWindowOpener(func(cfg app.Config, client *api.Client, conversationID int) {
+			second := app.NewSecondary(cfg, client, conversationID)
+			win := mygo.NewWindow(mygo.WindowOptions{
+				Title:                "Pitta",
+				Width:                1180,
+				Height:               820,
+				MinWidth:             720,
+				MinHeight:            480,
+				BackgroundColor:      "light-dark(#ffffff, #0a0a0a)",
+				TitleBarStyle:        mygo.TitleBarHidden,
+				TrafficLightPosition: &mygo.Point{X: 14, Y: 14},
+				Content:              ui.View(second.View),
+			})
+			second.Attach(win)
+		})
 		a.Attach(win)
 	})
 	if err := mygo.App.Run(); err != nil {

@@ -359,6 +359,11 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 		if m.Item(i18n.T("rename")).Chosen() {
 			a.apply(func() { a.openChatMenuFor(s.ConversationID) })
 		}
+		// A second window on one chat is what a native client adds, so the item
+		// is absent where no window factory was handed in, as in the tests.
+		if windowOpener != nil && m.Item(newWindowLabel).Chosen() {
+			a.openInNewWindow(s.ConversationID)
+		}
 		m.Separator()
 		if m.Item(i18n.T("archive")).Chosen() {
 			a.apply(func() {

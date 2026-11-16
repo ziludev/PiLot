@@ -240,3 +240,7 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 
 - 文件视图头部多了「预览」按钮：`qlmanage -p` 打开系统预览窗口，PDF/图片/Office 文档不必再靠文本行视图。
 - 回答气泡可拖到别的应用：`DragData` 同时给出 `text/markdown` 与 `text/plain` 两种表示。
+
+### 2026-11 多窗口（第 29 轮）
+
+`⌘⇧N`（或侧栏会话的右键菜单「Open in new window」）把当前会话开到独立窗口。第二窗口与第一个共享 `*api.Client`，但有独立 transcript、面板与草稿；**审批轮询、Dock 角标、`~/.pitta/ui.json` 只由第一个窗口负责**（`App.secondary`），窗口关闭时 `win.OnClosed` 取消该窗口的 websocket（`App.cancel`），不会留下后台重连。
