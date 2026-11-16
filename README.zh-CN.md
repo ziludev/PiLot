@@ -4,7 +4,7 @@
 
 跑在 [Pi Durable](https://earendil.com/posts/pi-durable/) 上的个人助理：飞书里聊、桌面上看、终端里也能用，进程挂了不丢对话。
 
-![桌面客户端](assets/readme/client.png)
+![桌面客户端：左栏会话与花费，中间折叠的工具时间轴与回答，底部 composer](assets/readme/client.png)
 
 ![飞书卡片从「处理中」到「答完了」](assets/readme/card.gif)
 
@@ -203,6 +203,7 @@ durable doctor            # 同一套读回校验，随时可跑
 cd client-go
 go run .                         # 直接连本地桥，开窗
 go tool mygo build -skip-dmg     # 产出 build/darwin-arm64/Pitta.app
+rsync -a --delete build/darwin-arm64/Pitta.app ~/Applications/   # 然后 open ~/Applications/Pitta.app
 ```
 
 窗口由 mygo/ui 在 Metal 上直绘：没有 webview，也没有前端构建步骤。功能对照、快捷键与

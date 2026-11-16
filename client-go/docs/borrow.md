@@ -36,7 +36,20 @@
 - **命令面板里塞脚本市场/插件**：范围外，且 mygo 没有插件沙箱。
 - **Radix 那种 data-state 驱动的组件树**：mygo 是即时模式，状态就是值，再抽象一层只会更难读。
 
-## 4. 本轮取舍（t-pick）
+## 4. 落地结果（本轮收尾时回填）
+
+6 项全部落地，其中两项按 mygo 的能力做了取舍，理由都写在这里而不是留在提交信息里。
+
+| # | 交付物 | 与计划的差别 | 证据 |
+| --- | --- | --- | --- |
+| 1 | `internal/app/palette.go`：`⌘K` 里 `>` 走命令（16 条），否则搜会话 | 无 | `TestPaletteRunsCommands`、`TestPaletteStillJumpsToChats` |
+| 2 | `internal/side/highlight.go`：按扩展名套 `editor` 的 tokenizer 给文件预览上色，带缓存 | 只上色，不做折叠/大纲 | `internal/side/highlight_test.go`（四种：多色、未知扩展名回退、2000 行 <50ms、缓存命中） |
+| 3 | `internal/app/railnav.go`：rail 内 `⌥↑`/`⌥↓` 行走、`⌘⇧P` 置顶、`⌘⇧⌫` 归档 | **`j`/`k` 没有做**：`OnWindowShortcut` 只收带修饰键的组合，纯字母键要在每个焦点元素上让路，而 composer 是常驻焦点——用无修饰字母会让"在输入框里打 j"有歧义 | `TestRailWalksWithAltArrows`、`TestPinAndArchiveShortcuts` |
+| 4 | `internal/app/history.go`：`↑`/`↓` 召回上一条发送（上限 100，落 prefs） | 只在 composer 无双修饰键时拦，输入法组词中不拦 | `TestComposerRecallsHistoryWithTheArrows` |
+| 5 | `internal/notify` + `main.go` 的 `OnNotificationClick`：通知带 `chat-<id>`，点开落到那条会话（`?window=new` 时另开窗） | 无 | `internal/notify/notify_test.go`、`TestNotificationCarriesItsChat` |
+| 6 | `internal/app/deeplink.go` + `mygo.config.ts` 的 `urlSchemes`：`pitta://chat/123`、`?window=new` | 只认 `chat`，`project/*` 明确拒绝（没有对应视图，认了就是撒谎） | `internal/app/deeplink_test.go`、真机 `open "pitta://chat/9753"` → 日志 `client attached {"conversationId":9753}` |
+
+## 5. 本轮取舍（t-pick）
 
 做 §1 的 6 项，顺序按"日常撞到频率"排：4（输入历史）→ 3（rail 键盘导航）→ 1（命令面板）→ 2（文件高亮）→ 5（通知跳转）→ 6（深链）。
 
