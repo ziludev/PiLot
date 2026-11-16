@@ -250,14 +250,53 @@ function clip(text: string): string {
   return text.length <= MAX_CARD_CHARS ? text : `${text.slice(0, MAX_CARD_CHARS)}\n\n…（已截断）`;
 }
 
-function renderLive(live: LiveSnapshot): string {
+/**
+ * Turns in one conversation share a working tree and a context window, so two at once would edit
+ * the same files blind. Each turn waits for its predecessor; the card says it is waiting, because
+ * silence looks like a lost message.
+ */
+const turnQueues = new Map<number, Promise<void>>();
+
+export function enqueueTurn(conversationId: number): { queued: boolean; wait: Promise<void>; done: () => void } {
+  const previous = turnQueues.get(conversationId);
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = (previous ?? Promise.resolve()).then(() => current);
+  turnQueues.set(conversationId, tail);
+  void tail.then(() => {
+    if (turnQueues.get(conversationId) === tail) turnQueues.delete(conversationId);
+  });
+  // `done` must run even when the turn throws, or every later message in this chat waits forever.
+  return { queued: previous !== undefined, wait: previous ?? Promise.resolve(), done: release };
+}
+
+/** The user's own line, one row, clipped: two cards side by side must be tellable apart. */
+export function digestOf(text: string): string {
+  const oneLine = text.replace(/\s+/g, " ").trim();
+  if (oneLine.length === 0) return "";
+  return oneLine.length <= 28 ? oneLine : `${oneLine.slice(0, 28)}…`;
+}
+
+/** What a card needs to say more than "处理中": whose turn it is, and how long this step has run. */
+export type CardTrace = { digest: string; stepKey?: string; stepSince: number };
+
+export function renderLive(live: LiveSnapshot, trace?: CardTrace): string {
   const body = live.text.trim();
-  if (body.length > 0) return clip(body);
-  if (live.tools.length > 0) {
-    const head = `⚙️ ${live.tools.join(" · ")}`;
-    return live.activity === undefined ? head : `${head}\n\n_${live.activity}_`;
+  let inner: string;
+  if (body.length > 0) {
+    inner = clip(body);
+  } else if (live.tools.length > 0) {
+    const key = live.tools.join(" · ");
+    // A tool round that hangs says nothing on its own; its age is the only signal that it is
+    // still the same round and not a dead one.
+    const head = trace === undefined ? `⚙️ ${key}` : `⚙️ ${key} · ${duration(Date.now() - trace.stepSince)}`;
+    inner = live.activity === undefined ? head : `${head}\n\n_${live.activity}_`;
+  } else {
+    inner = "🤔 思考中…";
   }
-  return "🤔 思考中…";
+  return trace === undefined || trace.digest.length === 0 ? inner : `> ${trace.digest}\n\n${inner}`;
 }
 
 type PostElement = { tag?: string; text?: string; image_key?: string };
@@ -1279,10 +1318,13 @@ const continuing = new Set<string>();
     const startedAt = Date.now();
     /** Seconds since the turn started, for progress lines. */
     const elapsed = (): string => `${Math.round((Date.now() - startedAt) / 1000)}s`;
-    // A reply or a 话题 message gets its own conversation forked at the message it
-    // answers; everything else shares the chat conversation.
-    const rawThreadKey = message.thread_id ?? message.root_id ?? message.parent_id;
-    const threadKey = rawThreadKey === message.message_id ? undefined : rawThreadKey;
+    // Quoting a message is how alex asks a follow-up; it is not a request for a new branch.
+    // Forking on `parent_id`/`root_id` scattered one chat across dozens of conversations, each
+    // looking empty from the client. Only a real Feishu topic (thread_id) starts a new one.
+    const threadKey =
+      message.thread_id !== undefined && message.thread_id !== message.message_id
+        ? message.thread_id
+        : undefined;
     const parentMessageId = message.parent_id ?? message.root_id;
     const conversation =
       threadKey === undefined
@@ -1588,13 +1630,16 @@ const continuing = new Set<string>();
     log("feishu", "turn start", { chatId, conversationId: conversation.id, type: message.message_type });
     const inGroup = message.chat_type === "group";
     const replyOptions = { thread: threadFor(message), mention: mentionFor(event, message) };
-    const cardId = await replyCard(
-      message.message_id,
+    const digest = digestOf(parsed.text);
+    const opening =
       parsed.audioKey !== undefined
         ? "🎧 听语音…"
         : parsed.imageKeys.length > 0
           ? "🖼️ 看图…"
-          : "🤔 收到，处理中…",
+          : "🤔 收到，处理中…";
+    const cardId = await replyCard(
+      message.message_id,
+      digest.length === 0 ? opening : `> ${digest}\n\n${opening}`,
       undefined,
       // The card carries its status from the first frame, so it never starts as a bare message and
       // then grows a header when it settles.
@@ -1617,9 +1662,13 @@ const continuing = new Set<string>();
     );
 
     // If the run stalls (provider hang, restart mid-run), say so instead of spinning forever.
+    // One subtitle, rewritten by whoever has the most to say: the heartbeat below must not put
+    // "进行中" back over the stall warning a moment after it appears.
+    let subtitle = "";
     const watchdog = setTimeout(() => {
       if (phase !== "live") return;
-      void patchCard(cardId, body, `⏳ ${elapsed()} · 超过 5 分钟，可 /stop 中断`, undefined, WORKING_HEADER).catch(() => {});
+      subtitle = `⏳ ${elapsed()} · 超过 5 分钟，可 /stop 中断`;
+      void patchCard(cardId, body, subtitle, undefined, WORKING_HEADER).catch(() => {});
     }, 300_000);
 
     let streamErrors = 0;
@@ -1628,11 +1677,17 @@ const continuing = new Set<string>();
     // in every callback that can still fire". A late watcher or heartbeat therefore cannot put
     // "思考中…" back on a finished card, and a new patch site cannot forget the rule.
     let phase: CardPhase = "live";
-    let body = "🤔 思考中…";
+    let body = digest.length === 0 ? "🤔 思考中…" : `> ${digest}\n\n🤔 思考中…`;
+    const trace: CardTrace = { digest, stepSince: Date.now() };
     const toolsUsed = new Set<string>();
     const watcher = await watchLive(conversation, (live) => {
       if (phase !== "live") return;
-      body = renderLive(live);
+      const stepKey = live.tools.join(" · ");
+      if (stepKey !== trace.stepKey) {
+        trace.stepKey = stepKey;
+        trace.stepSince = Date.now();
+      }
+      body = renderLive(live, trace);
       for (const tool of live.tools) toolsUsed.add(tool);
       void patchCard(cardId, body, `▶️ 处理中 · ${elapsed()}`, undefined, WORKING_HEADER).catch((error) => {
         if (streamErrors < 3) {
@@ -1646,8 +1701,23 @@ const continuing = new Set<string>();
     // ourselves: the user should never have to ask "is it still working?".
     const heartbeat = setInterval(() => {
       if (phase !== "live") return;
-      void patchCard(cardId, body, `⏳ ${elapsed()} · 进行中`, undefined, WORKING_HEADER).catch(() => {});
-    }, 15_000);
+      void patchCard(
+        cardId,
+        body,
+        subtitle === "" ? `⏳ ${elapsed()} · 进行中` : subtitle,
+        undefined,
+        WORKING_HEADER,
+      ).catch(() => {});
+    }, 60_000);
+
+    const slot = enqueueTurn(conversation.id as unknown as number);
+    if (slot.queued) {
+      subtitle = `⏸️ 排队中 · 上一条还在跑`;
+      void patchCard(cardId, body, subtitle, undefined, WORKING_HEADER).catch(() => {});
+      await slot.wait;
+      subtitle = "";
+      void patchCard(cardId, body, `▶️ 处理中 · ${elapsed()}`, undefined, WORKING_HEADER).catch(() => {});
+    }
 
     try {
       const speaker =
@@ -1850,6 +1920,7 @@ const continuing = new Set<string>();
         { template: "red", title: "❌ 出错了" },
       );
     } finally {
+      slot.done();
       clearTimeout(watchdog);
       clearInterval(heartbeat);
       await watcher.stop();
@@ -2030,7 +2101,7 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
 
   const loggerLevel =
     (process.env.FEISHU_LOG_LEVEL ?? "info") === "debug" ? Lark.LoggerLevel.debug : Lark.LoggerLevel.info;
-  const wsClient = new Lark.WSClient({
+  const wsOptions = {
     appId,
     appSecret,
     loggerLevel,
@@ -2055,7 +2126,9 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
       feishuStatus.since = Date.now();
       console.log("[feishu] ws reconnected");
     },
-  });
+  };
+  const makeWSClient = (): Lark.WSClient => new Lark.WSClient(wsOptions);
+  let wsClient = makeWSClient();
   await wsClient.start({ eventDispatcher });
   log("feishu", `long connection established for app ${appId}`);
   void backfillChatNames().catch((error: unknown) => logError("feishu", "could not backfill chat names", error));
@@ -2064,12 +2137,22 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
   // is indistinguishable from a bot nobody talks to. Restart it ourselves when it stays
   // down; while it is down, events published by Feishu are lost, not queued.
   let lastAttempt = Date.now();
+  let restarts = 0;
   const supervisor = setInterval(() => {
     if (feishuStatus.ready) return;
     const down = Date.now() - feishuStatus.since;
     if (down < 120_000 || Date.now() - lastAttempt < 120_000) return;
     lastAttempt = Date.now();
-    logError("feishu", `long connection down ${Math.round(down / 1000)}s, restarting it`, undefined);
+    restarts += 1;
+    // A client that keeps failing to connect caches what it resolved the first time. After a
+    // network change (Wi-Fi off/on, a proxy whose routes moved) only a fresh instance re-resolves:
+    // observed as ENETUNREACH to Feishu's IPs for minutes, until the process was restarted.
+    if (restarts % 3 === 0) {
+      logError("feishu", `long connection down ${Math.round(down / 1000)}s, rebuilding the client`, undefined);
+      wsClient = makeWSClient();
+    } else {
+      logError("feishu", `long connection down ${Math.round(down / 1000)}s, restarting it`, undefined);
+    }
     void wsClient.start({ eventDispatcher }).catch((error: unknown) => {
       feishuStatus.lastError = (error as Error)?.message ?? String(error);
       logError("feishu", "could not restart long connection", error);
