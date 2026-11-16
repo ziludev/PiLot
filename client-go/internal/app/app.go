@@ -148,6 +148,9 @@ type App struct {
 	waitingAlert  bool
 	// quitAsk holds the ⌘Q confirmation open while a turn is still running.
 	quitAsk bool
+	// railCursor is the chat the rail's keyboard walk is on, which is the open
+	// chat unless the walk moved without opening.
+	railCursor int
 	// history is what this window sent, for Up/Down recall; historyAt walks it
 	// and historyDraft holds what was being typed before the walk started.
 	history      []string
@@ -828,6 +831,11 @@ func (a *App) View(c *ui.Context) {
 	c.OnWindowShortcut(ui.Cmd, ui.KeyComma, func() {
 		a.apply(func() { a.settingsOpen = true; a.invalidate() })
 	})
+	// Linear's j/k, moved to ⌥ so a bare j can still be typed.
+	c.OnWindowShortcut(ui.Alt, ui.KeyDown, func() { a.stepRail(1) })
+	c.OnWindowShortcut(ui.Alt, ui.KeyUp, func() { a.stepRail(-1) })
+	c.OnWindowShortcut(ui.Cmd|ui.Shift, ui.KeyP, func() { a.togglePinSelected() })
+	c.OnWindowShortcut(ui.Cmd|ui.Shift, ui.KeyBackspace, func() { a.archiveSelected() })
 	c.OnWindowShortcut(ui.Cmd, ui.KeyW, func() {
 		if a.win != nil {
 			a.win.Close()
