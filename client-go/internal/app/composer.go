@@ -9,6 +9,7 @@ import (
 
 	"pitta/internal/i18n"
 	"pitta/internal/icons"
+	"pitta/internal/motion"
 	"pitta/internal/theme"
 )
 
@@ -75,7 +76,10 @@ func (a *App) modelLabel() string {
 // approvalBar lists the tool calls waiting for a decision. A blocked run burns
 // wall-clock time, so each row says how long it waited.
 func (a *App) approvalBar(c *ui.Context, t theme.Tokens) {
-	ui.Column(c).Fill().Padding(6, 8).Gap(6).Radius(6).Background(t.Muted).Children(func() {
+	// A call that starts waiting slides up into the composer rather than
+	// appearing between two frames.
+	ui.Column(c).Fill().Padding(6, 8).Gap(6).Radius(6).Background(t.Muted).
+		Transition(motion.PopoverEnter()).Children(func() {
 		for _, approval := range a.approvals {
 			approval := approval
 			ui.Row(c).Fill().Gap(8).Children(func() {

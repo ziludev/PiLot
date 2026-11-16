@@ -16,6 +16,16 @@ mygo 版本：v0.9.1（`go.mod`）。结论先行：**动效本身 mygo 完全�
 | `shadow-sm/lg/2xl` | shadcn 阴影 token | `ui.Shadow(x,y,blur,spread,color)` 手写等效值 |
 | `prefers-reduced-motion` | `@media` 关掉动画 | mygo 自带 `Preferences.ReduceMotion`：`Transition`/弹簧自动改为瞬时，`AnimateTo` 用 `Animation{NonMotion:true}` 保留淡入 |
 
+## 1.1 2026-11 新增（第 34 轮）
+
+- 模型面板 `Enter Y:+6, Opacity:0` 280ms（须带 `Key`，否则 mygo 认为元素没有前后身份，不播 Enter）。
+- 右栏切标签时内容 `FadeIn`（`Key(sideTab)` 换身份）。
+- 审批条 `Enter Y:+6` 滑入。
+- 跳到底部条 `FadeIn`。
+- 会话行 `Key(conversationID)`：List 复用行导致的上浮串行问题。
+- 图标按钮 / 消息操作按钮 / 命中回合边框用 `motion.Hover()` 做颜色过渡。
+- 不做的：查找条不加过渡（进入动画移动输入框时首帧按键会丢）。
+
 ## 2. 可以复刻，尚未做（TODO）
 
 | 项 | React | mygo 手法 | 优先级 |

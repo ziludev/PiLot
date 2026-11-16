@@ -98,7 +98,8 @@ func (a *App) turnBlock(c *ui.Context, t theme.Tokens, turn *turns.Turn, live, f
 	if focused {
 		// The find bar's current hit gets a frame, so stepping shows where it
 		// landed without scrolling the list.
-		block = ui.Column(c).Fill().Gap(6).Padding(6, 6).Radius(8).Border(1, t.Primary)
+		block = ui.Column(c).Fill().Gap(6).Padding(6, 6).Radius(8).
+			Border(1, t.Primary).Transition(motion.Hover())
 	}
 	block.Children(func() {
 		for _, note := range turn.Notes {
@@ -275,7 +276,8 @@ func (a *App) messageActions(c *ui.Context, t theme.Tokens, text string, retryTe
 
 // actionIcon is a borderless icon button, the size MessageActions uses.
 func (a *App) actionIcon(c *ui.Context, t theme.Tokens, icon *ui.SVG, label string, onClick func()) {
-	button := ui.ButtonBase(c).Size(20, 20).Radius(4).Cursor(ui.CursorPointer)
+	button := ui.ButtonBase(c).Size(20, 20).Radius(4).Cursor(ui.CursorPointer).
+		Transition(motion.Hover())
 	button.Label(label)
 	button.Tooltip(label)
 	if button.Hovered() {
@@ -512,7 +514,8 @@ func (a *App) jumpBar(c *ui.Context) {
 	if a.newMessages > 0 {
 		label = itoa(a.newMessages) + " " + i18n.T("newMessages")
 	}
-	ui.Row(c).FillWidth().Padding(0, 14, 4, 14).Justify(ui.End).Children(func() {
+	ui.Row(c).FillWidth().Padding(0, 14, 4, 14).Justify(ui.End).
+		Transition(motion.FadeIn()).Children(func() {
 		pill := ui.ButtonBase(c).Radius(12).Padding(2, 10).Material(pillGlass()).
 			Cursor(ui.CursorPointer)
 		pill.Children(func() {

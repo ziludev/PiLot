@@ -172,6 +172,8 @@ func (a *App) focusedTurn() int {
 // findBar is ConvSearch: a query field, the match counter and the two step
 // buttons, shown in the header while the conversation is open.
 func (a *App) findBar(c *ui.Context, t theme.Tokens) {
+	// No transition here: an entering row moves the input while it takes the
+	// focus, and the first keys land nowhere.
 	ui.Row(c).Gap(4).Children(func() {
 		ui.TextInput(c, &a.convQuery).FontSize(11).Width(180).Label(i18n.T("findShort")).
 			Placeholder(i18n.T("findShort")).

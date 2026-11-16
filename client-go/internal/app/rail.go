@@ -325,8 +325,11 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 	s := row.surface
 	selected := s.ConversationID == a.current
 	pinned := a.isPinned(s.ConversationID)
+	// Keyed by chat, not by row: the list recycles rows, and a lift that
+	// belonged to one chat would otherwise stay on whichever row took its
+	// place after a scroll.
 	line := ui.Row(c).FillWidth().Height(railRowHeight).PaddingX(6).Gap(4).Radius(6).
-		Cursor(ui.CursorPointer)
+		Key(s.ConversationID).Cursor(ui.CursorPointer)
 	if row.topic {
 		// A fork sits under the chat it forked from, as the React rail indents
 		// it, so the nesting reads without opening anything.
