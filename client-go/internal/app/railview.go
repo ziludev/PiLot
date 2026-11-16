@@ -142,7 +142,7 @@ func (a *App) railRows() []railRow {
 		return rows
 	}
 	rows = append(rows, railRow{kind: railOtherProjects, count: len(others)})
-	if railOthersOpen {
+	if a.othersOpen {
 		rows = append(rows, a.railChatRows(others, true)...)
 	}
 	return rows
