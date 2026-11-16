@@ -24,6 +24,7 @@ func shortcuts() []shortcut {
 		{cmd + "F", "Find in this chat"},
 		{cmd + "B", "Show or hide the side panel"},
 		{cmd + "⇧E", "Export this chat as Markdown"},
+		{cmd + "W", "Close this window"},
 		{cmd + "1…" + cmd + "9", "Jump to one of the first nine chats"},
 		{cmd + "↑ " + cmd + "↓", "Page the transcript"},
 		{"↵", "New line (⌘↵ sends)"},

@@ -282,3 +282,9 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 - **步骤时间轴换成 2px 圆角竖轨**：原来是 1px 边框（读起来像表格线），现在是 `ui.Column(c).Width(2).Radius(1)` 的圆角轨，包在 `FillHeight` 里随步骤高度伸展。
 - **审批提醒**：新审批到达时 `mygo.Shell.Beep()` + Dock 图标弹跳（`App.Dock.Bounce`），等待结束后 `CancelBounce`；同一批等待只响一次（`seenApprovals` 记忆），第二窗口不参与。
 - **附件走系统文件面板**：`SetPicker` + `mygo.Dialog.Open`（`image/*`、多选），保留路径输入框作为无窗口构建的兜底。
+### 2026-11 标题栏计时、⌘W、多窗口同步（第 37 轮）
+
+- **标题栏带审批计时**：有等待时标题变成 `⚠ 42s · Pitta · <会话>`，每秒刷新（`tickTitle`，而审批轮询是 5 秒）；没有等待但有未读时是 `(2) Pitta · <会话>`。标题栏自绘后看不见，但窗口切换器、Dock 菜单、Mission Control 都读它。
+- **⌘W 关窗**：`OnWindowShortcut(ui.Cmd, ui.KeyW)` → `win.Close()`，与红点同一条路径；关闭时 `savePrefsNow()` 同步落盘（最后会话、左右栏宽度、收藏、未读），不依赖「下一帧再写」的惰性写盘。
+- **多窗口同步会话列表**：`internal/app/hub.go` 的 `surfaceHub` 让每个窗口在 `loadState` 后 `broadcastSurfaces`，其他窗口收到后替换 `surfaces` 并刷新标题；窗口关闭时 `unsubscribeSurfaces`。归档/新会话再不会只在一个窗口里生效。
+- 快捷键面板增到 12 条（加 ⌘W）。

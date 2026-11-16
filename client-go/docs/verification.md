@@ -147,3 +147,5 @@ $ go test ./internal/i18n -run TestEveryLiteralKeyExists -v
 | `TestStepsHangOffARoundedRail` | 步骤时间轴是 2px 圆角轨（1px 边框会红） |
 | `TestAttentionSoundsOncePerWait` | 审批提醒只响一次，结束时通知取消 |
 真窗口这一轮拍不到（显示器休眠，`CGWindowList` 里窗口 `onscreen=false`），时间轴与图片缩放的证据改用仓库内的快照：`docs/snapshots/turn-{light,dark}.png`（`TestSnapshotTurn`，`PITTA_SNAPSHOT_DIR=../../docs/snapshots`）。
+| `TestSurfacesReachTheOtherWindows` | 一个窗口载入的会话列表同步到另一个窗口，且不覆盖自己 |
+| `TestTitleCarriesTheApprovalWait` | 标题的等待秒数与未读计数 |
