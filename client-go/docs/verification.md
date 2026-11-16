@@ -121,3 +121,5 @@ $ go test ./internal/i18n -run TestEveryLiteralKeyExists -v
 | `TestDropImageAttachesIt` | 拖入 PNG 变成附件 |
 | `TestPasteImageFromClipboard` | 剪贴板图片 → 附件（字节一致） |
 | `TestRightClickCopiesAMessage` | 右键菜单不误改剪贴板 |
+| `TestAttachUsesTheSystemPanel` | 系统面板返回的图片变成附件（过滤器为 `image/*`） |
+| `TestProjectPanelAsksForADirectory` | 打开项目走目录面板并 POST `/api/projects` |

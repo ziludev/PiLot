@@ -225,3 +225,13 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 | ⌘N / ⌘B | 新建会话 / 收起右栏 | 无快捷键 |
 | Dock 角标 | `syncBadge` → `mygo.App.SetBadgeCount`（待批条数） | 无 |
 | 窗口标题 | `syncTitle`：`Pitta · <会话名>` | `<title>` 固定 |
+
+### 2026-11 系统集成（第 27 轮）
+
+| 能力 | 实现 | 原客户端 |
+| --- | --- | --- |
+| 原生文件面板 | 回形针 → `mygo.Dialog.Open`（`image/*`，多选）；打开项目 → 目录面板 | 只能手填路径 |
+| 系统通知 | `mygo.NewNotification`（分组 `answers`），点击回到窗口；失败回退 `osascript` | `Agent.notify` + 页面可见性判断 |
+| 应用菜单 | `menu.go`：File / Edit（标准 role，⌘C⌘V⌘A 在原生输入框里可用）/ View / Window | 无菜单栏 |
+| 全局热键 | `⌘⇧Space` 把窗口叫到前台（`mygo.GlobalShortcut`） | 无 |
+| 面板点击 | 通知点击与热键都 `win.Show()` + `win.Focus()` | 只能切浏览器标签 |
