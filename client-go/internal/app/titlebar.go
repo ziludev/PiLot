@@ -46,3 +46,46 @@ func (a *App) tickTitle() {
 		})
 	}
 }
+
+// titleText is the window title: the chat, the approval wait, or the count of
+// chats holding an unseen answer. A wait past five minutes blinks, because a
+// title that has said "300s" for minutes stops being read.
+func (a *App) titleText() string {
+	title := "Pitta"
+	for _, surface := range a.surfaces {
+		if surface.ConversationID == a.currentValue() {
+			title = "Pitta · " + surfaceTitle(surface)
+			break
+		}
+	}
+	waited := a.waitedSuffix()
+	switch {
+	case waited != "":
+		marker := "⚠ "
+		if a.waitSeconds() >= longWaitSeconds && a.titleTick%2 == 1 {
+			marker = "  "
+		}
+		return marker + waited + " · " + title
+	case a.unreadCount() > 0:
+		return "(" + itoa(a.unreadCount()) + ") " + title
+	}
+	return title
+}
+
+// longWaitSeconds is when a wait stops looking like progress and starts looking
+// like a stall.
+const longWaitSeconds = 300
+
+// waitSeconds is the age of the oldest approval in seconds.
+func (a *App) waitSeconds() int {
+	if len(a.approvals) == 0 {
+		return 0
+	}
+	oldest := a.approvals[0].CreatedAt
+	for _, approval := range a.approvals[1:] {
+		if approval.CreatedAt < oldest {
+			oldest = approval.CreatedAt
+		}
+	}
+	return int((time.Now().UnixMilli() - oldest) / 1000)
+}

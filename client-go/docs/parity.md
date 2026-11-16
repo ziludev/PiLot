@@ -294,3 +294,9 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 - **⌘Q 有回合在跑时先确认**：`askQuit` 检查 `busy`/`live.Run`/任务状态（running/queued/pending/waiting），有活就弹 Modal（`A turn is still running`），确认后 `savePrefsNow()` + `mygo.App.Quit()`。文案是常量而非 i18n 键，因为字典要与 `client/src/i18n.ts` 保持同键。
 - **审批在两个窗口间同步**：`broadcastApprovals` 与 `broadcastSurfaces` 同一个 hub，审批列表变化立即推到其他窗口（含角标与标题刷新），不必等各自的 5 秒轮询。
 - 快捷键面板 13 条（加 ⌘Q）。
+### 2026-11 设置面板、长等待闪烁、多窗口共用会话（第 39 轮）
+
+- **⌘, 设置面板**：主题三选（跟随系统/浅色/深色，写入 `prefs.Theme`）+ 完整快捷键表（复用 `shortcuts()`，13 条）。原来主题和语言只有 rail 头两个无标签图标。
+- **等待超过 5 分钟标题闪烁**：`titleText()` 在 `waitSeconds >= 300` 时按 `titleTick` 奇偶交替隐藏 `⚠` 标记；`tickTitle` 每秒递增计数。
+- **一个会话只有一个窗口**：`openWindows` 记录「哪个窗口专属于哪个会话」，rail 点击时 `focusOwnWindow` 把那个窗口提到前面而不是在本窗口再载入一遍；窗口关闭时 `forgetOwnWindow`。窗口自己的点击不会把自己抬起来。
+- 快捷键面板 14 条。

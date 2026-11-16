@@ -153,3 +153,6 @@ $ go test ./internal/i18n -run TestEveryLiteralKeyExists -v
 | `TestQuitAsksWhileATurnRuns` | 有回合时 ⌘Q 先问，确认后退出一次 |
 | `TestQuitLeavesWhenIdle` | 空闲 ⌘Q 直接退出、不弹窗 |
 | `TestApprovalsReachTheOtherWindows` | 审批列表同步到另一个窗口 |
+| `TestCmdCommaOpensSettings` | ⌘, 打开设置、列快捷键、主题三选落到 prefs |
+| `TestLongWaitBlinksInTheTitle` | 12s 不闪、420s 闪，且秒数仍在标题里 |
+| `TestClickingASharedChatRaisesItsWindow` | 专属窗口被抬起、自己不抬自己、关窗后忘记 |
