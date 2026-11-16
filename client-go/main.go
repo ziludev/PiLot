@@ -14,6 +14,7 @@ import (
 
 	"pitta/internal/app"
 	"pitta/internal/bridge"
+	"pitta/internal/notify"
 	"pitta/internal/theme"
 )
 
@@ -47,6 +48,18 @@ func main() {
 		app.SetBadgeHook(func(n int) {
 			mygo.App.SetBadgeCount(n)
 		})
+		app.SetPicker(mygo.Dialog.Open)
+		notify.Sender = func(title, body string) error {
+			return mygo.NewNotification(mygo.NotificationOptions{
+				ID: "answer", Title: title, Body: body, Group: "answers",
+			}).Show()
+		}
+		mygo.App.OnNotificationClick(func(string) {
+			win.Show()
+			win.Focus()
+		})
+		installMenu(a)
+		registerHotkey(win)
 		a.Attach(win)
 	})
 	if err := mygo.App.Run(); err != nil {

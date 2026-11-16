@@ -45,7 +45,7 @@ func (a *App) composer(c *ui.Context) {
 			ui.Box(c).Width(1).Height(14).Background(t.Border)
 			ui.Checkbox(c, &a.steer, i18n.T("steer")).FontSize(11)
 			iconButton(c, icons.Paperclip, i18n.T("attachImage")).OnClick(func() {
-				a.apply(func() { a.imageOpen = true; a.invalidate() })
+				a.chooseImages()
 			})
 			ui.Row(c).Grow(1).Children(func() {})
 			send := ui.ButtonBase(c).Padding(5, 12).Radius(6).Cursor(ui.CursorPointer).

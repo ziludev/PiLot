@@ -86,10 +86,10 @@ func (a *App) projectMenuBody(c *ui.Context, t theme.Tokens, current *protocol.P
 		}).OnClick(func() {
 			a.apply(func() {
 				a.projectMenu = false
-				a.projectOpen = true
 				a.projectPath = ""
 				a.invalidate()
 			})
+			a.chooseProject()
 		})
 	})
 }
