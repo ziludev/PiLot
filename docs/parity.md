@@ -4,7 +4,7 @@
 本仓：`/Users/alexwang/work/pitta-mygo`（Go + mygo/ui v0.9.1，原生 GPU 渲染；版本选择与降级实验见 `docs/mygo-version.md`）。
 状态用词：`TODO` 未开始 / `WIP` 进行中 / `done` 已对齐 / `diff` 已实现但与 React 有差异 / `n/a` 不复刻（并说明原因）。
 
-## 1. store.ts 状态域（State 的 49 个字段归并成下面 26 行）
+## 1. store.ts 状态域（State 的 50 个字段归并成下面 29 行）
 
 | 状态域 | React 行为 | Go 实现 | 状态 |
 | --- | --- | --- | --- |
@@ -25,6 +25,9 @@
 | `view`（transcript / file） | transcript 与文件视图互斥 | `App.view`/`file`/`filePath` → `side.FileView` | done |
 | `filter` | 会话内搜索命中 | `App.filter/convQuery/convMatches/matchIndex` → `findBar` | diff |
 | `review` | 行级评审批注（可发送给 agent） | `App.review/reviewDraft/reviewPick` + `side.ChangesView` | done |
+| `focusEntry` | 搜索命中后把视图滚到那一条 | `App.focusEntry` → `transcript` 的窗口锚点 `focusedTurn()` | done |
+| `convQuery` / `convMatchIndex` | 命中轮次列表与当前命中下标 | `App.convQuery/convMatches/matchIndex` → `findBar` 的 `N/M` 与上下步进 | done |
+| `showArchived` | 是否显示已归档会话 | `App.showArchived` → `railArchiveToggle` | done |
 | `model` / `thinkingLevel` / `models` / `modelsLoadedAt` | 模型与思考档 | `App.model/thinking/models` | done |
 | `favorites` / `recents` | 收藏与最近模型 | `App.modelsFav/modelsRecent`（落盘 prefs） | done |
 | `usageDays` / `usage` | 用量日历与花费 | `ops.UsageCalendar` + `App.usage/usageDays` | done |
@@ -91,6 +94,8 @@
 8. **图片靠路径而非粘贴**：mygo 的剪贴板 API 只有文本（`windowHost.ReadText`），`OnPaste` 也只给字符串，所以输入区的 Paperclip 打开路径对话框（支持 `~`，png/jpg/gif/webp/bmp，最多 3 张），缩略图用 `ui.DecodeBitmap` 解码后 `ui.Image` 渲染，点击全屏预览；发送时随 `images` 一起提交，会话里用户消息上同样显示缩略图。
 9. **通知**：React 在窗口隐藏时调 `Agent.notify`；这里用 `osascript display notification`，只在 `win.IsFocused()` 为假时触发，`internal/notify`。
 10. **会话列表长度**：`/api/conversation?limit=200` 与 React 相同，服务端上限 200，不改。
+11. **飞书健康横幅未绘制**：`feishu` 数据（`State.Feishu`）已随 `/api/state` 取回并保存，但 rail 上没有 React 那条连接状态横幅；用户可见差异，尚未实现。
+12. **日志入口**：React rail 底部有 open-logs 按钮，这里同样接了「日志」（`bridge.OpenLogs()` 用 Finder 打开 `<home>/logs`），行为一致。
 
 ## 5. 写类操作的真实后端验证
 
@@ -128,7 +133,7 @@
 - 粘贴：`tt.SetClipboard` + `Cmd+V` 后草稿变为剪贴板文本。
 - 全选 + Backspace 清空；`Shift+←` 选中后输入替换选中内容（`fresX`）。
 - 中文 IME：`tt.Compose("nihao", 5)` 预编辑不进草稿、预编辑期间 Enter 既不发送也不换行；提交后草稿为 `你好`；`Cmd+Enter` 发出 `你好`。
-- 手工确认（真窗口）：拼音输入候选框跟随光标，英文 Geist + 中文系统回退字体混排正常，`/tmp/pitta-fonts.png`。
+- 字体：英文 Geist + 中文系统回退字体混排正常。`/tmp/pitta-fonts.png` 是 `internal/theme/fonts_test.go` 用 `ui.NewTester` **离屏渲染**的截图，只能证明字体注册与回退，**不是**真窗口输入法记录；真窗口的中文排版见 §7.1。
 
 ### 7.1 打包应用的真窗口记录
 

@@ -7,6 +7,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"pitta/internal/api"
+	"pitta/internal/bridge"
 	"pitta/internal/i18n"
 	"pitta/internal/icons"
 	"pitta/internal/protocol"
@@ -327,8 +328,9 @@ func (a *App) railFooter(c *ui.Context, t theme.Tokens) {
 		BorderWidth(1, 0, 0, 0).BorderColor(t.SidebarBorder).Children(func() {
 		ui.Row(c).FillWidth().Gap(2).Children(func() {
 			railAction(c, t, i18n.T("newChat"), icons.Plus, func() { go a.newConversation() })
-			railAction(c, t, i18n.T("restart"), icons.RotateCw, func() { go a.control("restart") })
-			railAction(c, t, i18n.T("backup"), icons.Database, func() { go a.control("backup") })
+			railIconAction(c, i18n.T("restart"), icons.RotateCw, func() { go a.control("restart") })
+			railIconAction(c, i18n.T("backup"), icons.Database, func() { go a.control("backup") })
+			railIconAction(c, i18n.T("logs"), icons.Folder, func() { bridge.OpenLogs() })
 		})
 		ui.Text(c, a.cfg.Home).FontSize(9).TextColor(t.MutedFg).MaxLines(1).
 			TruncateMiddle()
@@ -348,6 +350,21 @@ func railAction(c *ui.Context, t theme.Tokens, label string, icon *ui.SVG, onCli
 	button.Children(func() {
 		ui.Icon(c, icon).Size(11, 11).TextColor(t.MutedFg)
 		ui.Text(c, label).FontSize(10).TextColor(t.SidebarFg).MaxLines(1)
+	})
+	button.OnClick(onClick)
+}
+
+// railIconAction is the footer's icon-only button: the label lives in the
+// tooltip, because four labelled buttons do not fit the rail's width.
+func railIconAction(c *ui.Context, label string, icon *ui.SVG, onClick func()) {
+	button := ui.ButtonBase(c).Height(24).Width(24).Radius(5).Cursor(ui.CursorPointer)
+	button.Label(label)
+	button.Tooltip(label)
+	if button.Hovered() {
+		button.Background(c.Theme().SurfaceHover)
+	}
+	button.Children(func() {
+		ui.Icon(c, icon).Size(11, 11).TextColor(c.Theme().TextMuted)
 	})
 	button.OnClick(onClick)
 }

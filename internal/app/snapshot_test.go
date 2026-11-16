@@ -39,7 +39,7 @@ func snapshotData(t *testing.T) *App {
 	a.modelsFav = []string{"anthropic/claude-sonnet-4"}
 	a.approvals = []protocol.PendingApproval{{
 		CallID: "call-1", GrantKey: "bash:rm", Tool: "bash",
-		Summary: "rm -rf ./build && go build ./...", Reason: "destructive command", CreatedAt: time.Now().Unix() - 45,
+		Summary: "rm -rf ./build && go build ./...", Reason: "destructive command", CreatedAt: time.Now().UnixMilli() - 45_000,
 	}}
 	a.entries = append(a.entries, turnEntries(1, "why is the sky blue", "Rayleigh scattering: shorter wavelengths scatter more.")...)
 	a.entries = append(a.entries, turnEntries(3, "and at sunset?", "The path through air is longer, so blue is scattered away.")...)
@@ -88,6 +88,9 @@ func TestSnapshotMainWindow(t *testing.T) {
 		if countColor(image, want.Primary) == 0 {
 			t.Fatalf("dark=%v: accent %v missing", dark, want.Primary)
 		}
+		// The pending approval was created 45s ago: if the units ever slip back to
+		// seconds the bar would print a nine-digit wait instead.
+		assertHasText(t, tt, "45s")
 		name := "/tmp/pitta-app-light.png"
 		if dark {
 			name = "/tmp/pitta-app-dark.png"
@@ -131,6 +134,15 @@ func TestSnapshotApprovalAndModels(t *testing.T) {
 	if !tt.HasText("destructive command") {
 		t.Fatal("approval bar did not draw")
 	}
+}
+
+// assertHasText fails when the frame drew no text containing want.
+func assertHasText(t *testing.T, tt *ui.Tester, want string) {
+	t.Helper()
+	if tt.HasText(want) {
+		return
+	}
+	t.Fatalf("no text containing %q; drew %v", want, tt.Texts())
 }
 
 // countColor counts the pixels of one exact color, which is how a snapshot
