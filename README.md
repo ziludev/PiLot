@@ -41,6 +41,8 @@ A patch in Feishu rebuilds the whole card, so the status band has to be sent wit
 | grey `No answer this time · reason` | ended without an answer |
 | red `Failed` | the turn threw |
 
+`Goal met` / `Goal missed` are the model's own claim, not ours: on a turn where it did work it calls `report_done({ met, why })` before it answers, so `why` is how it verified (what it ran, what it saw) or where it got stuck. A turn that declares nothing keeps the plain `Done` — silence is not failure. The claim is read once by the card, written once to `app.turn-verdicts`, and shows up in both the decision trail and the morning digest.
+
 The orange and grey cards carry a **Continue** button: it runs the same turn again inside the *same card*, and a double tap still starts only one turn. The card's Continue and `/continue` in `durable chat` are the same path. A turn's steps fold into the card as `Turn details · 5 steps · 62s · $0.0031`, so there is no second "view details" message. The same panel opens with the turn's **decision trail** — what had to be asked, how long it waited, whether you allowed it, why it ended — because "what ran" does not explain a two-minute pause.
 
 ### The run timeline
@@ -241,6 +243,9 @@ src/
   access.ts        one level per chat (closed/owner/group), guest policy, owner DM
   cards.ts         pending card records and their phase (live → delivering → gone)
   details.ts       per-turn steps, seconds and cost, stored for the client
+  decisions.ts     the turn's decision trail (what was asked, what you answered, why it ended)
+  done.ts          the report_done tool and the verdict a card repeats
+  verdicts.ts      the ring of verdicts the morning digest reads
   memory.ts        three memory layers; curator.ts suggests, never writes
   settle.ts        setting a final state: "already terminal / abort-marked / session closed" is not an error
   reminders.ts     durable reminder tasks (sleepUntil) and the remind tool
@@ -251,6 +256,8 @@ src/
   subagents.ts     delegate / delegate_parallel / build_feature
   diagnostics.ts   the read-only tools guests get: project_search (rg, project scope), logs_query, db_query
   audit.ts         the ring of permission decisions (app.audit)
+  digest.ts        the once-a-day message built from verdicts + audit, and its sleeping task
+  ketchup.ts       the on-demand "what happened" read
 
 evals/             the offline bench: guard (approval decisions) and contract (config ↔ .env.example ↔ README)
 client/            MyGo app: main.go (window and bindings) + src/ (Transcript, TurnRail, Composer, SidePanel, store)
@@ -261,16 +268,13 @@ client/            MyGo app: main.go (window and bindings) + src/ (Transcript, T
 | case | result |
 |---|---|
 | crash and resume | `kill -9` halfway through `sleep 10`; the new process marks the tool call interrupted, the model retries it in the background and answers |
-| reminders across processes | process A sets a 45 s reminder and exits, process B opens the same storage, it still fires |
-| restart keeps state | conversation ids, memory, conversation↔project, conversation↔card registrations all unchanged |
-| no re-delivery on restart | a "still running" card does not re-post the previous answer: the claim (`live → delivering`) happens inside a transaction, and only one process can take it |
+| restart keeps state | conversation ids, memory, conversation↔project and card registrations unchanged; no re-delivery, because the claim (`live → delivering`) happens inside a transaction and only one process can take it |
 | recycled pid | startup proceeds when `.data/agent.owner` names a pid now owned by something else (`ps` must show `node … main.ts` to refuse) |
 | approval | `rm -rf` is refused, "allow" on the card or the client API approves it, the tool really runs, and the wait is counted in the timeline |
 | worktree isolation | a file written in conversation A is invisible in the main tree and other conversations; after `--no-ff` it appears |
-| unmerged guard | cleaning up a worktree whose branch has unmerged commits is refused (`unmerged, commits: 1`) |
-| images | a Feishu `post` message with a 60 KB JPEG is downloaded and described correctly |
-| sub-agents | designer → implementer → tester runs end to end (`33 passed`), billed separately and resumed after a crash |
-| writer lock | a second process gets `storage … is owned by pid N` |
+| sub-agents | designer → implementer → tester runs end to end, billed separately and resumed after a crash |
+
+The rest of the evidence — images, unmerged-worktree refusal, the writer lock, 58 guard cases — lives in `evals/` and `tests/`, where it runs instead of being read.
 
 ## Tests and evals
 
