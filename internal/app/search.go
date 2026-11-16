@@ -334,8 +334,18 @@ func (a *App) removeWorktree() {
 		return
 	}
 	a.goLoad(func() error {
-		if err := a.api.RemoveWorktree(context.Background(), conversationID); err != nil {
+		result, err := a.api.RemoveWorktree(context.Background(), conversationID)
+		if err != nil {
 			return err
+		}
+		// An unmerged branch is kept, and the chat menu has to say so: the
+		// user would otherwise think the checkout is gone (ChatMenu.tsx:124-140).
+		if result != nil && result.Status == "unmerged" {
+			a.apply(func() {
+				a.notice = i18n.T("unmergedWork")
+				a.invalidate()
+			})
+			return nil
 		}
 		a.apply(func() { a.menu.open = false })
 		return a.loadState(context.Background())

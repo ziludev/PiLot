@@ -261,6 +261,15 @@ type PushResult struct {
 	Message    string `json:"message"`
 }
 
+// WorktreeRemoved is POST /api/worktree/remove: Status is "removed", or
+// "unmerged" when the branch still holds commits that would be lost.
+type WorktreeRemoved struct {
+	Status  string `json:"status"`
+	Branch  string `json:"branch"`
+	Commits int    `json:"commits"`
+	Message string `json:"message"`
+}
+
 // MergeResult is POST /api/merge.
 type MergeResult struct {
 	Status    string   `json:"status"`

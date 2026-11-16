@@ -367,9 +367,15 @@ func (c *Client) SetSurfaceMeta(ctx context.Context, meta SurfaceMeta) error {
 	return c.post(ctx, "/api/surface-meta", meta, nil)
 }
 
-// RemoveWorktree deletes the chat's checkout, keeping its transcript.
-func (c *Client) RemoveWorktree(ctx context.Context, conversationID int) error {
-	return c.post(ctx, "/api/worktree/remove", conversationIDBody(conversationID), nil)
+// RemoveWorktree deletes the chat's checkout, keeping its transcript. A chat
+// whose branch still holds unmerged commits answers "unmerged" instead of
+// deleting anything, which the caller has to say out loud.
+func (c *Client) RemoveWorktree(ctx context.Context, conversationID int) (*protocol.WorktreeRemoved, error) {
+	var out protocol.WorktreeRemoved
+	if err := c.post(ctx, "/api/worktree/remove", conversationIDBody(conversationID), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // NewConversation starts a chat in projectID (empty uses the built-in workspace).

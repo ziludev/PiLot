@@ -62,8 +62,15 @@ func (a *App) railHeader(c *ui.Context, t theme.Tokens) {
 		railGlyph(c, t, i18n.T("language"), func() { a.toggleLang() }, func() {
 			ui.Icon(c, icons.Languages).Size(12, 12).TextColor(t.MutedFg)
 		})
-		railGlyph(c, t, i18n.T("theme"), func() { a.toggleTheme() }, func() {
-			ui.Text(c, "◐").FontSize(12).TextColor(t.MutedFg)
+		railGlyph(c, t, themeLabel(a.prefs.Theme), func() { a.toggleTheme() }, func() {
+			switch a.prefs.Theme {
+			case "light":
+				ui.Icon(c, icons.Sun).Size(12, 12).TextColor(t.MutedFg)
+			case "dark":
+				ui.Icon(c, icons.Moon).Size(12, 12).TextColor(t.MutedFg)
+			default:
+				ui.Icon(c, icons.Monitor).Size(12, 12).TextColor(t.MutedFg)
+			}
 		})
 	})
 }

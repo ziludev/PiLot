@@ -50,6 +50,12 @@ $ go test ./internal/app -run 'TestModelPickerWalks|TestRailHeader|TestSearchHit
 --- PASS: TestSearchHitsPanelShowsHits           提交搜索后列出 `#会话 · 类型` 与摘要，点击跳转
 --- PASS: TestMessageActionsCopyEditRetry        气泡上的复制/编辑重发/重试三个按钮真的生效
 --- PASS: TestRailReorderSavesTheOrder           拖拽后写回 prefs.Order，拖到首行会置顶
+--- PASS: TestThemeToggleCyclesThreeStates        跟随系统 → 浅色 → 深色 → 跟随系统
+--- PASS: TestMergeDialogAsksFirstAndHandsConflictsOver  脏工作区禁用合并；冲突时把文件交给 agent
+--- PASS: TestCommitsBaseSelectCallsSetGitBase    基分支下拉真的 POST /api/git/base
+--- PASS: TestRemoveWorktreeReportsUnmergedBranch 未合并分支拒绝清理并提示
+--- PASS: TestSidePanelWidthFollowsTheDivider     拖分隔条改右栏宽度并写回 prefs
+--- PASS: TestTranscriptEmptyStateAndJumpBar      空会话提示 + 「N 条新消息」跳转
 ```
 
 跨会话搜索走的是后端 `/api/search?q=`（`api.Search` → `protocol.SearchHit`），命中列表在 rail 的搜索框下方；点击命中会切换会话并把窗口移到含该 entry 的回合（`turnOfEntry`）。

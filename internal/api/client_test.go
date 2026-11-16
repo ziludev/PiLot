@@ -342,7 +342,10 @@ func TestClientPOST(t *testing.T) {
 		{
 			name: "remove worktree", path: "/api/worktree/remove", body: `{"conversationId":2}`,
 			reply: `{"status":"removed","conversationId":2}`,
-			call:  func(c *Client) error { return c.RemoveWorktree(ctx, 2) },
+			call: func(c *Client) error {
+				_, err := c.RemoveWorktree(ctx, 2)
+				return err
+			},
 		},
 		{
 			name: "new conversation", path: "/api/conversations", body: `{"projectId":"workspace"}`,

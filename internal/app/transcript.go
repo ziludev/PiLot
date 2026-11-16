@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"math"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -46,12 +47,30 @@ func (a *App) transcript(c *ui.Context) {
 	if end > len(built) {
 		end = len(built)
 	}
-	ui.Scroll(c).Fill().Children(func() {
+	scroll := ui.Scroll(c).Fill().TrackScroll(&a.transcriptScroll)
+	// TrackScroll reports where the view stands after layout: at the end the
+	// button that jumps there is pointless, elsewhere it counts what arrived.
+	if a.transcriptScroll.MaxY > 0 {
+		a.atBottom = a.transcriptScroll.MaxY-a.transcriptScroll.Y < 24
+		if a.atBottom {
+			a.newMessages = 0
+		}
+	}
+	scroll.Children(func() {
 		ui.Column(c).Fill().Padding(16, 20).Gap(14).Children(func() {
 			if len(built) == 0 {
+				// A chat nobody picked is not the same as a quiet one: React
+				// says so instead of drawing an empty pane (Transcript.tsx:340).
+				title, hint := i18n.T("noConversation"), i18n.T("noSessionsHint")
 				if a.conn == ConnDown {
-					ui.Text(c, i18n.T("bridgeDownTitle")).FontSize(12).TextColor(t.MutedFg)
+					title, hint = i18n.T("bridgeDownTitle"), i18n.T("bridgeRetrying")
 				}
+				ui.Column(c).Padding(16, 0).Gap(3).Children(func() {
+					ui.Text(c, title).FontSize(12).TextColor(t.MutedFg).Wrap()
+					if hint != "" {
+						ui.Text(c, hint).FontSize(11).TextColor(t.MutedFg).Wrap()
+					}
+				})
 				return
 			}
 			if hidden > 0 {
@@ -429,4 +448,26 @@ func noteText(entry protocol.Entry) string {
 		}
 	}
 	return ""
+}
+
+// jumpBar is the "N new messages / jump to latest" strip Transcript.tsx:331
+// floats over the end of the chat: it only appears once the user has scrolled
+// away from the newest turn.
+func (a *App) jumpBar(c *ui.Context) {
+	if a.atBottom || a.currentValue() == 0 {
+		return
+	}
+	label := i18n.T("jumpToLatest")
+	if a.newMessages > 0 {
+		label = itoa(a.newMessages) + " " + i18n.T("newMessages")
+	}
+	ui.Row(c).FillWidth().Padding(0, 14, 4, 14).Justify(ui.End).Children(func() {
+		ui.Button(c, label).OnClick(func() {
+			a.apply(func() {
+				a.transcriptScroll.ScrollTo(0, math.MaxFloat32, ui.Animation{})
+				a.newMessages = 0
+				a.invalidate()
+			})
+		})
+	})
 }

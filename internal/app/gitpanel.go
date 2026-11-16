@@ -7,6 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"pitta/internal/i18n"
 	"pitta/internal/protocol"
 	"pitta/internal/side"
 	"pitta/internal/theme"
@@ -42,16 +43,17 @@ func (a *App) sideChanges(c *ui.Context, t theme.Tokens) {
 		OnClearNotes: func() { a.clearReview() },
 		OnSendReview: func() { a.sendReview() },
 		OnCommit:     func() { a.openCommitDialog() },
-		OnMerge:      func() { a.mergeBranch() },
+		OnMerge:      func() { a.openMergeDialog() },
 	})
 	side.CommitsView(c, side.CommitsProps{
-		Git:      a.git,
-		Expanded: a.commitExpanded,
-		Diff:     a.commitDiffs[a.commitExpanded],
-		PushNote: a.pushNote,
-		OnOpen:   func(hash string) { a.openCommit(hash) },
-		OnClose:  func() { a.apply(func() { a.commitExpanded = ""; a.invalidate() }) },
-		OnPush:   func(dryRun bool) { a.pushBranch(dryRun) },
+		Git:       a.git,
+		Expanded:  a.commitExpanded,
+		Diff:      a.commitDiffs[a.commitExpanded],
+		PushNote:  a.pushNote,
+		OnOpen:    func(hash string) { a.openCommit(hash) },
+		OnClose:   func() { a.apply(func() { a.commitExpanded = ""; a.invalidate() }) },
+		OnPush:    func(dryRun bool) { a.pushBranch(dryRun) },
+		OnSetBase: func(branch string) { a.setGitBase(branch) },
 	})
 	side.CommitDialog(c, side.CommitProps{
 		Message:   a.commitMsg,
@@ -60,6 +62,17 @@ func (a *App) sideChanges(c *ui.Context, t theme.Tokens) {
 		OnMessage: func(message string) { a.apply(func() { a.commitMsg = message }) },
 		OnCancel:  func() { a.apply(func() { a.commitDialogOpen = false; a.invalidate() }) },
 		OnSubmit:  func() { a.submitCommit() },
+	})
+	side.MergeDialog(c, side.MergeProps{
+		Open:       a.mergeOpen,
+		Busy:       a.mergeBusy,
+		Dirty:      a.worktreeDirty(),
+		Branch:     a.branchLabel(),
+		Base:       a.baseLabel(),
+		Result:     a.merge,
+		OnCancel:   func() { a.apply(func() { a.mergeOpen = false; a.merge = nil; a.invalidate() }) },
+		OnConfirm:  func() { a.mergeBranch() },
+		OnAskAgent: func() { a.askAgentToResolve() },
 	})
 }
 
@@ -230,13 +243,33 @@ func (a *App) submitCommit() {
 
 // mergeBranch merges the base branch into this worktree and reports what the
 // bridge answered.
+// openMergeDialog asks before merging: the dialog is where the user confirms,
+// sees a dirty checkout refused, and hands conflicts to the agent
+// (MergeButton.tsx:57-120).
+func (a *App) openMergeDialog() {
+	a.apply(func() {
+		a.mergeOpen = true
+		a.merge = nil
+		a.mergeBusy = false
+		a.invalidate()
+	})
+}
+
+// mergeBranch runs the merge the dialog confirmed.
 func (a *App) mergeBranch() {
 	conversationID := a.currentValue()
 	a.goLoad(func() error {
+		a.apply(func() { a.mergeBusy = true })
 		result, err := a.api.Merge(context.Background(), conversationID)
 		a.apply(func() {
+			a.mergeBusy = false
 			if err == nil {
 				a.merge = result
+				// A clean merge closes the dialog; a conflict keeps it open so
+				// the user can hand the files over.
+				if result == nil || result.Status != "conflict" {
+					a.mergeOpen = false
+				}
 			}
 			a.invalidate()
 		})
@@ -245,6 +278,44 @@ func (a *App) mergeBranch() {
 		}
 		return a.loadGit(context.Background())
 	})
+}
+
+// askAgentToResolve sends the conflicting files to the chat, which is what the
+// dialog's second button promises (store.ts:556 askAgentToResolve).
+func (a *App) askAgentToResolve() {
+	result := a.merge
+	if result == nil || len(result.Conflicts) == 0 {
+		return
+	}
+	files := strings.Join(result.Conflicts, ", ")
+	prompt := "The merge of " + result.Branch + " into " + result.Base +
+		" conflicts in: " + files + ". Please resolve the conflicts in these files."
+	a.apply(func() {
+		a.mergeOpen = false
+		a.notice = i18n.T("askedAgent")
+		a.invalidate()
+	})
+	a.sendText(prompt)
+}
+
+// setGitBase changes the branch the chat is compared against.
+func (a *App) setGitBase(branch string) {
+	conversationID := a.currentValue()
+	if conversationID == 0 || branch == "" {
+		return
+	}
+	a.goLoad(func() error {
+		if err := a.api.SetGitBase(context.Background(), conversationID, branch); err != nil {
+			return err
+		}
+		a.apply(func() { a.gitBase = branch })
+		return a.loadGit(context.Background())
+	})
+}
+
+// worktreeDirty reports uncommitted work, which blocks a merge.
+func (a *App) worktreeDirty() bool {
+	return a.changes != nil && len(a.changes.Files) > 0
 }
 
 // openCommit loads one commit's patch, caching it for the second click.
@@ -320,4 +391,21 @@ func atoi(text string) int {
 		return 0
 	}
 	return number
+}
+
+// branchLabel names the chat's branch for the merge dialog.
+func (a *App) branchLabel() string {
+	if a.git != nil && a.git.Branch != "" {
+		return a.git.Branch
+	}
+	return a.currentTitle()
+}
+
+// baseLabel names what the merge goes into: the compare base, or the branch
+// the chat was branched from.
+func (a *App) baseLabel() string {
+	if a.git != nil && a.git.Base != "" {
+		return a.git.Base
+	}
+	return i18n.T("mainBranch")
 }

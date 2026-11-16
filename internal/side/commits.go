@@ -23,6 +23,9 @@ type CommitsProps struct {
 	OnClose  func()
 	OnPush   func(dryRun bool)
 	PushNote string
+	// OnSetBase changes the branch the compare link and the patch count are
+	// measured against (Commits.tsx:71).
+	OnSetBase func(branch string)
 }
 
 // CommitsView draws the commits of the branch. A row opens its patch and
@@ -62,14 +65,12 @@ func commitsHeader(c *ui.Context, t theme.Tokens, git *protocol.Git, p CommitsPr
 	if branch == "" {
 		branch = git.Worktree
 	}
-	where := branch
-	if git.Base != "" {
-		where += " → " + git.Base
-	}
 	ui.Column(c).FillWidth().Children(func() {
 		ui.Row(c).FillWidth().Padding(8, 10).Gap(6).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, where).Font("monospace").FontSize(10).TextColor(t.MutedFg).
+			ui.Text(c, branch).Font("monospace").FontSize(10).TextColor(t.MutedFg).
 				SingleLine().TruncateMiddle().Grow(1)
+			ui.Text(c, "→").FontSize(10).TextColor(t.MutedFg)
+			baseSelect(c, t, git, p)
 			if git.CompareURL != "" {
 				label := i18n.T("openPr")
 				if git.Remote.Kind == "gitlab" {
@@ -154,4 +155,34 @@ func commitWhen(date string) string {
 		return date[:10]
 	}
 	return date
+}
+
+// baseSelect chooses the branch the chat is compared against: branched from any
+// branch, so the base is a choice (Commits.tsx:71).
+func baseSelect(c *ui.Context, t theme.Tokens, git *protocol.Git, p CommitsProps) {
+	names := make([]string, 0, len(git.Branches))
+	for _, branch := range git.Branches {
+		names = append(names, branch.Name)
+	}
+	options := sortedBranches(names, git.Base)
+	value := git.Base
+	ui.Select(c, &value, options).Width(120).OnChange(func() {
+		if p.OnSetBase != nil && value != git.Base {
+			p.OnSetBase(value)
+		}
+	})
+}
+
+// sortedBranches puts the current base first, then the rest in their order.
+func sortedBranches(branches []string, base string) []string {
+	out := make([]string, 0, len(branches)+1)
+	if base != "" {
+		out = append(out, base)
+	}
+	for _, branch := range branches {
+		if branch != base {
+			out = append(out, branch)
+		}
+	}
+	return out
 }

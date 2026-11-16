@@ -44,24 +44,24 @@
 | `Rail.tsx` | 会话列表、拖拽排序、过滤、置顶/归档、任务、底部控制 | `internal/app/rail.go` + `railview.go`（`ListState.Reorder` → `reorderChats`，拖到首行即置顶） | done |
 | `ConvSearch.tsx` | ⌘F 打开的会话内查找条（上一个/下一个命中） | `findBar`（Search.go） | done |
 | `ProjectBar.tsx` | 项目切换 / 打开 / 移除 | `internal/app/projectbar.go` | done |
-| `Transcript.tsx` | 回合列表、左右气泡、复制/编辑/重试、窗口化、通知 | `internal/app/transcript.go`（60 轮窗口 + earlierTurns） | diff |
+| `Transcript.tsx` | 回合列表、左右气泡、复制/编辑/重试、窗口化、新消息跳转、空态、通知 | `internal/app/transcript.go`（60 轮窗口 + earlierTurns + `jumpBar` + `noConversation` 空态） | diff |
 | `TurnRail.tsx` | 每步的阶段色点竖轨 | `stepRow` 前置色点 + 步骤组左侧 1px 竖线（`transcript.go` 的 `BorderWidth(0,0,0,1)`） | diff |
 | `TurnDurations.tsx` | 思考/工具/等待耗时分段条 | `phaseBar`（180×3px 分段条 + `phaseLegend` 逐段时长） | diff |
 | `ToolOutput.tsx` | 工具输出（diff/文本/失败色） | `stepOutput` + `diff.View` | done |
 | `Composer.tsx` | 输入、steer、发送、模型入口 | `internal/app/composer.go`（Cmd/Ctrl+Enter 发送） | done |
 | `ApprovalBar.tsx` | 审批三按钮 + 等待秒数 | `approvalBar`（composer.go） | done |
 | `ModelPicker.tsx` | 搜索、收藏、最近、思考档 | `internal/app/modelpicker.go` | diff |
-| `SidePanel.tsx` | changes/memory/access/usage 四标签 | `internal/app/sidepanel.go`（标签栏）+ `internal/side` + `internal/ops` | done |
+| `SidePanel.tsx` | changes/memory/access/usage 四标签、可拖宽并记忆 | `internal/app/sidepanel.go` + `internal/side` + `internal/ops`；宽度由 `pane` 的 `ui.Split` 决定并写回 `prefs.SideWidth` | done |
 | `FileViewer.tsx` | 只读文件 + 行号 + 行批注 | `internal/side/file.go` + `a.openFile` | done |
 | `CommitDialog.tsx` | 提交信息弹窗 | `internal/side/commit.go` | done |
-| `Commits.tsx` | 提交列表、补丁展开、push、compare | `internal/side/commits.go` | done |
-| `MergeButton.tsx` | 合并基分支与结果文案 | `internal/side/merge.go` | done |
+| `Commits.tsx` | 提交列表、补丁展开、push、compare、基分支选择 | `internal/side/commits.go`（`baseSelect` → `OnSetBase` → `api.SetGitBase`） | done |
+| `MergeButton.tsx` | 合并确认对话框、脏工作区禁用、冲突交给 agent | `internal/side/merge.go`（`MergeButton` + `MergeDialog`）；`App.openMergeDialog/mergeBranch/askAgentToResolve` | done |
 | `AccessPanel.tsx` | 授权级别、路由、审计 | `internal/ops/access.go` | diff |
 | `TaskDialog.tsx` | 任务详情与取消 | `internal/ops/task.go` | done |
 | `UsageCalendar.tsx` | 120 天花费热力格 | `internal/ops/usage.go` | done |
-| `ChatMenu.tsx` | 重命名/归档/清理 worktree | `internal/app/search.go`（`chatMenuDialog`） | done |
+| `ChatMenu.tsx` | 重命名/归档/清理 worktree（未合并分支拒绝并提示） | `internal/app/search.go`（`chatMenuDialog` + `removeWorktree` 读 `status=="unmerged"` → `unmergedWork`） | done |
 | `SearchBox.tsx` | rail 搜索框：输入过滤标题，提交走 `/api/search` 列命中 | `railSearch` + `searchHitsPanel`（rail.go）/ `api.Search` | done |
-| `ThemeToggle.tsx` | 深浅色切换 | `toggleTheme`（rail 头「◐」） | done |
+| `ThemeToggle.tsx` | 跟随系统 / 浅色 / 深色 三态循环 | `toggleTheme` + `nextTheme`（rail 头图标随状态换 Monitor/Sun/Moon） | done |
 | `ErrorPanel.tsx` | 错误角标 + 列表 + 清空 | `internal/app/errorpanel.go` | done |
 | `BotAvatar.tsx` | rail 里会随工作状态下表情的饼脸头像 | `internal/avatar`（`avatar.View`） | done |
 | `Images.tsx` | 输入区图片附件（粘贴）、会话内缩略图与全屏预览 | `internal/app/images.go`（Paperclip→路径对话框、`ui.DecodeBitmap` 缩略图、预览弹层、上限 3 张） | diff |
@@ -95,7 +95,9 @@
 10. **通知**：React 在窗口隐藏时调 `Agent.notify`；这里用 `osascript display notification`，只在 `win.IsFocused()` 为假时触发，`internal/notify`。
 11. **会话列表长度**：`/api/conversation?limit=200` 与 React 相同，服务端上限 200，不改。
 12. **飞书健康横幅**：已按 `Rail.tsx:426-435` 绘制（`ready=false && downMs>60000` 时画红条 + `PlugZap` + "飞书连接断开 Nm"），差别只在 React 的 hover 提示（`lastError`）没有 tooltip 承载，文案直接显示在条内。
-13. **日志入口**：React rail 底部有 open-logs 按钮，这里同样接了「日志」（`bridge.OpenLogs()` 用 Finder 打开 `<home>/logs`），行为一致。
+13. **新消息跳转是一条窄条而不是浮层**：`Transcript.tsx:331` 把「↓ N 条新消息」浮在列表右下角，mygo 没有绝对定位，所以画在 transcript 与 composer 之间的一条右对齐窄条（滚动离开末尾才出现，点击 `ScrollTo(0, MaxFloat32)`）；空会话用 `noConversation` 文案代替空白。
+14. **右栏拖宽用 `ui.Split`**：React 是 `PanelGroup + PanelResizeHandle`（比例伸缩），这里是 `Split` 定宽第一格（main），面板宽度取余量并写回 `prefs.SideWidth`；双击分隔条复位到 760 DIP。
+15. **日志入口**：React rail 底部有 open-logs 按钮，这里同样接了「日志」（`bridge.OpenLogs()` 用 Finder 打开 `<home>/logs`），行为一致。
 
 rail 的外观（头像、状态行、搜索命中）见 `docs/snapshots/rail-{light,dark}.png`，由 `TestSnapshotRail` 生成，可重跑。
 

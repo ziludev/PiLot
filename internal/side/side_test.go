@@ -174,7 +174,8 @@ func TestCommitsViewOpensAndClosesAPatch(t *testing.T) {
 		CommitsView(c, props)
 	}, 520, 620)
 	tt.Frame()
-	for _, want := range []string{"agent/work → main", "Add the side panel", "aaa1111", "Open PR"} {
+	// The base is a select now, so the arrow is its own text node.
+	for _, want := range []string{"agent/work", "→", "main", "Add the side panel", "aaa1111", "Open PR"} {
 		if !tt.HasText(want) {
 			t.Fatalf("commits view is missing %q, shows %q", want, tt.Texts())
 		}

@@ -127,6 +127,13 @@ type App struct {
 	commitBusy       bool
 	commitMsg        string
 	gitBase          string
+	mergeOpen        bool
+	mainPane         float32
+	transcriptScroll ui.ScrollState
+	atBottom         bool
+	newMessages      int
+	sideSynced       bool
+	mergeBusy        bool
 	merge            *protocol.MergeResult
 	changesLoading   bool
 	pushNote         string
@@ -476,6 +483,9 @@ func (a *App) watch(conversationID int) {
 			a.conn = ConnOpen
 			a.reachable = true
 			a.lastOpen = time.Now()
+			if !a.atBottom && len(value.Entries) > len(a.entries) {
+				a.newMessages += len(value.Entries) - len(a.entries)
+			}
 			a.entries = value.Entries
 			if doc, ok := value.Docs["pi.live"]; ok {
 				a.live = &doc
@@ -631,17 +641,29 @@ func (a *App) applyThemeChoice(c *ui.Context) {
 }
 
 // toggleTheme flips between light and dark and remembers it.
+// toggleTheme walks the three states ThemeToggle.tsx:8-20 cycles: follow the
+// system, light, dark, and back to following the system.
 func (a *App) toggleTheme() {
 	a.apply(func() {
-		if a.prefs.Theme == "dark" {
-			a.prefs.Theme = "light"
-		} else {
-			a.prefs.Theme = "dark"
-		}
+		a.prefs.Theme = nextTheme(a.prefs.Theme)
 		a.savePrefsLater()
 		a.invalidate()
 	})
 }
+
+func nextTheme(theme string) string {
+	switch theme {
+	case "":
+		return "light"
+	case "light":
+		return "dark"
+	}
+	return ""
+}
+
+// themeLabel is the toggle's tooltip. React names the button, not the state
+// (ThemeToggle.tsx has only the "theme" key), so the icon carries the state.
+func themeLabel(theme string) string { return i18n.T("theme") }
 
 // toggleLang switches between Chinese and English, as the rail's Languages
 // button does.
@@ -665,15 +687,40 @@ func (a *App) toggleLang() {
 func (a *App) pane(c *ui.Context) {
 	if !a.sideOpen {
 		a.main(c)
+		a.sideSynced = false
 		return
 	}
-	// A row with a growing chat and a fixed-width panel, not a nested Split:
-	// inside Split's first pane a percentage width has no base to resolve
-	// against, which collapsed the composer to its content.
-	ui.Row(c).Fill().Children(func() {
-		ui.Row(c).Grow(1).Children(func() { a.main(c) })
-		ui.Column(c).Width(a.sideWidthOf()).FillHeight().Children(func() { a.sidePanel(c) })
-	})
+	// main | side, with the divider between them draggable and remembered, as
+	// React's PanelResizeHandle is (App.tsx:74-96). Split sizes its first pane
+	// in DIPs, so mainPane is what the divider moves; the panel width is the
+	// remainder, which is what prefs keeps.
+	if a.mainPane <= 0 {
+		a.mainPane = 760
+	}
+	pane := ui.Split(c, &a.mainPane, func() { a.main(c) }, func() { a.sidePanel(c) }).Fill()
+	bounds := pane.Bounds()
+	if bounds.W <= 0 {
+		return
+	}
+	room := float32(bounds.W)
+	if !a.sideSynced {
+		// The room Split has is only known once laid out: take the saved panel
+		// width out of it on the first frame that shows the panel.
+		a.sideSynced = true
+		a.mainPane = room - float32(a.sideWidthOf())
+		return
+	}
+	if side := room - a.mainPane; side > 0 && absf(side-float32(a.sideWidthOf())) > 2 {
+		a.prefs.SideWidth = side
+		a.savePrefsLater()
+	}
+}
+
+func absf(v float32) float32 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func (a *App) main(c *ui.Context) {
@@ -687,6 +734,7 @@ func (a *App) main(c *ui.Context) {
 		a.mainHeader(c)
 		ui.Divider(c)
 		a.transcript(c)
+		a.jumpBar(c)
 		if a.modelOpen {
 			a.modelPalette(c)
 		}
