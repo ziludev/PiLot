@@ -439,6 +439,19 @@ func (c *Client) Approvals(ctx context.Context) ([]protocol.PendingApproval, err
 	return reply.Approvals, nil
 }
 
+// Search looks for text inside transcripts across conversations. The bridge
+// scans the newest conversations, so an old chat may not be in the result.
+func (c *Client) Search(ctx context.Context, query string) ([]protocol.SearchHit, error) {
+	var out struct {
+		Hits []protocol.SearchHit `json:"hits"`
+	}
+	path := "/api/search?q=" + url.QueryEscape(query)
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Hits, nil
+}
+
 // SetGitBase changes the branch this chat merges into.
 func (c *Client) SetGitBase(ctx context.Context, conversationID int, base string) error {
 	body := struct {

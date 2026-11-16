@@ -72,6 +72,15 @@ type Feishu struct {
 	LastError string `json:"lastError"`
 }
 
+// SearchHit is one match of GET /api/search, which looks inside transcript text
+// across conversations rather than at titles.
+type SearchHit struct {
+	ConversationID int    `json:"conversationId"`
+	EntryID        int    `json:"entryId"`
+	Kind           string `json:"kind"`
+	Snippet        string `json:"snippet"`
+}
+
 // State is GET /api/state.
 type State struct {
 	Surfaces []Surface `json:"surfaces"`

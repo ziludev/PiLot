@@ -29,22 +29,85 @@ func parseModelKey(key string) (provider, modelID string, ok bool) {
 
 // modelPicker anchors the command palette under the composer's model label:
 // search, favourites, recents, provider groups and the thinking level.
+// modelKey takes the keys the palette owns before the input acts on them, so
+// Enter picks instead of closing and the arrows walk the list while typing
+// still filters.
+func (a *App) modelKey(c *ui.Context, k ui.TextKey) bool {
+	switch k.Key {
+	case ui.KeyDown:
+		a.walkModels(1)
+		return true
+	case ui.KeyUp:
+		a.walkModels(-1)
+		return true
+	case ui.KeyEnter:
+		a.pickModel()
+		return true
+	}
+	return false
+}
+
+// walkModels moves the highlight by step, wrapping at both ends, the way the
+// arrow keys behave in ModelPicker.tsx's palette.
+func (a *App) walkModels(step int) {
+	models := a.visibleModels()
+	if len(models) == 0 {
+		return
+	}
+	a.apply(func() {
+		a.modelCursor = (a.modelCursor + step + len(models)) % len(models)
+		a.invalidate()
+	})
+}
+
+// pickModel takes the highlighted row, if any.
+func (a *App) pickModel() {
+	models := a.visibleModels()
+	if a.modelCursor < 0 || a.modelCursor >= len(models) {
+		return
+	}
+	picked := models[a.modelCursor]
+	a.chooseModel(protocol.ModelRef{Provider: picked.Provider, ModelID: picked.ID})
+}
+
+// modelPicker is the button in the composer that opens the model palette. The
+// list itself is drawn inline above the composer rather than as a popover: a
+// popover takes Enter for its own dismiss, which is the key the palette needs
+// for picking a row.
 func (a *App) modelPicker(c *ui.Context) {
 	t := theme.Current(c)
-	anchor := ui.Button(c, a.modelLabel()).FontSize(10).Padding(3, 8).TextColor(t.MutedFg)
-	ui.Popover(c, anchor, &a.modelOpen, func() {
-		ui.Column(c).Width(340).Padding(8).Gap(6).Children(func() {
-			ui.TextInput(c, &a.modelQuery).FontSize(11).Placeholder(i18n.T("searchModel"))
-			ui.Scroll(c).Height(320).Children(func() {
-				ui.Column(c).Gap(2).Children(func() {
-					models := a.visibleModels()
-					for _, entry := range models {
-						a.modelRow(c, t, entry)
-					}
-				})
+	ui.Button(c, a.modelLabel()).FontSize(10).Padding(3, 8).TextColor(t.MutedFg).
+		OnClick(func() {
+			a.apply(func() {
+				a.modelOpen = !a.modelOpen
+				if a.modelOpen {
+					a.modelQuery = ""
+					a.modelCursor = 0
+				}
+				a.invalidate()
 			})
-			a.thinkingRow(c, t)
 		})
+}
+
+// modelPalette is the command palette of ModelPicker.tsx: a search field, the
+// models ordered favourites-first, and the thinking levels of the chosen one.
+func (a *App) modelPalette(c *ui.Context) {
+	t := theme.Current(c)
+	ui.Column(c).FillWidth().Padding(10).Gap(6).Background(t.Popover).
+		BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
+		ui.TextInput(c, &a.modelQuery).FillWidth().FontSize(11).
+			Placeholder(i18n.T("searchModel")).Label(i18n.T("searchModel")).
+			OnTextKey(func(k ui.TextKey) bool { return a.modelKey(c, k) }).
+			OnSubmit(func() { a.pickModel() })
+		ui.Scroll(c).Height(200).Children(func() {
+			ui.Column(c).FillWidth().Gap(2).Children(func() {
+				models := a.visibleModels()
+				for i, entry := range models {
+					a.modelRowAt(c, t, entry, i == a.modelCursor)
+				}
+			})
+		})
+		a.thinkingRow(c, t)
 	})
 }
 
@@ -88,6 +151,11 @@ func (a *App) visibleModels() []protocol.ModelEntry {
 
 // modelRow is one entry: initial, name, provider, price, context and star.
 func (a *App) modelRow(c *ui.Context, t theme.Tokens, entry protocol.ModelEntry) {
+	a.modelRowAt(c, t, entry, false)
+}
+
+// modelRowAt draws a row and marks it when the arrow keys stand on it.
+func (a *App) modelRowAt(c *ui.Context, t theme.Tokens, entry protocol.ModelEntry, cursor bool) {
 	ref := protocol.ModelRef{Provider: entry.Provider, ModelID: entry.ID}
 	active := a.model != nil && *a.model == ref
 	starred := false
@@ -101,7 +169,11 @@ func (a *App) modelRow(c *ui.Context, t theme.Tokens, entry protocol.ModelEntry)
 	if entry.Name != "" {
 		initial = strings.ToUpper(string([]rune(entry.Name)[0]))
 	}
-	ui.Row(c).Fill().Gap(6).Padding(5, 6).Radius(6).Children(func() {
+	row := ui.Row(c).Fill().Gap(6).Padding(5, 6).Radius(6)
+	if cursor {
+		row = row.Background(t.Accent)
+	}
+	row.Children(func() {
 		ui.Column(c).Width(20).Height(20).Radius(4).Background(t.Muted).Padding(4, 0).Children(func() {
 			ui.Text(c, initial).FontSize(10).TextColor(t.MutedFg)
 		})

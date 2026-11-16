@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"image/png"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -167,6 +168,84 @@ func TestMemoryPanelListsScopesAndCurates(t *testing.T) {
 		t.Errorf("drop reported index %d, want 0", dropped)
 	}
 	savePNG(t, frame(t, 460, 760, func(c *ui.Context) { MemoryPanel(c, p) }), "/tmp/pitta-ops-memory.png")
+}
+
+// TestMemorySuggestionsApplyOnlyChecked covers the per-suggestion check boxes:
+// every row starts checked, as the client reads `selected[index] !== false`;
+// the app's toggle keeps the unchecked rows in Selected, and Apply submits the
+// rows still checked, disabled and silent when none is.
+func TestMemorySuggestionsApplyOnlyChecked(t *testing.T) {
+	applied := [][]int{}
+	toggled := []int{}
+	p := memoryFixture()
+	p.Selected = map[int]bool{}
+	p.OnToggle = func(index int) {
+		toggled = append(toggled, index)
+		p.Selected[index] = !p.Selected[index]
+	}
+	p.OnApply = func(indices []int) { applied = append(applied, indices) }
+
+	tt := frame(t, 460, 760, func(c *ui.Context) { MemoryPanel(c, p) })
+	tt.UseScreenReader()
+	checkBox := func() ui.AccessInfo {
+		t.Helper()
+		box, ok := tt.AccessByRole(ui.RoleCheckBox, "The owner reads Feishu before mail")
+		if !ok {
+			t.Fatalf("no check box names the second suggestion; painted %v", tt.Texts())
+		}
+		return box
+	}
+	if !checkBox().Checked {
+		t.Fatal("suggestions do not start checked")
+	}
+	if !tt.HasText("Apply 2") {
+		t.Fatalf("suggestions do not start picked; painted %v", tt.Texts())
+	}
+	if err := tt.Click("Apply 2"); err != nil {
+		t.Fatalf("click apply: %v", err)
+	}
+	if len(applied) != 1 || !slices.Equal(applied[0], []int{0, 1}) {
+		t.Fatalf("apply submitted %v, want [[0 1]]", applied)
+	}
+
+	if err := tt.Click("The owner reads Feishu before mail"); err != nil {
+		t.Fatalf("click second suggestion's check box: %v", err)
+	}
+	tt.Frame()
+	if !slices.Equal(toggled, []int{1}) {
+		t.Fatalf("toggle reported %v, want [1]", toggled)
+	}
+	if checkBox().Checked {
+		t.Fatal("the second suggestion's check box stayed checked")
+	}
+	if !tt.HasText("Apply 1") {
+		t.Fatalf("unchecking the second row did not leave one picked; painted %v", tt.Texts())
+	}
+	if err := tt.Click("Apply 1"); err != nil {
+		t.Fatalf("click apply: %v", err)
+	}
+	if len(applied) != 2 || !slices.Equal(applied[1], []int{0}) {
+		t.Fatalf("apply submitted %v, want [[0 1] [0]]", applied)
+	}
+
+	if err := tt.Click("Deploys go out on Fridays"); err != nil {
+		t.Fatalf("click first suggestion's check box: %v", err)
+	}
+	tt.Frame()
+	if !tt.HasText("Apply 0") {
+		t.Fatalf("nothing checked does not say so; painted %v", tt.Texts())
+	}
+	if apply, ok := tt.AccessByRole(ui.RoleButton, "Apply 0"); !ok || !apply.Disabled {
+		t.Fatalf("apply with nothing checked: %+v, want disabled", apply)
+	}
+	// A disabled button still takes the click and reports nothing.
+	if err := tt.Click("Apply 0"); err != nil {
+		t.Fatalf("click apply: %v", err)
+	}
+	if len(applied) != 2 {
+		t.Fatalf("apply fired with nothing checked: %v", applied)
+	}
+	savePNG(t, tt, "/tmp/pitta-ops-memory-picked.png")
 }
 
 func TestAccessPanelShowsChatsOwnerAndAudit(t *testing.T) {

@@ -19,10 +19,15 @@ type MemoryProps struct {
 	Query       string
 	Curating    bool
 	Suggestions []protocol.MemorySuggestion
-	OnQuery     func(string)
-	OnCurate    func()
-	OnApply     func()
-	OnDrop      func(index int)
+	// Selected marks the suggestions the reader unchecked, as the app keeps
+	// them: an index with a true entry is left out and an absent one is
+	// checked, which is how the client reads `selected[index] !== false`.
+	Selected map[int]bool
+	OnQuery  func(string)
+	OnCurate func()
+	OnToggle func(index int)
+	OnApply  func(indices []int)
+	OnDrop   func(index int)
 }
 
 // memoryFolds records which scopes the reader collapsed. Props carry no view
@@ -131,8 +136,9 @@ func memoryQuery(c *ui.Context, t theme.Tokens, p MemoryProps) {
 	})
 }
 
-// memorySuggestions lists what Curate proposed: one row per fact, each with the
-// scope it would land in and the reason it was kept.
+// memorySuggestions lists what Curate proposed: one row per fact, with the
+// check box that picks it, the scope it would land in and the reason it was
+// kept. Apply submits the rows still checked.
 func memorySuggestions(c *ui.Context, t theme.Tokens, p MemoryProps) {
 	ui.Column(c).FillWidth().Gap(6).Padding(8).Radius(theme.Radius).
 		Background(t.Background).Border(1, t.Primary).Children(func() {
@@ -143,16 +149,50 @@ func memorySuggestions(c *ui.Context, t theme.Tokens, p MemoryProps) {
 		ui.Scroll(c).FillWidth().MaxHeight(112).Children(func() {
 			ui.Column(c).FillWidth().Gap(4).Children(func() {
 				for i, s := range p.Suggestions {
-					memorySuggestion(c, t, i, s, p.OnDrop)
+					memorySuggestion(c, t, i, s, suggestionChecked(p, i), p.OnToggle, p.OnDrop)
 				}
 			})
 		})
-		button(c, t, icons.Check, i18n.T("apply")+" "+strconv.Itoa(len(p.Suggestions)), true, false, p.OnApply)
+		picked := pickedSuggestions(p)
+		var apply func()
+		if len(picked) > 0 {
+			apply = func() {
+				if p.OnApply != nil {
+					p.OnApply(picked)
+				}
+			}
+		}
+		button(c, t, icons.Check, i18n.T("apply")+" "+strconv.Itoa(len(picked)), true, len(picked) == 0, apply)
 	})
 }
 
-func memorySuggestion(c *ui.Context, t theme.Tokens, index int, s protocol.MemorySuggestion, drop func(int)) {
+// suggestionChecked reports whether row index is checked. Selected keeps the
+// rows the reader unchecked, so only a true entry leaves one out.
+func suggestionChecked(p MemoryProps, index int) bool {
+	return !p.Selected[index]
+}
+
+// pickedSuggestions lists the checked rows in the order they arrived; Apply
+// submits these indexes only, and an empty list disables it.
+func pickedSuggestions(p MemoryProps) []int {
+	picked := make([]int, 0, len(p.Suggestions))
+	for i := range p.Suggestions {
+		if suggestionChecked(p, i) {
+			picked = append(picked, i)
+		}
+	}
+	return picked
+}
+
+// memorySuggestion is one proposed fact: its check box, the fact and where it
+// would land, and the glyph that drops it from the list.
+func memorySuggestion(c *ui.Context, t theme.Tokens, index int, s protocol.MemorySuggestion, checked bool, toggle, drop func(int)) {
 	ui.Row(c).FillWidth().Gap(6).Padding(3, 2).AlignItems(ui.Start).Children(func() {
+		box := checked
+		checkbox := ui.Checkbox(c, &box, "").Label(s.Text)
+		if toggle != nil {
+			checkbox.OnChange(func() { toggle(index) })
+		}
 		ui.Column(c).Grow(1).Gap(2).Children(func() {
 			ui.Text(c, s.Text).FontSize(11).TextColor(t.Foreground).Wrap()
 			ui.Row(c).FillWidth().Gap(4).AlignItems(ui.Center).Children(func() {

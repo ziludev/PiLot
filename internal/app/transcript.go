@@ -29,7 +29,11 @@ func (a *App) transcript(c *ui.Context) {
 	start := len(built) - window
 	// A find hit moves the window instead of the scroll offset: turn heights
 	// vary, so the only reliable way to land on a turn is to draw it.
-	if index := a.focusedTurn(); index >= 0 {
+	anchor := a.focusedTurn()
+	if anchor < 0 && a.focusEntry > 0 {
+		anchor = turnOfEntry(built, a.focusEntry)
+	}
+	if index := anchor; index >= 0 {
 		if start = index - window/2; start < 0 {
 			start = 0
 		}
@@ -62,7 +66,7 @@ func (a *App) transcript(c *ui.Context) {
 			for i := start; i < end; i++ {
 				turn := &built[i]
 				live := i == len(built)-1 && a.live != nil && turn.Status(a.live) == turns.StatusRunning
-				a.turnBlock(c, t, turn, live, i == a.focusedTurn())
+				a.turnBlock(c, t, turn, live, i == anchor)
 			}
 		})
 	})
@@ -87,8 +91,13 @@ func (a *App) turnBlock(c *ui.Context, t theme.Tokens, turn *turns.Turn, live, f
 		for _, report := range turn.Reports {
 			a.reportBlock(c, t, turns.Text(report))
 		}
-		for _, step := range turn.Steps {
-			a.stepRow(c, t, step)
+		if len(turn.Steps) > 0 {
+			ui.Column(c).Gap(4).Padding(0, 0, 0, 5).
+				BorderWidth(0, 0, 0, 1).BorderColor(t.Border).Children(func() {
+				for _, step := range turn.Steps {
+					a.stepRow(c, t, step)
+				}
+			})
 		}
 		for _, final := range turn.Finals {
 			a.answerBlock(c, t, turns.Text(final))
@@ -123,6 +132,26 @@ func (a *App) phaseBar(c *ui.Context, t theme.Tokens, turn *turns.Turn) {
 		segment(phases.Wait, t.Warning)
 		segment(phases.Error, t.Destructive)
 	})
+	ui.Text(c, phaseLegend(turn)).FontSize(9).TextColor(t.MutedFg).MaxLines(1)
+}
+
+// phaseLegend names what the bar's colours mean, as TurnDurations.tsx does.
+func phaseLegend(turn *turns.Turn) string {
+	phases := turn.Stats.Phases
+	parts := make([]string, 0, 3)
+	if phases.Think > 0 {
+		parts = append(parts, "think "+turns.Clock(phases.Think))
+	}
+	if phases.Tool > 0 {
+		parts = append(parts, "tool "+turns.Clock(phases.Tool))
+	}
+	if phases.Wait > 0 {
+		parts = append(parts, "wait "+turns.Clock(phases.Wait))
+	}
+	if phases.Error > 0 {
+		parts = append(parts, "error "+turns.Clock(phases.Error))
+	}
+	return strings.Join(parts, " · ")
 }
 
 // userBubble is the message the person typed, right aligned as in the React

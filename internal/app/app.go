@@ -18,6 +18,7 @@ import (
 	"github.com/egoist/mygo/ui/markdown"
 
 	"pitta/internal/api"
+	"pitta/internal/avatar"
 	"pitta/internal/diff"
 	"pitta/internal/i18n"
 	"pitta/internal/icons"
@@ -100,6 +101,16 @@ type App struct {
 	file      *protocol.FilePayload
 	fileErr   string
 
+	// Which memory suggestions the reader unchecked before applying. The panel
+	// treats an absent index as checked.
+	memoryUnchecked map[int]bool
+
+	// Cross-conversation search: the box in the rail keeps filtering titles as
+	// the user types, and a submit asks the bridge to look inside transcripts.
+	searchHits    []protocol.SearchHit
+	searchPending bool
+	searchSeq     int
+
 	// In-chat search, review notes and the git/commit dialogs.
 	filter           string
 	focusEntry       int
@@ -150,6 +161,7 @@ type App struct {
 	memoryQuery  string
 	suggestions  []protocol.MemorySuggestion
 	curating     bool
+	modelCursor  int
 	modelsFav    []string
 	modelsRecent []string
 	modelQuery   string
@@ -175,8 +187,11 @@ type App struct {
 	project  string
 	tasks    []protocol.Task
 
-	entries []protocol.Entry
-	live    *protocol.LiveDoc
+	entries   []protocol.Entry
+	live      *protocol.LiveDoc
+	mood      avatar.Mood
+	moodUntil time.Time
+	wasLive   bool
 
 	model    *protocol.ModelRef
 	thinking string
@@ -671,6 +686,9 @@ func (a *App) main(c *ui.Context) {
 		a.mainHeader(c)
 		ui.Divider(c)
 		a.transcript(c)
+		if a.modelOpen {
+			a.modelPalette(c)
+		}
 		a.composer(c)
 	})
 }

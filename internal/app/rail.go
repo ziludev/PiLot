@@ -3,10 +3,12 @@ package app
 import (
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
 	"pitta/internal/api"
+	"pitta/internal/avatar"
 	"pitta/internal/bridge"
 	"pitta/internal/i18n"
 	"pitta/internal/icons"
@@ -37,6 +39,7 @@ func (a *App) rail(c *ui.Context) {
 		a.projectBar(c, t)
 		a.railSearch(c, t)
 		a.railFilters(c, t, railChatCount(rows))
+		a.railFeishu(c, t)
 		a.railList(c, t, rows)
 		a.railTasks(c, t)
 		a.railFooter(c, t)
@@ -48,10 +51,12 @@ func (a *App) rail(c *ui.Context) {
 func (a *App) railHeader(c *ui.Context, t theme.Tokens) {
 	ui.Row(c).FillWidth().Padding(7, 10).Gap(2).AlignItems(ui.Center).
 		BorderWidth(0, 0, 1, 0).BorderColor(t.SidebarBorder).Children(func() {
+		mood, tone := a.avatarLook()
+		avatar.View(c, 20, mood, tone)
 		ui.Column(c).Grow(1).Gap(1).Children(func() {
 			ui.Text(c, i18n.T("appName")).FontSize(13).FontWeight(600).
 				TextColor(t.SidebarFg).MaxLines(1)
-			ui.Text(c, a.projectLabel()).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
+			ui.Text(c, a.railStatus()).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
 		})
 		railGlyph(c, t, i18n.T("language"), func() { a.toggleLang() }, func() {
 			ui.Icon(c, icons.Languages).Size(12, 12).TextColor(t.MutedFg)
@@ -78,12 +83,72 @@ func (a *App) railDown(c *ui.Context, t theme.Tokens) {
 	})
 }
 
+// railFeishu warns that the Feishu transport has been down for a while, which
+// silences the chats that arrive through it (Rail.tsx shows it past a minute).
+func (a *App) railFeishu(c *ui.Context, t theme.Tokens) {
+	if a.feishu == nil || a.feishu.Ready || a.feishu.DownMs <= 60_000 {
+		return
+	}
+	ui.Row(c).FillWidth().Padding(6, 10).Gap(4).AlignItems(ui.Center).
+		Background(ui.RGBA(244, 63, 94, 0.10)).Border(1, ui.RGBA(244, 63, 94, 0.40)).Radius(6).
+		Children(func() {
+			ui.Icon(c, icons.PlugZap).Size(11, 11).TextColor(t.Destructive)
+			ui.Text(c, i18n.T("feishuDown")+" "+itoa(int(a.feishu.DownMs/60_000))+"m").
+				FontSize(10).TextColor(t.Destructive).Grow(1).MaxLines(1)
+		})
+}
+
 // railSearch filters the list as the user types. The rule lives in
 // sortedSurfaces, which every view of the list goes through.
 func (a *App) railSearch(c *ui.Context, t theme.Tokens) {
 	ui.Row(c).FillWidth().Padding(6, 10, 4, 10).Children(func() {
 		ui.TextInput(c, &a.query).Fill().Height(26).FontSize(11).
-			Placeholder(i18n.T("searchShort"))
+			Placeholder(i18n.T("searchShort")).
+			OnSubmit(func() {
+				a.apply(func() {
+					a.filter = a.query
+					a.invalidate()
+				})
+				a.runSearch()
+			})
+	})
+	a.searchHitsPanel(c, t)
+}
+
+// searchHitsPanel lists what the bridge found inside transcripts. A hit opens
+// the conversation and marks the turn, the same as SearchBox.tsx.
+func (a *App) searchHitsPanel(c *ui.Context, t theme.Tokens) {
+	if a.searchPending {
+		ui.Row(c).FillWidth().Padding(0, 12, 4, 12).Children(func() {
+			ui.Text(c, "…").FontSize(10).TextColor(t.MutedFg)
+		})
+		return
+	}
+	if a.searchHits == nil {
+		return
+	}
+	if len(a.searchHits) == 0 {
+		ui.Row(c).FillWidth().Padding(0, 12, 4, 12).Children(func() {
+			ui.Text(c, i18n.T("noHits")).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
+		})
+		return
+	}
+	ui.Column(c).FillWidth().Padding(0, 10, 4, 10).Children(func() {
+		ui.Scroll(c).Height(140).Children(func() {
+			ui.Column(c).FillWidth().Children(func() {
+				for _, hit := range a.searchHits {
+					hit := hit
+					ui.Column(c).FillWidth().Padding(3, 6).Gap(1).
+						Background(t.Card).Border(1, t.Border).Radius(4).
+						OnClick(func() { a.jumpToHit(hit) }).
+						Children(func() {
+							ui.Text(c, "#"+itoa(hit.ConversationID)+" · "+strings.TrimPrefix(hit.Kind, "pi.")).
+								FontSize(9).TextColor(t.MutedFg).MaxLines(1)
+							ui.Text(c, hit.Snippet).FontSize(10).TextColor(t.Foreground).MaxLines(2)
+						})
+				}
+			})
+		})
 	})
 }
 
@@ -474,4 +539,56 @@ func (a *App) newConversation() {
 		a.fail("refresh after new chat: %v", err)
 	}
 	a.selectConversation(conversationID)
+}
+
+// railStatus is the one line under the app name: what the agent is doing right
+// now, not what it did (Rail.tsx:320-328).
+func (a *App) railStatus() string {
+	switch {
+	case a.busy:
+		return i18n.T("busy")
+	case a.conn == ConnOpen || a.reachable:
+		return i18n.T("idle")
+	case a.conn == ConnConnecting:
+		return i18n.T("connecting")
+	case a.downReason == "error":
+		return i18n.T("bridgeFailed")
+	}
+	return i18n.T("disconnected")
+}
+
+// avatarLook picks the face and colour: a running chat makes the bot think, the
+// two and a half seconds after a run finishes it smiles, and the colour says
+// who is working — a delegated task is not the same as this chat answering.
+func (a *App) avatarLook() (avatar.Mood, avatar.Tone) {
+	running := a.live != nil && len(a.live.Run) > 0
+	now := time.Now()
+	if running {
+		a.wasLive, a.mood, a.moodUntil = true, avatar.MoodThinking, time.Time{}
+	} else {
+		if a.wasLive {
+			a.wasLive, a.mood, a.moodUntil = false, avatar.MoodHappy, now.Add(2500*time.Millisecond)
+		}
+		if a.mood == avatar.MoodHappy && now.After(a.moodUntil) {
+			a.mood = avatar.MoodIdle
+		}
+	}
+	switch {
+	case a.runningTasks() > 0:
+		return a.mood, avatar.Tones.Delegated
+	case a.mood == avatar.MoodHappy:
+		return a.mood, avatar.Tones.Done
+	}
+	return a.mood, avatar.Tones.Idle
+}
+
+// runningTasks counts the background tasks the rail is already listing.
+func (a *App) runningTasks() int {
+	n := 0
+	for _, task := range a.tasks {
+		if task.State == "running" {
+			n++
+		}
+	}
+	return n
 }

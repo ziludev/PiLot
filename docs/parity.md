@@ -23,7 +23,7 @@
 | `order` / `pinned` | localStorage 排序/置顶 | `App.prefs.Order/Pinned` | done |
 | `tab` | SidePanel 的 changes/memory/access/usage | `App.sideTab` + `App.sideOpen` | done |
 | `view`（transcript / file） | transcript 与文件视图互斥 | `App.view`/`file`/`filePath` → `side.FileView` | done |
-| `filter` | 会话内搜索命中 | `App.filter/convQuery/convMatches/matchIndex` → `findBar` | diff |
+| `filter` | 会话列表按标题过滤 | `App.query`（输入即过滤，`sortedSurfaces` 用 `strings.Contains`） | done |
 | `review` | 行级评审批注（可发送给 agent） | `App.review/reviewDraft/reviewPick` + `side.ChangesView` | done |
 | `focusEntry` | 搜索命中后把视图滚到那一条 | `App.focusEntry` → `transcript` 的窗口锚点 `focusedTurn()` | done |
 | `convQuery` / `convMatchIndex` | 命中轮次列表与当前命中下标 | `App.convQuery/convMatches/matchIndex` → `findBar` 的 `N/M` 与上下步进 | done |
@@ -43,7 +43,7 @@
 | 组件 | 职责 | Go 落点 | 状态 |
 | --- | --- | --- | --- |
 | `Rail.tsx` | 会话列表、过滤、置顶/归档、任务、底部控制 | `internal/app/rail.go` + `railview.go` | done |
-| `ConvSearch.tsx` | rail 顶部会话搜索 | `railSearch`（rail.go） | done |
+| `ConvSearch.tsx` | ⌘F 打开的会话内查找条（上一个/下一个命中） | `findBar`（Search.go） | done |
 | `ProjectBar.tsx` | 项目切换 / 打开 / 移除 | `internal/app/projectbar.go` | done |
 | `Transcript.tsx` | 回合列表、左右气泡、统计条、窗口化、通知 | `internal/app/transcript.go`（60 轮窗口 + earlierTurns） | diff |
 | `TurnRail.tsx` | 每步的阶段色点竖轨 | `stepRow` 前置色点（无竖连线） | diff |
@@ -61,10 +61,10 @@
 | `TaskDialog.tsx` | 任务详情与取消 | `internal/ops/task.go` | done |
 | `UsageCalendar.tsx` | 120 天花费热力格 | `internal/ops/usage.go` | done |
 | `ChatMenu.tsx` | 重命名/归档/清理 worktree | `internal/app/search.go`（`chatMenuDialog`） | done |
-| `SearchBox.tsx` | 会话内搜索框与上下步进 | `findBar`（search.go） | done |
+| `SearchBox.tsx` | rail 搜索框：输入过滤标题，提交走 `/api/search` 列命中 | `railSearch` + `searchHitsPanel`（rail.go）/ `api.Search` | done |
 | `ThemeToggle.tsx` | 深浅色切换 | `toggleTheme`（rail 头「◐」） | done |
 | `ErrorPanel.tsx` | 错误角标 + 列表 + 清空 | `internal/app/errorpanel.go` | done |
-| `BotAvatar.tsx` | 飞书会话头像 | 未画，rail 用 kind 图标区分 | diff |
+| `BotAvatar.tsx` | rail 里会随工作状态下表情的饼脸头像 | `internal/avatar`（`avatar.View`） | done |
 | `Images.tsx` | 输入区图片附件（粘贴）、会话内缩略图与全屏预览 | `internal/app/images.go`（Paperclip→路径对话框、`ui.DecodeBitmap` 缩略图、预览弹层、上限 3 张） | diff |
 
 `client/src/components/ui`（17 个 shadcn 原语）不复刻：mygo `ui` 包自带 Button/Select/Popover/Modal/Tabs/Segmented/Tooltip 等，外观由 `internal/theme` 的 shadcn token 决定。
@@ -80,22 +80,23 @@
 | `markdown.tsx` | Markdown 渲染 | `ui/markdown`（mygo 自带，View/Stream） | done |
 | `i18n.ts` | 中英文案 | `internal/i18n`（183 键逐字抽取） | done |
 | `motion.ts` | 入场/脉冲动画 | 未实现：mygo 帧循环无过渡 API | n/a |
-| `avatar.ts` | 头像首字母与配色 | 未实现（同 BotAvatar） | diff |
+| `avatar.ts` | 头像的 PIE 几何、mood 与配色 | `internal/avatar`（`Mood`/`Tones`） | done |
 
 ## 4. 已知差异
 
 1. **无 localStorage**：偏好存 `~/.pitta/ui.json`（原子写），字段与 localStorage 键一一对应。
 2. **无 Tailwind/Radix**：外观由 `internal/theme` 的 shadcn zinc 换算值驱动，每帧写入 `ui.Theme`；`Radius=10`（0.625rem）。
-3. **无 motion**：mygo 帧循环没有过渡/动画原语，入场与脉冲省略。
+3. **无 motion**：mygo 帧循环没有过渡/动画原语，入场与脉冲省略。rail 顶部的 BotAvatar 会按状态换表情（思考/完成微笑 2.5 秒）与配色（委派任务转蓝、完成转青），但省掉了 React 版的眨眼、注视与跳跃缓动。
 4. **会话内搜索是「回合跳转」**：⌘F 打开查找条（`internal/app/search.go`，与 React `ConvSearch.tsx:16` 同一手势；mygo 的 `OnWindowShortcut` 修饰键按完全匹配，故注册 `ui.Cmd`），但定位方式是给命中回合加主色外框并把窗口移到该回合，不滚动、不逐 entry 高亮。
-5. **TurnRail/TurnDurations 是简化版**：色点没有竖连线，耗时分段条没有逐段图例。
-6. **ModelPicker 是弹层而非命令面板**：留在 composer 上方弹出，搜索/收藏/最近/思考档齐备，没有键盘方向键导航。
-7. **AccessPanel** 用 All/Group/Owner/Closed 过滤代替 React 的分组表头，审计固定 40 条（与 React `limit=40` 一致）。
-8. **图片靠路径而非粘贴**：mygo 的剪贴板 API 只有文本（`windowHost.ReadText`），`OnPaste` 也只给字符串，所以输入区的 Paperclip 打开路径对话框（支持 `~`，png/jpg/gif/webp/bmp，最多 3 张），缩略图用 `ui.DecodeBitmap` 解码后 `ui.Image` 渲染，点击全屏预览；发送时随 `images` 一起提交，会话里用户消息上同样显示缩略图。
-9. **通知**：React 在窗口隐藏时调 `Agent.notify`；这里用 `osascript display notification`，只在 `win.IsFocused()` 为假时触发，`internal/notify`。
-10. **会话列表长度**：`/api/conversation?limit=200` 与 React 相同，服务端上限 200，不改。
-11. **飞书健康横幅未绘制**：`feishu` 数据（`State.Feishu`）已随 `/api/state` 取回并保存，但 rail 上没有 React 那条连接状态横幅；用户可见差异，尚未实现。
-12. **日志入口**：React rail 底部有 open-logs 按钮，这里同样接了「日志」（`bridge.OpenLogs()` 用 Finder 打开 `<home>/logs`），行为一致。
+5. **TurnRail/TurnDurations 是简化版**：步骤左侧有竖连线与色点，但没有 React 那种跨步骤连成一体的圆角轨；耗时分段条带逐段图例（`think/tool/wait/error` 各自时长），但没有 hover 提示。
+6. **ModelPicker 是命令面板，但不是浮层**：列表画在 composer 上方的同一栏里（mygo 的 `ui.Popover` 会把 Enter 当成自己的关闭键，而 Enter 正是选中的键，所以改为内联面板），搜索/收藏/最近/思考档齐备，↑↓ 移动高亮、Enter 选中；没有 React 的 provider 分组折叠与滑块式思考档。
+7. **Memory 建议的勾选语义一致、排版不同**：`SidePanel.tsx:231` 的 `checked={selected[index] !== false}` 对应 `ops.MemoryProps.Selected` + `OnToggle`，Apply 只提交勾选项；差别只剩搜索框与「全部应用」的位置更紧凑。
+8. **AccessPanel** 用 All/Group/Owner/Closed 过滤代替 React 的分组表头，审计固定 40 条（与 React `limit=40` 一致）。
+9. **图片靠路径而非粘贴**：mygo 的剪贴板 API 只有文本（`windowHost.ReadText`），`OnPaste` 也只给字符串，所以输入区的 Paperclip 打开路径对话框（支持 `~`，png/jpg/gif/webp/bmp，最多 3 张）——React 支持把图片直接粘进输入区，mygo 的剪贴板只给文本，这条差异用户可见。缩略图用 `ui.DecodeBitmap` 解码后 `ui.Image` 渲染，点击全屏预览；发送时随 `images` 一起提交，会话里用户消息上同样显示缩略图。
+10. **通知**：React 在窗口隐藏时调 `Agent.notify`；这里用 `osascript display notification`，只在 `win.IsFocused()` 为假时触发，`internal/notify`。
+11. **会话列表长度**：`/api/conversation?limit=200` 与 React 相同，服务端上限 200，不改。
+12. **飞书健康横幅**：已按 `Rail.tsx:426-435` 绘制（`ready=false && downMs>60000` 时画红条 + `PlugZap` + "飞书连接断开 Nm"），差别只在 React 的 hover 提示（`lastError`）没有 tooltip 承载，文案直接显示在条内。
+13. **日志入口**：React rail 底部有 open-logs 按钮，这里同样接了「日志」（`bridge.OpenLogs()` 用 Finder 打开 `<home>/logs`），行为一致。
 
 ## 5. 写类操作的真实后端验证
 

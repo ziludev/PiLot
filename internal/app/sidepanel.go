@@ -8,6 +8,7 @@ import (
 	"pitta/internal/i18n"
 	"pitta/internal/icons"
 	"pitta/internal/ops"
+	"pitta/internal/protocol"
 	"pitta/internal/theme"
 )
 
@@ -27,12 +28,22 @@ func (a *App) sidePanel(c *ui.Context) {
 					Query:       a.memoryQuery,
 					Curating:    a.curating,
 					Suggestions: a.suggestions,
+					Selected:    a.memoryUnchecked,
 					OnQuery: func(query string) {
 						a.apply(func() { a.memoryQuery = query; a.invalidate() })
 					},
 					OnCurate: func() { a.curateMemory() },
-					OnApply:  func() { a.applyMemory() },
-					OnDrop:   func(index int) { a.dropSuggestion(index) },
+					OnToggle: func(index int) {
+						a.apply(func() {
+							if a.memoryUnchecked == nil {
+								a.memoryUnchecked = map[int]bool{}
+							}
+							a.memoryUnchecked[index] = !a.memoryUnchecked[index]
+							a.invalidate()
+						})
+					},
+					OnApply: func(indices []int) { a.applyMemory(indices) },
+					OnDrop:  func(index int) { a.dropSuggestion(index) },
 				})
 			case SideAccess:
 				ops.AccessPanel(c, ops.AccessProps{
@@ -153,9 +164,14 @@ func (a *App) curateMemory() {
 	})
 }
 
-// applyMemory writes the surviving suggestions.
-func (a *App) applyMemory() {
-	suggestions := a.suggestions
+// applyMemory writes the suggestions the reader left checked.
+func (a *App) applyMemory(indices []int) {
+	suggestions := make([]protocol.MemorySuggestion, 0, len(indices))
+	for _, index := range indices {
+		if index >= 0 && index < len(a.suggestions) {
+			suggestions = append(suggestions, a.suggestions[index])
+		}
+	}
 	if len(suggestions) == 0 {
 		return
 	}
@@ -165,6 +181,7 @@ func (a *App) applyMemory() {
 		}
 		a.apply(func() {
 			a.suggestions = nil
+			a.memoryUnchecked = nil
 			a.invalidate()
 		})
 		return a.loadMemory(context.Background())

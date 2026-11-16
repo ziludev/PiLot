@@ -47,7 +47,7 @@ func TestModelPickerListsAndPicks(t *testing.T) {
 	i18n.Set(i18n.EN)
 	a.modelOpen = true
 
-	view := func(c *ui.Context) { a.modelPicker(c) }
+	view := func(c *ui.Context) { a.modelPalette(c) }
 	tt := ui.NewTester(view, 420, 460)
 	tt.Frame()
 
@@ -88,7 +88,7 @@ func TestModelPickerSearchesAndStars(t *testing.T) {
 	a.modelOpen = true
 	a.modelQuery = "deep"
 
-	tt := ui.NewTester(func(c *ui.Context) { a.modelPicker(c) }, 420, 460)
+	tt := ui.NewTester(func(c *ui.Context) { a.modelPalette(c) }, 420, 460)
 	tt.Frame()
 	if !tt.HasText("DeepSeek Flash") {
 		t.Fatalf("query hid the match; texts=%q", tt.Texts())
@@ -118,7 +118,7 @@ func TestThinkingRowOnlyOffersWhatTheModelHas(t *testing.T) {
 	a.model = &protocol.ModelRef{Provider: "anthropic", ModelID: "claude-opus"}
 	a.modelOpen = true
 
-	tt := ui.NewTester(func(c *ui.Context) { a.modelPicker(c) }, 420, 460)
+	tt := ui.NewTester(func(c *ui.Context) { a.modelPalette(c) }, 420, 460)
 	tt.Frame()
 	for _, level := range []string{"off", "low", "high"} {
 		if !tt.HasText(level) {
@@ -133,5 +133,64 @@ func TestThinkingRowOnlyOffersWhatTheModelHas(t *testing.T) {
 	tt.Frame()
 	if tt.HasText("off") {
 		t.Fatalf("a model without levels drew them; texts=%q", tt.Texts())
+	}
+}
+
+// TestModelPickerWalksWithArrowKeys covers ModelPicker.tsx's keyboard path:
+// the search box keeps focus, the arrows move the highlight, Enter picks.
+func TestModelPickerWalksWithArrowKeys(t *testing.T) {
+	chosen := make(chan map[string]any, 4)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/model" {
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			chosen <- body
+		}
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer srv.Close()
+
+	a := New(Config{BaseURL: srv.URL, Token: "t"})
+	a.current = 11
+	a.models = pickerModels()
+	i18n.Set(i18n.EN)
+	a.modelOpen = true
+
+	tt := ui.NewTester(func(c *ui.Context) { a.modelPalette(c) }, 420, 460)
+	tt.Frame()
+	if a.modelCursor != 0 {
+		t.Fatalf("cursor starts at %d, want 0", a.modelCursor)
+	}
+
+	// The query box is the only focusable part of the panel; Enter reaches it as
+	// the input's submit, the arrows through the window shortcuts.
+	// Tab focuses the query box: the palette owns the keys from there.
+	tt.Key(0, ui.KeyTab)
+	tt.Frame()
+	tt.Key(0, ui.KeyDown)
+	tt.Key(0, ui.KeyDown)
+	tt.Frame()
+	if a.modelCursor != 2 {
+		t.Fatalf("two arrow presses moved the cursor to %d, want 2", a.modelCursor)
+	}
+	tt.Key(0, ui.KeyUp)
+	tt.Frame()
+	if a.modelCursor != 1 {
+		t.Fatalf("arrow up moved the cursor to %d, want 1", a.modelCursor)
+	}
+
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	select {
+	case body := <-chosen:
+		// Compare against the palette's own order: favourites and recents from
+		// an earlier test in the package can reorder the list.
+		want := a.visibleModels()[1]
+		if body["modelId"] != want.ID || body["provider"] != want.Provider {
+			t.Fatalf("Enter picked %v, want the highlighted row %s/%s", body, want.Provider, want.ID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Enter did not pick the highlighted model")
 	}
 }

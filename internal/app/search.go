@@ -3,12 +3,14 @@ package app
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
 	"pitta/internal/api"
 	"pitta/internal/i18n"
 	"pitta/internal/icons"
+	"pitta/internal/protocol"
 	"pitta/internal/theme"
 	"pitta/internal/turns"
 )
@@ -68,6 +70,95 @@ func (a *App) stepMatch(direction int) {
 		}
 		a.invalidate()
 	})
+}
+
+// runSearch asks the bridge to look inside transcripts. The filter box already
+// narrows the list by title as the user types; this only runs on submit, as
+// SearchBox.tsx does, because the bridge scans up to 60 chats per query.
+func (a *App) runSearch() {
+	query := strings.TrimSpace(a.filter)
+	if len([]rune(query)) < 2 {
+		a.apply(func() {
+			a.searchHits = nil
+			a.searchPending = false
+			a.invalidate()
+		})
+		return
+	}
+	var seq int
+	a.apply(func() {
+		a.searchSeq++
+		seq = a.searchSeq
+		a.searchPending = true
+		a.invalidate()
+	})
+	// Without a window there is no event loop to return to, so tests run the
+	// request inline instead of leaving it to a goroutine.
+	if a.win == nil {
+		a.searchOnce(query, seq)
+		return
+	}
+	go a.searchOnce(query, seq)
+}
+
+// searchOnce asks for the hits and applies the answer, guarded by seq so a
+// slower earlier query cannot overwrite a newer one.
+func (a *App) searchOnce(query string, seq int) {
+	{
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		hits, err := a.api.Search(ctx, query)
+		a.apply(func() {
+			// A newer query already started: its result wins.
+			if seq != a.searchSeq {
+				return
+			}
+			a.searchPending = false
+			if err != nil {
+				a.fail("search: %v", err)
+			} else {
+				a.searchHits = hits
+			}
+			a.invalidate()
+		})
+	}
+}
+
+// jumpToHit opens the conversation a search hit belongs to and marks the turn
+// that holds the entry. The window moves to that turn in transcript().
+func (a *App) jumpToHit(hit protocol.SearchHit) {
+	a.apply(func() {
+		a.searchHits = nil
+		a.invalidate()
+	})
+	a.selectConversation(hit.ConversationID)
+	a.apply(func() {
+		a.focusEntry = hit.EntryID
+		a.invalidate()
+	})
+}
+
+// turnOfEntry is the turn index holding entryID, or -1. A hit can point at a
+// tool result or a note, so every entry of the turn is checked.
+func turnOfEntry(built []turns.Turn, entryID int) int {
+	for i, turn := range built {
+		if turn.User != nil && turn.User.ID == entryID {
+			return i
+		}
+		for _, group := range [][]protocol.Entry{turn.Finals, turn.Reports, turn.Notes, turn.Internals} {
+			for _, entry := range group {
+				if entry.ID == entryID {
+					return i
+				}
+			}
+		}
+		for _, step := range turn.Steps {
+			if step.Entry.ID == entryID || (step.Result != nil && step.Result.ID == entryID) {
+				return i
+			}
+		}
+	}
+	return -1
 }
 
 // focusedTurn is the turn index the find bar is standing on, or -1.

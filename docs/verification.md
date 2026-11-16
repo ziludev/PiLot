@@ -10,18 +10,19 @@ ok
 $ go vet ./...
 ok
 $ go test ./internal/... -count=1
-ok  	pitta/internal/api	1.626s
-ok  	pitta/internal/app	1.104s
+ok  	pitta/internal/api	1.192s
+ok  	pitta/internal/app	0.531s
+ok  	pitta/internal/avatar	0.341s
 ?   	pitta/internal/bridge	[no test files]
-ok  	pitta/internal/diff	0.445s
-ok  	pitta/internal/i18n	0.352s
-ok  	pitta/internal/icons	0.369s
+ok  	pitta/internal/diff	0.148s
+ok  	pitta/internal/i18n	0.085s
+ok  	pitta/internal/icons	0.109s
 ?   	pitta/internal/notify	[no test files]
-ok  	pitta/internal/ops	1.022s
+ok  	pitta/internal/ops	0.424s
 ?   	pitta/internal/protocol	[no test files]
-ok  	pitta/internal/side	0.926s
-ok  	pitta/internal/theme	0.872s
-ok  	pitta/internal/turns	0.784s
+ok  	pitta/internal/side	0.386s
+ok  	pitta/internal/theme	0.164s
+ok  	pitta/internal/turns	0.126s
 ```
 
 （`bridge`/`notify`/`protocol` 没有测试文件：前者是 8 行环境变量读取，后者是纯类型声明，`notify` 的用例在 `internal/app/notify_test.go` 里以行为断言覆盖。）
@@ -37,6 +38,19 @@ $ go test ./internal/app -run 'Snapshot|TestSelectAllHighlightsText' -v
 - 选区高亮必须半透明且合成后与背景至少差 8 级；把映射改回 `--accent` 时 `TestSelectAllHighlightsText` 会报 `0 pixels changed to the selection color`。
 - 渲染出来的文本只要"本身是字典 key"就判失败（`TestChatMenuDrawsLabels`、`TestImageDialogDrawsLabels` + `i18n.IsKey`）；把 key 写回 `renameChat` 时这两个用例会红。
 - 快照写到 `/tmp/pitta-app-{light,dark,side-*,modelpicker,approval}.png`。
+
+新增交互断言（同一命令可跑）：
+
+```
+$ go test ./internal/app -run 'TestModelPickerWalks|TestRailHeader|TestSearchHits|TestAvatar' -v
+--- PASS: TestModelPickerWalksWithArrowKeys      Tab 聚焦搜索框 → ↑↓ 移动高亮 → Enter 选中
+--- PASS: TestRailStatusFollowsTheBridge         rail 头部状态行跟着连接/忙碌变化
+--- PASS: TestAvatarMoodsFollowTheRun            运行=思考、刚完成=微笑 2.5s、有后台任务=委派配色
+--- PASS: TestRailHeaderDrawsAvatarAndStatus     头部同时画出头像与状态文案
+--- PASS: TestSearchHitsPanelShowsHits           提交搜索后列出 `#会话 · 类型` 与摘要，点击跳转
+```
+
+跨会话搜索走的是后端 `/api/search?q=`（`api.Search` → `protocol.SearchHit`），命中列表在 rail 的搜索框下方；点击命中会切换会话并把窗口移到含该 entry 的回合（`turnOfEntry`）。
 
 ## 3. 真实后端（`127.0.0.1:8787`，凭据来自 `~/learn/pi-durable-agent/.env`）
 

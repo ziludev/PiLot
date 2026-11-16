@@ -61,7 +61,7 @@ func (a *App) approvalBar(c *ui.Context, t theme.Tokens) {
 		for _, approval := range a.approvals {
 			approval := approval
 			ui.Row(c).Fill().Gap(8).Children(func() {
-				ui.Icon(c, icons.Check).Size(12, 12).TextColor(t.Warning)
+				ui.Icon(c, icons.ShieldAlert).Size(12, 12).TextColor(t.Warning)
 				ui.Column(c).Grow(1).Gap(2).Children(func() {
 					ui.Text(c, i18n.T("needsApproval")+" · "+approval.Tool+" — "+approval.Reason+waitedSuffix(approval.CreatedAt)).
 						FontSize(11).TextColor(t.Foreground)
