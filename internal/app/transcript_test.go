@@ -81,6 +81,10 @@ func TestTranscriptWindowKeepsTheFirstFrameCheap(t *testing.T) {
 		t.Fatalf("the window hid the newest turn; texts=%q", tt.Texts())
 	}
 
+	// The view follows the newest turn, so the button sits above the visible
+	// area: scroll up the way a reader would before clicking it.
+	a.transcriptScroll.Y = 0
+	tt.Frame()
 	if err := tt.Click("earlier turns"); err != nil {
 		t.Fatalf("click earlier turns: %v", err)
 	}

@@ -37,7 +37,7 @@ $ go test ./internal/app -run 'Snapshot|TestSelectAllHighlightsText' -v
 - 背景像素 == `Tokens.Background`，正文至少一处与背景不同色，主按钮像素 == `Tokens.Primary`，分隔线像素 == `Tokens.Border`（深色下按 alpha 合成后 ±2）。
 - 选区高亮必须半透明且合成后与背景至少差 8 级；把映射改回 `--accent` 时 `TestSelectAllHighlightsText` 会报 `0 pixels changed to the selection color`。
 - 渲染出来的文本只要"本身是字典 key"就判失败（`TestChatMenuDrawsLabels`、`TestImageDialogDrawsLabels` + `i18n.IsKey`）；把 key 写回 `renameChat` 时这两个用例会红。
-- 快照写到 `/tmp/pitta-app-{light,dark,side-*,modelpicker,approval}.png`；需要长期留存的（会话菜单、rail 与搜索命中）另存到仓库 `docs/snapshots/`（`TestSnapshotChatMenu`、`TestSnapshotRail`）。
+- 快照默认写到系统临时目录（`/tmp/pitta-app-{light,dark,side-*,modelpicker,approval}.png`），`go test ./...` 不会改动受版本控制的文件；需要刷新仓库里的留存副本时跑 `PITTA_SNAPSHOT_DIR=../../docs/snapshots go test ./internal/app -run 'TestSnapshotChatMenu|TestSnapshotRail'`。
 
 新增交互断言（同一命令可跑）：
 
@@ -55,7 +55,8 @@ $ go test ./internal/app -run 'TestModelPickerWalks|TestRailHeader|TestSearchHit
 --- PASS: TestCommitsBaseSelectCallsSetGitBase    基分支下拉真的 POST /api/git/base
 --- PASS: TestRemoveWorktreeReportsUnmergedBranch 未合并分支拒绝清理并提示
 --- PASS: TestSidePanelWidthFollowsTheDivider     拖分隔条改右栏宽度并写回 prefs
---- PASS: TestTranscriptEmptyStateAndJumpBar      空会话提示 + 「N 条新消息」跳转
+--- PASS: TestTranscriptEmptyStateAndJumpBar      空会话提示 + 「N 条新消息」跳转（含点击后清零）
+--- PASS: TestTranscriptFollowsNewestTurn         打开即在末尾、流式继续跟随、上翻后才计数、跳转后重新粘底
 ```
 
 跨会话搜索走的是后端 `/api/search?q=`（`api.Search` → `protocol.SearchHit`），命中列表在 rail 的搜索框下方；点击命中会切换会话并把窗口移到含该 entry 的回合（`turnOfEntry`）。
@@ -108,4 +109,4 @@ $ go test ./internal/i18n -run TestEveryLiteralKeyExists -v
 
 ## 7. 已知差异
 
-`docs/parity.md` §4 逐条列出（⌘F 定位方式、附件靠路径、Toast 无动效、access 表分组、memory 逐条勾选、飞书健康横幅与 `/api/search` 未接等）；mygo 版本选择见 `docs/mygo-version.md`。
+`docs/parity.md` §4 逐条列出（⌘F 的定位方式、附件靠路径而非粘贴、Toast 无动效、access 表头分组、memory 勾选排版、BotAvatar 无景深/眨眼、日志入口是图标按钮等）；跨会话 `/api/search` 与飞书横幅已接，见 §2 表与 `railFeishu`/`api.Search`。mygo 版本选择见 `docs/mygo-version.md`。

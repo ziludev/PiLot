@@ -48,18 +48,7 @@ func (a *App) transcript(c *ui.Context) {
 		end = len(built)
 	}
 	scroll := ui.Scroll(c).Fill().TrackScroll(&a.transcriptScroll)
-	// TrackScroll reports where the view stands after layout: at the end the
-	// button that jumps there is pointless, elsewhere it counts what arrived.
-	if a.transcriptScroll.MaxY > 0 {
-		a.atBottom = a.transcriptScroll.MaxY-a.transcriptScroll.Y < 24
-		if a.atBottom {
-			a.newMessages = 0
-		}
-	} else {
-		// Content that fits the pane cannot be scrolled away from: no jump bar.
-		a.atBottom = true
-		a.newMessages = 0
-	}
+	a.followScroll()
 	scroll.Children(func() {
 		ui.Column(c).Fill().Padding(16, 20).Gap(14).Children(func() {
 			if len(built) == 0 {
@@ -473,5 +462,42 @@ func (a *App) jumpBar(c *ui.Context) {
 				a.invalidate()
 			})
 		})
+	})
+}
+
+// followScroll keeps the newest turn in view until the user scrolls away, and
+// counts what arrives while they are away: Transcript.tsx:231 starts stuck and
+// :286 jumps to the end whenever entries grow.
+func (a *App) followScroll() {
+	state := &a.transcriptScroll
+	if state.MaxY <= 0 {
+		// Content that fits the pane cannot be scrolled away from.
+		a.atBottom, a.stickToBottom, a.newMessages = true, true, 0
+		a.scrollY, a.scrollMaxY = 0, 0
+		return
+	}
+	switch {
+	case state.Y >= state.MaxY-24:
+		a.atBottom, a.stickToBottom, a.newMessages = true, true, 0
+	case state.Y < a.scrollY-1:
+		// The offset moved up since the last frame: the user did it, so stop
+		// following and let the jump bar count what arrives.
+		a.atBottom, a.stickToBottom = false, false
+	}
+	a.scrollY, a.scrollMaxY = state.Y, state.MaxY
+	if a.stickToBottom {
+		// Assigning Y is instant; ScrollTo would glide, leaving the view short
+		// of the end for a few frames while an answer streams.
+		state.Y = math.MaxFloat32
+	}
+}
+
+// scrollToNewest parks the transcript at the end, which is where a newly
+// selected chat should open.
+func (a *App) scrollToNewest() {
+	a.apply(func() {
+		a.stickToBottom, a.atBottom, a.newMessages = true, true, 0
+		a.transcriptScroll.Y = math.MaxFloat32
+		a.invalidate()
 	})
 }

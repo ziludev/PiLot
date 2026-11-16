@@ -163,3 +163,99 @@ func TestCommitsBaseSelectCallsSetGitBase(t *testing.T) {
 		t.Fatal("choosing a base never reached /api/git/base")
 	}
 }
+
+// manyTurns builds n question/answer pairs, enough to overflow the pane.
+func manyTurns(n int) []protocol.Entry {
+	entries := make([]protocol.Entry, 0, 2*n)
+	for i := 1; i <= n; i++ {
+		entries = append(entries, turnEntries(i, "question "+itoa(i), "answer "+itoa(i))...)
+	}
+	return entries
+}
+
+// TestTranscriptFollowsNewestTurn pins the behaviour Transcript.tsx:231/286
+// has: the list starts stuck to the end, keeps following while entries arrive,
+// and only counts new messages once the user scrolled away.
+func TestTranscriptFollowsNewestTurn(t *testing.T) {
+	i18n.Set(i18n.EN)
+	a := New(Config{})
+	a.previewImage = -1
+	a.current = 11
+	a.entries = manyTurns(40)
+	tt := ui.NewTester(func(c *ui.Context) { a.main(c) }, 800, 400)
+	tt.Frame()
+	tt.Frame()
+	if a.transcriptScroll.MaxY <= 0 {
+		t.Fatalf("the transcript did not scroll at all: %+v", a.transcriptScroll)
+	}
+	if !a.atBottom || !a.stickToBottom {
+		t.Fatalf("a fresh chat is not at its end: y=%.1f maxY=%.1f", a.transcriptScroll.Y, a.transcriptScroll.MaxY)
+	}
+	if a.transcriptScroll.MaxY-a.transcriptScroll.Y > 24 {
+		t.Fatalf("the view sits %.1f DIPs from the end", a.transcriptScroll.MaxY-a.transcriptScroll.Y)
+	}
+
+	// A streamed answer arrives while following: still at the end, nothing
+	// counted as unseen.
+	a.growEntries(append(a.entries, protocol.Entry{ID: 9001, Kind: "pi.user"},
+		protocol.Entry{ID: 9002, Kind: "pi.assistant"}))
+	tt.Frame()
+	tt.Frame()
+	if a.newMessages != 0 {
+		t.Fatalf("following the stream counted %d unseen entries", a.newMessages)
+	}
+	if a.transcriptScroll.MaxY-a.transcriptScroll.Y > 24 {
+		t.Fatalf("the view stopped following: %.1f DIPs from the end", a.transcriptScroll.MaxY-a.transcriptScroll.Y)
+	}
+
+	// The user scrolls up, then two turns arrive: they are counted and the bar
+	// offers to jump to them.
+	a.transcriptScroll.Y = 40
+	tt.Frame()
+	tt.Frame()
+	if a.stickToBottom {
+		t.Fatal("scrolling up did not stop the view from following")
+	}
+	a.growEntries(append(a.entries, protocol.Entry{ID: 9003, Kind: "pi.user"},
+		protocol.Entry{ID: 9004, Kind: "pi.assistant"}))
+	tt.Frame()
+	if a.newMessages == 0 {
+		t.Fatal("entries that arrived while scrolled away were not counted")
+	}
+	if !tt.HasText(itoa(a.newMessages) + " " + i18n.T("newMessages")) {
+		t.Fatalf("jump bar texts = %q", tt.Texts())
+	}
+
+	// Jumping back re-sticks the view to the end.
+	a.scrollToNewest()
+	tt.Frame()
+	if !a.stickToBottom || !a.atBottom {
+		t.Fatalf("jump to latest left stick=%v atBottom=%v", a.stickToBottom, a.atBottom)
+	}
+}
+
+func TestTranscriptEmptyStateAndJumpBar(t *testing.T) {
+	i18n.Set(i18n.EN)
+	a := New(Config{})
+	a.previewImage = -1
+	tt := ui.NewTester(func(c *ui.Context) { a.transcript(c) }, 900, 400)
+	tt.Frame()
+	if !tt.HasText(i18n.T("noConversation")) {
+		t.Fatalf("an empty chat says nothing: %q", tt.Texts())
+	}
+
+	a.current = 11
+	a.newMessages = 3
+	a.atBottom = false
+	bar := ui.NewTester(func(c *ui.Context) { a.jumpBar(c) }, 900, 60)
+	bar.Frame()
+	if !bar.HasText("3 " + i18n.T("newMessages")) {
+		t.Fatalf("jump bar texts = %q", bar.Texts())
+	}
+	if err := bar.Click("3 " + i18n.T("newMessages")); err != nil {
+		t.Fatalf("click the jump bar: %v", err)
+	}
+	if a.newMessages != 0 || !a.stickToBottom {
+		t.Fatalf("after the jump: newMessages=%d stick=%v", a.newMessages, a.stickToBottom)
+	}
+}

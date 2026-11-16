@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"sync/atomic"
 	"time"
 
@@ -131,6 +132,9 @@ type App struct {
 	mainPane         float32
 	transcriptScroll ui.ScrollState
 	atBottom         bool
+	stickToBottom    bool
+	scrollY          float32
+	scrollMaxY       float32
 	newMessages      int
 	sideSynced       bool
 	mergeBusy        bool
@@ -250,6 +254,9 @@ func New(cfg Config) *App {
 		commitDiffs:  map[string]string{},
 		modelsFav:    p.Favorites,
 		modelsRecent: p.Recents,
+		// A chat opens at its newest turn, as React's transcript does.
+		atBottom:      true,
+		stickToBottom: true,
 	}
 }
 
@@ -411,6 +418,15 @@ func (a *App) loadState(ctx context.Context) error {
 }
 
 // reloadConversation loads the open conversation and (re)subscribes its socket.
+// growEntries takes the entries a frame carries and counts what arrived while
+// the reader is scrolled away from the newest turn.
+func (a *App) growEntries(entries []protocol.Entry) {
+	if !a.atBottom && len(entries) > len(a.entries) {
+		a.newMessages += len(entries) - len(a.entries)
+	}
+	a.entries = entries
+}
+
 func (a *App) reloadConversation(current int) {
 	if current == 0 {
 		return
@@ -430,6 +446,9 @@ func (a *App) reloadConversation(current int) {
 		}
 		a.waits = conv.ApprovalWaits
 		a.live = nil
+		// A newly opened chat lands on its newest turn, not its oldest.
+		a.stickToBottom, a.atBottom, a.newMessages = true, true, 0
+		a.transcriptScroll.Y = math.MaxFloat32
 		a.invalidate()
 	})
 	go a.watch(current)
@@ -483,10 +502,7 @@ func (a *App) watch(conversationID int) {
 			a.conn = ConnOpen
 			a.reachable = true
 			a.lastOpen = time.Now()
-			if !a.atBottom && len(value.Entries) > len(a.entries) {
-				a.newMessages += len(value.Entries) - len(a.entries)
-			}
-			a.entries = value.Entries
+			a.growEntries(value.Entries)
 			if doc, ok := value.Docs["pi.live"]; ok {
 				a.live = &doc
 			} else {
@@ -697,7 +713,8 @@ func (a *App) pane(c *ui.Context) {
 	if a.mainPane <= 0 {
 		a.mainPane = 760
 	}
-	pane := ui.Split(c, &a.mainPane, func() { a.main(c) }, func() { a.sidePanel(c) }).Fill()
+	pane := ui.Split(c, &a.mainPane, func() { a.main(c) }, func() { a.sidePanel(c) }).
+		Fill().SplitReset(760)
 	bounds := pane.Bounds()
 	if bounds.W <= 0 {
 		return

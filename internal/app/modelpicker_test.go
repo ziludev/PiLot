@@ -180,13 +180,13 @@ func TestModelPickerWalksWithArrowKeys(t *testing.T) {
 		t.Fatalf("arrow up moved the cursor to %d, want 1", a.modelCursor)
 	}
 
+	// Read the highlighted row before Enter: choosing it moves it to the top of
+	// the recents, which reorders the list.
+	want := a.visibleModels()[1]
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
 	select {
 	case body := <-chosen:
-		// Compare against the palette's own order: favourites and recents from
-		// an earlier test in the package can reorder the list.
-		want := a.visibleModels()[1]
 		if body["modelId"] != want.ID || body["provider"] != want.Provider {
 			t.Fatalf("Enter picked %v, want the highlighted row %s/%s", body, want.Provider, want.ID)
 		}

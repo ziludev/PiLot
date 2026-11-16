@@ -4,6 +4,7 @@ import (
 	"image"
 	"image/png"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -172,6 +173,16 @@ func countColor(img *image.RGBA, want ui.Color) int {
 }
 
 // writePNG saves a snapshot for review.
+// snapshotDir keeps an ordinary `go test ./...` from rewriting files under
+// version control: set PITTA_SNAPSHOT_DIR=../../docs/snapshots when the recorded
+// copies are what should be refreshed.
+func snapshotDir() string {
+	if dir := os.Getenv("PITTA_SNAPSHOT_DIR"); dir != "" {
+		return dir
+	}
+	return os.TempDir()
+}
+
 func writePNG(t *testing.T, name string, img *image.RGBA) {
 	t.Helper()
 	file, err := os.Create(name)
@@ -213,7 +224,7 @@ func TestSnapshotChatMenu(t *testing.T) {
 		}, 480, 260)
 		tt.SetDark(c.dark)
 		tt.Frame()
-		writePNG(t, "../../docs/snapshots/chat-menu-"+c.name+".png", tt.Image())
+		writePNG(t, filepath.Join(snapshotDir(), "chat-menu-"+c.name+".png"), tt.Image())
 	}
 }
 
@@ -240,6 +251,6 @@ func TestSnapshotRail(t *testing.T) {
 		}, 260, 560)
 		tt.SetDark(c.dark)
 		tt.Frame()
-		writePNG(t, "../../docs/snapshots/rail-"+c.name+".png", tt.Image())
+		writePNG(t, filepath.Join(snapshotDir(), "rail-"+c.name+".png"), tt.Image())
 	}
 }

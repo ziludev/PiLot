@@ -44,7 +44,7 @@
 | `Rail.tsx` | 会话列表、拖拽排序、过滤、置顶/归档、任务、底部控制 | `internal/app/rail.go` + `railview.go`（`ListState.Reorder` → `reorderChats`，拖到首行即置顶） | done |
 | `ConvSearch.tsx` | ⌘F 打开的会话内查找条（上一个/下一个命中） | `findBar`（Search.go） | done |
 | `ProjectBar.tsx` | 项目切换 / 打开 / 移除 | `internal/app/projectbar.go` | done |
-| `Transcript.tsx` | 回合列表、左右气泡、复制/编辑/重试、窗口化、新消息跳转、空态、通知 | `internal/app/transcript.go`（60 轮窗口 + earlierTurns + `jumpBar` + `noConversation` 空态） | diff |
+| `Transcript.tsx` | 回合列表、左右气泡、复制/编辑/重试、窗口化、新消息跳转、空态、通知 | `internal/app/transcript.go`（60 轮窗口 + earlierTurns + `jumpBar` + `noConversation` 空态；`followScroll` 打开即置底并在新条目到达时继续跟随，上翻后才计数） | diff |
 | `TurnRail.tsx` | 每步的阶段色点竖轨 | `stepRow` 前置色点 + 步骤组左侧 1px 竖线（`transcript.go` 的 `BorderWidth(0,0,0,1)`） | diff |
 | `TurnDurations.tsx` | 思考/工具/等待耗时分段条 | `phaseBar`（180×3px 分段条 + `phaseLegend` 逐段时长） | diff |
 | `ToolOutput.tsx` | 工具输出（diff/文本/失败色） | `stepOutput` + `diff.View` | done |
@@ -96,11 +96,11 @@
 11. **会话列表长度**：`/api/conversation?limit=200` 与 React 相同，服务端上限 200，不改。
 12. **飞书健康横幅**：已按 `Rail.tsx:426-435` 绘制（`ready=false && downMs>60000` 时画红条 + `PlugZap` + "飞书连接断开 Nm"），差别只在 React 的 hover 提示（`lastError`）没有 tooltip 承载，文案直接显示在条内。
 13. **新消息跳转是一条窄条而不是浮层**：`Transcript.tsx:331` 把「↓ N 条新消息」浮在列表右下角，mygo 没有绝对定位，所以画在 transcript 与 composer 之间的一条右对齐窄条（滚动离开末尾才出现，点击 `ScrollTo(0, MaxFloat32)`）；空会话用 `noConversation` 文案代替空白。
-14. **右栏拖宽用 `ui.Split`**：React 是 `PanelGroup + PanelResizeHandle`（比例伸缩），这里是 `Split` 定宽第一格（main），面板宽度取余量并写回 `prefs.SideWidth`；双击分隔条复位到 760 DIP。
-15. **真窗口记录**：新增 `docs/manual-checks/62-jump-bar.png`（真实窗口里「5 条新消息」跳转条出现，因为视图停在历史位置）。
+14. **右栏拖宽用 `ui.Split`**：React 是 `PanelGroup + PanelResizeHandle`（比例伸缩），这里是 `Split` 定宽第一格（main），面板宽度取余量并写回 `prefs.SideWidth`；`SplitReset(760)` 是双击分隔条复位到的宽度。
+15. **真窗口记录**：`docs/manual-checks/62-jump-bar.png`（停在历史位置时出现「5 条新消息」跳转条）与 `63-follow-newest.png`（修好跟随之后，长会话 #35773 打开即在最新一轮，跳转条不再出现）。
 16. **日志入口**：React rail 底部有 open-logs 按钮，这里同样接了「日志」（`bridge.OpenLogs()` 用 Finder 打开 `<home>/logs`），行为一致。
 
-rail 的外观（头像、状态行、搜索命中）见 `docs/snapshots/rail-{light,dark}.png`，由 `TestSnapshotRail` 生成，可重跑。
+rail 的外观（头像、状态行、搜索命中）见 `docs/snapshots/rail-{light,dark}.png`，由 `TestSnapshotRail` 生成；默认写到临时目录，刷新留存副本用 `PITTA_SNAPSHOT_DIR=../../docs/snapshots go test ./internal/app -run TestSnapshotRail`。
 
 消息级操作（复制 / 编辑重发 / 重试，`Transcript.tsx:20-46`）实现在 `internal/app/transcript.go` 的 `messageActions`：复制走 `c.Services().WriteClipboard` + `c.Toast("已复制")`，编辑把原文写回 `App.draft`，重试重发该回合的用户输入。React 是 hover 才显形（`group-hover:opacity-100`），mygo 没有分组 hover，这里常显为淡灰小图标。
 
