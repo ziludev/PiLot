@@ -180,3 +180,30 @@ func nearColor(a, b uint8) bool {
 	d := int(a) - int(b)
 	return d >= -2 && d <= 2
 }
+
+// TestSnapshotChatMenu renders the chat actions to docs/snapshots so a reader
+// can see the labels without opening the app; TestChatMenuDrawsLabels is the
+// assertion that they are labels and not keys.
+func TestSnapshotChatMenu(t *testing.T) {
+	a := New(Config{})
+	a.previewImage = -1
+	a.current = 7
+	a.surfaces = []protocol.Surface{{ConversationID: 7, SurfaceID: "s7", Title: "想摸鱼"}}
+	a.menu.open = true
+	a.menu.title = "想摸鱼"
+
+	for _, c := range []struct {
+		name string
+		tok  theme.Tokens
+		dark bool
+	}{{"light", theme.Light(), false}, {"dark", theme.Dark(), true}} {
+		tt := ui.NewTester(func(ctx *ui.Context) {
+			theme.Apply(ctx, c.tok)
+			a.menu.open = true
+			a.chatMenuDialog(ctx, c.tok)
+		}, 480, 260)
+		tt.SetDark(c.dark)
+		tt.Frame()
+		writePNG(t, "../../docs/snapshots/chat-menu-"+c.name+".png", tt.Image())
+	}
+}

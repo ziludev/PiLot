@@ -181,6 +181,7 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 
 - `internal/i18n` `TestEveryLiteralKeyExists`：遍历仓库源码里所有 `i18n.T("…")` / `TF("…")` 字面量，要求 en 与 zh 两个字典都有该 key（把 key 改回 `renameChat` 时该用例报 `key "renameChat" has no zh string`）。
 - `internal/app` `TestChatMenuDrawsLabels` / `TestChatMenuOffersUnarchive` / `TestImageDialogDrawsLabels`：渲染对话框后，任何一段文本只要"本身是字典的 key"就判失败（`i18n.IsKey`）。
+- `TestSnapshotChatMenu` 把菜单渲染成 `docs/snapshots/chat-menu-{light,dark}.png`（浅/深各一张，重跑该用例即重新生成），截图里按钮读作 `Save` / `Archive` / `Clean worktree` / `Cancel`，归档会话的版本读作 `Unarchive`。
 
 ### 7.4 记录的落点
 
