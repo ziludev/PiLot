@@ -1,0 +1,23 @@
+# 真窗口输入验证记录
+
+- 日期：2026-11-16 19:45 CST
+- 构建：`go tool mygo build -skip-dmg` → `~/Applications/Pitta.app`（pid 21794，commit `6cd3458`）
+- 环境：macOS，真实后端 `127.0.0.1:8787`，输入法 `com.tencent.inputmethod.wetype.pinyin`（微信输入法·拼音）
+- 方式：脚本向真窗口发事件（`CoreGraphics` HID tap + `TISCopyCurrentKeyboardInputSource`），每步 `screencapture` 截窗口区域。窗口位置 963,178 尺寸 1180x820。
+
+| # | 项目 | 操作 | 结果 | 截图 |
+| --- | --- | --- | --- | --- |
+| 1 | 剪贴板粘贴 | `pbcopy 'pasted from the clipboard 粘贴文本'`，点 composer，`Cmd+V` | 草稿出现 `pasted from the clipboard 粘贴文本`，中英混排正常 | `51-paste.png` |
+| 2 | 中文输入法预编辑 | 切到微信拼音后键入 `n i h a o` | composer 内显示带下划线的预编辑 `ni'ha'o`，候选窗紧贴光标下方（`1 你哈儿 2 你哈哦 3…`），**预编辑文字没有进草稿** | `52-ime-preedit.png` |
+| 3 | 组词期间按 Enter | 预编辑中按 `Enter` | **没有发送消息，也没有插入换行**；草稿变成字面 `nihao`（微信输入法把原始拼音落成文本，属输入法行为，客户端无法拦） | `53-ime-enter.png` |
+| 4 | 空格提交候选 | 重新键入 `n i h a o` 后按 `空格` | 草稿为 `你哈儿`（第一候选），中文正常上屏、无豆腐块 | `54-ime-commit.png` |
+| 5 | 清空 | `Cmd+A` + `Delete` | 草稿清空，可继续输入 | `55-cleared.png` |
+
+补充记录（同一窗口，同日更早）：
+
+- 点击 rail 会话行切换会话：`/tmp/pitta-manual/27-click-switch.png`
+- 打字进 composer：`/tmp/pitta-manual/35-typed2.png`
+- `Shift+Enter` 换行且不发送：`/tmp/pitta-manual/37-shiftenter.png`
+- `Cmd+A` 后输入替换，且选区可见（半透明蓝）：用户手工确认 + `TestSelectAllHighlightsText` 像素断言
+
+结论：成功标准 (5) 要求的真实窗口输入——IME 候选框跟随光标、组词期间 Enter 不发送、提交后中文正确、`Shift+Enter` 换行、`Cmd+V` 粘贴、选区可见——均已取得记录。第 3 项的「字面 nihao 落进草稿」是微信输入法把 Enter 当"提交原始输入"处理，与客户端逻辑无关，如实记在这里。

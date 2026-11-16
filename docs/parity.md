@@ -149,6 +149,10 @@
 | 打字进 composer | 点击 composer 后合成输入 `abc` 上屏（`/tmp/pitta-manual/35-typed2.png`） |
 | Shift+Enter 换行 | 同上草稿再按 Shift+Enter 再输入，得到首行空行 + `line-two`，未发送（`/tmp/pitta-manual/37-shiftenter.png`） |
 | 全选后输入替换 | `Cmd+A` 后输入新内容替换掉原草稿（用户手工确认；`/tmp/pitta-manual/36-selectall.png`） |
+| `Cmd+V` 粘贴 | `pbcopy` 一段中英混排后按 `Cmd+V`，草稿出现该文本（`docs/manual-checks/51-paste.png`） |
+| 中文 IME 预编辑 | 微信拼音键入 `nihao`，composer 内显示带下划线的 `ni'ha'o`，候选窗贴光标下方，预编辑不进草稿（`docs/manual-checks/52-ime-preedit.png`） |
+| 组词期间按 Enter | 不发送、不插换行；微信输入法把原始拼音落成字面 `nihao`（输入法行为，见 `docs/manual-checks/results.txt`） |
+| 空格提交候选 | 草稿上屏 `你哈儿`，中文渲染无豆腐块（`docs/manual-checks/54-ime-commit.png`） |
 
 这张表里"合成点击/键盘"在 0.9.1 的窗口上是可用的；早先记录过"点击到不了窗口"，那是另一个 bug 的假象：
 
@@ -170,7 +174,6 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 - `internal/theme` `TestSelectionIsVisibleComposited`：选区色必须半透明，且合成到背景后与背景至少差 8 级。
 - `internal/app` `TestSelectAllHighlightsText`：composer 聚焦后 `Cmd+A`，逐像素比对新帧与"旧像素叠上主题选区色"，命中数 < 400 即失败（把映射改回 `--accent` 时该用例报 `0 pixels changed to the selection color`）。
 
-### 7.3 仍只有 tester 级证据的两项
+### 7.3 记录的落点
 
-- 真窗口里的中文 IME 候选窗（`tt.Compose` 只能在离屏 tester 里模拟预编辑，见上）。
-- 真窗口里的 `Cmd+V`（剪贴板内容在 tester 里注入；真机需要拷一段文字再按一次）。
+真窗口那一轮的操作、截图与逐项结论写在 `docs/manual-checks/results.txt`（截图同目录 `51-paste.png` … `55-cleared.png`）。要重做一次，跑 `scripts/manual-check.sh`，它按同样的步骤提示操作并逐步截图。
