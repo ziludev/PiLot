@@ -20,6 +20,9 @@ func snapshotData(t *testing.T) *App {
 	t.Helper()
 	a := New(Config{})
 	a.previewImage = -1
+	// The pictures must not depend on the preference file another test left
+	// behind; each snapshot test overrides the theme it wants.
+	a.prefs.Theme = "light"
 	a.conn = ConnOpen
 	a.current = 11
 	a.surfaces = []protocol.Surface{
@@ -217,6 +220,9 @@ func nearColor(a, b uint8) bool {
 func TestSnapshotChatMenu(t *testing.T) {
 	a := New(Config{})
 	a.previewImage = -1
+	// The pictures must not depend on the preference file another test left
+	// behind; each snapshot test overrides the theme it wants.
+	a.prefs.Theme = "light"
 	a.current = 7
 	a.surfaces = []protocol.Surface{{ConversationID: 7, SurfaceID: "s7", Title: "想摸鱼"}}
 	a.menu.open = true
@@ -335,6 +341,12 @@ func TestSnapshotTurn(t *testing.T) {
 	a.approvals = nil
 	a.live = nil
 	for _, dark := range []bool{false, true} {
+		// Pin the preference: the picture must not depend on the preference
+		// file another test happened to leave behind.
+		a.prefs.Theme = "light"
+		if dark {
+			a.prefs.Theme = "dark"
+		}
 		tt := ui.NewTester(a.View, 1180, 720)
 		tt.SetDark(dark)
 		tt.Frame()
