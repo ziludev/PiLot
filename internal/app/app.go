@@ -10,7 +10,7 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"sort"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -78,6 +78,14 @@ type App struct {
 	cfg Config
 	api *api.Client
 	win *mygo.Window
+
+	// currentID mirrors current for goroutines: with a window, currentChanges
+	// only on the UI thread, so a background read of it would race.
+	currentID atomic.Int64
+
+	// postFn replaces the window hand-off in tests, so a test can make an
+	// update land late and prove the code waits where it must.
+	postFn func(func())
 
 	// Layout and widget state: UI thread only, never read from a goroutine.
 	railWidth     float32
@@ -239,11 +247,34 @@ func (a *App) Attach(win *mygo.Window) {
 
 // apply runs fn on the UI thread. Without a window (tests) it runs inline.
 func (a *App) apply(fn func()) {
+	a.post(fn)
+}
+
+// post runs fn on the window's own thread. It is win.Update outside tests; a
+// test replaces it to model an update that runs later, which is what made the
+// startup path read a conversation id that had not been written yet.
+func (a *App) post(fn func()) {
+	if a.postFn != nil {
+		a.postFn(fn)
+		return
+	}
 	if a.win == nil {
 		fn()
 		return
 	}
 	a.win.Update(fn)
+}
+
+// applyWait runs fn on the main thread and waits for it. Goroutines use it
+// when the next step depends on the state fn writes: win.Update only queues
+// fn, so reading a.current right after apply can see the old value.
+func (a *App) applyWait(fn func()) {
+	done := make(chan struct{})
+	a.post(func() {
+		fn()
+		close(done)
+	})
+	<-done
 }
 
 // invalidate asks for one more frame.
@@ -321,21 +352,29 @@ func (a *App) pollApprovals() {
 // openDefaultConversation selects the conversation the rail sorts first, as
 // the React client does on boot.
 func (a *App) openDefaultConversation() {
-	a.apply(func() {
-		var visible []protocol.Surface
-		for _, s := range a.surfaces {
-			if !s.Archived {
-				visible = append(visible, s)
-			}
-		}
-		sort.SliceStable(visible, func(i, j int) bool {
-			return visible[i].ConversationID > visible[j].ConversationID
-		})
-		if len(visible) > 0 {
-			a.current = visible[0].ConversationID
+	picked := 0
+	a.applyWait(func() {
+		if id := defaultConversationID(a.surfaces); id != 0 {
+			a.setCurrent(id)
+			picked = id
 		}
 	})
-	a.reloadConversation()
+	a.reloadConversation(picked)
+}
+
+// defaultConversationID is the newest conversation that is not archived, which
+// is the chat the React client reopens.
+func defaultConversationID(surfaces []protocol.Surface) int {
+	newest := 0
+	for _, surface := range surfaces {
+		if surface.Archived || surface.ConversationID == 0 {
+			continue
+		}
+		if surface.ConversationID > newest {
+			newest = surface.ConversationID
+		}
+	}
+	return newest
 }
 
 func (a *App) loadState(ctx context.Context) error {
@@ -353,13 +392,7 @@ func (a *App) loadState(ctx context.Context) error {
 }
 
 // reloadConversation loads the open conversation and (re)subscribes its socket.
-func (a *App) reloadConversation() {
-	a.apply(func() {
-		if a.current == 0 {
-			return
-		}
-	})
-	current := a.currentValue()
+func (a *App) reloadConversation(current int) {
 	if current == 0 {
 		return
 	}
@@ -389,9 +422,17 @@ func (a *App) reloadConversation() {
 
 // currentValue reads the open conversation id on the UI thread.
 func (a *App) currentValue() int {
-	current := 0
-	a.apply(func() { current = a.current })
-	return current
+	if a.win == nil {
+		return a.current
+	}
+	return int(a.currentID.Load())
+}
+
+// setCurrent records the open conversation and keeps the goroutine-visible
+// mirror in step; call it only inside an apply closure.
+func (a *App) setCurrent(conversationID int) {
+	a.current = conversationID
+	a.currentID.Store(int64(conversationID))
 }
 
 // goLoad runs one loader in a goroutine and reports its failure in the panel.
@@ -443,24 +484,22 @@ func (a *App) watch(conversationID int) {
 
 // selectConversation opens a chat from the rail.
 func (a *App) selectConversation(conversationID int) {
-	a.apply(func() {
+	a.applyWait(func() {
 		if a.current == conversationID {
 			return
 		}
-		a.current = conversationID
+		a.setCurrent(conversationID)
 		a.entries = nil
 		a.live = nil
 		a.approvals = nil
 		a.invalidate()
 	})
-	a.reloadConversation()
+	a.reloadConversation(a.currentValue())
 }
 
 // submit sends what the composer holds, as the Send button does.
 func (a *App) submit() {
-	text := ""
-	a.apply(func() { text = a.draft })
-	a.sendText(text)
+	a.sendText(a.draft)
 }
 
 // sendText sends one turn and clears the draft. The composer calls it with the
@@ -702,7 +741,7 @@ func (a *App) resetConversation() {
 		if err := a.api.Reset(contextBG(), id); err != nil {
 			return fmt.Errorf("reset conversation %d: %w", id, err)
 		}
-		a.reloadConversation()
+		a.reloadConversation(id)
 		return nil
 	})
 }

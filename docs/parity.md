@@ -106,3 +106,26 @@
 | 审批决策 | `POST /api/approvals` | 同上：会放行/拒绝真实运行中的工具调用 |
 
 `POST /api/surface-meta` 必须带 `surfaceId` 或可解析的 `conversationId`：老会话的 surface 可能已不存在，此时带 `conversationId` 会得到 400 `surfaceId or conversationId required`，故 `App.apiSurfaceMeta` 会顺带填 `surfaceId`。
+
+## 6. 真实后端压测与全链路实测（2026-11-16）
+
+`PITTA_LIVE=1` / `PITTA_E2E=1 go test ./internal/app -count=1`，对日常 agent（127.0.0.1:8787，74 个 surface）：
+
+| 项 | 命令 | 实测 |
+| --- | --- | --- |
+| 最长会话 | `-run TestLiveLongConversation` | conversation 2：**200 条 entry / 31 轮 / 31 个回答**，首帧 5ms、后续帧 4ms（窗口 60 轮），落 `/tmp/pitta-long.png` |
+| Markdown 无 panic | `-run TestLiveMarkdownRender` | 31 个真实回答逐个过 `markdown.View` 一帧，无 panic |
+| patch 解析 | `-run TestLivePatchRender` | conversation 3201：**5 个文件 / 284 行 patch**，`diff.Parse` 解析后渲染一帧，落 `/tmp/pitta-patch.png` |
+| 流式全链路 | `-run TestLiveStreamingFrames`（PITTA_E2E=1，花一次模型调用） | 新建 conversation 34832（surface `client:mwj40xno`），3 次 entry 变化，回答 `ok` |
+| 审批 UI | `-run Snapshot` | 假桥待批项（45s 前创建）渲染 approval bar，落 `/tmp/pitta-app-approval.png` |
+
+注意：`/api/conversation?limit=200` 给 200 条，而 WS watch 的首帧快照可能更少（这次是 50 条）；React 客户端同样用 `value.entries` 覆盖，行为一致，故不改。压测里因此直接用 HTTP 结果填 `entries`，避免被 watch 快照削短。
+
+## 7. 输入法、剪贴板与选区
+
+`go test ./internal/app -run TestPaste\|TestSelectAll\|TestIME -v`（`internal/app/input_test.go`）：
+
+- 粘贴：`tt.SetClipboard` + `Cmd+V` 后草稿变为剪贴板文本。
+- 全选 + Backspace 清空；`Shift+←` 选中后输入替换选中内容（`fresX`）。
+- 中文 IME：`tt.Compose("nihao", 5)` 预编辑不进草稿、预编辑期间 Enter 既不发送也不换行；提交后草稿为 `你好`；`Cmd+Enter` 发出 `你好`。
+- 手工确认（真窗口）：拼音输入候选框跟随光标，英文 Geist + 中文系统回退字体混排正常，`/tmp/pitta-fonts.png`。

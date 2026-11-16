@@ -10,6 +10,14 @@ go tool mygo build -skip-dmg     # → build/darwin-arm64/Pitta.app
 open build/darwin-arm64/Pitta.app
 ```
 
+装到用户目录（与 `/Applications` 里同名的 mygo webview 版 Pitta 分开，别覆盖它）：
+
+```sh
+pkill -f "$HOME/Applications/Pitta.app/Contents/MacOS/Pitta"
+rsync -a --delete build/darwin-arm64/Pitta.app "$HOME/Applications/"
+open "$HOME/Applications/Pitta.app"
+```
+
 `go tool mygo` 由 go.mod 的 `tool` 指令提供（`go get -tool github.com/egoist/mygo/cmd/mygo`）。
 
 ## 连接后端
