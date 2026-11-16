@@ -34,7 +34,8 @@ A patch in Feishu rebuilds the whole card, so the status band has to be sent wit
 | band | meaning |
 |---|---|
 | blue `Working` | the turn is running |
-| green `Done` | answered (says so when the turn needed a continuation) |
+| green `Done` / `Goal met` | answered — `Goal met` when the model filed a verdict via `report_done` (says so when the turn needed a continuation) |
+| orange `Goal missed` | the model declared the goal was not reached; the panel says where it got stuck |
 | orange `Stopped at N steps` | hit `AGENT_MAX_TURNS`, progress kept |
 | grey `No answer this time · reason` | ended without an answer |
 | red `Failed` | the turn threw |

@@ -30,6 +30,7 @@ import {
 import { lookupMessage } from "./threads.ts";
 import { readTurnDetails, saveTurnDetails, type TurnDetails } from "./details.ts";
 import { formatDecision, noteDecision, takeDecisions } from "./decisions.ts";
+import { doneVerdict, takeDone } from "./done.ts";
 import {
   adoptChatLevels,
   chatAccess,
@@ -1916,6 +1917,15 @@ const continuing = new Set<string>();
       // Read once, on every path: the trail belongs to this turn, and leaving it behind would make
       // the next turn's card claim a decision it never made.
       const decisions = takeDecisions(String(conversation.id));
+      // A verdict the model filed during the turn: the card repeats it rather than guessing.
+      const claim = takeDone(String(conversation.id));
+      if (claim !== undefined) {
+        decisions.push({
+          at: claim.at,
+          kind: "stop",
+          text: `声明：${claim.met ? "目标达成" : "目标未达成"} — ${claim.why}`,
+        });
+      }
       if (settled.reason !== undefined) {
         decisions.push({ at: Date.now(), kind: "stop", text: `结束：${settled.reason}` });
       }
@@ -2000,10 +2010,15 @@ const continuing = new Set<string>();
             );
           }
         }
-        await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", meta, undefined, {
-          template: "green",
-          title: "✅ 答完了",
-        }, steps);
+        await deliverAnswer(
+          chatId,
+          cardId,
+          answer || "（模型没有返回文本）",
+          meta,
+          undefined,
+          claim === undefined ? { template: "green", title: "✅ 答完了" } : doneVerdict(claim),
+          steps,
+        );
         if (seconds >= config.feishu.donePingSeconds) {
           await pingDone(
             chatId,
@@ -2042,10 +2057,14 @@ const continuing = new Set<string>();
           const meta = `✅${toolsUsed.size > 0 ? ` · ${toolsUsed.size} 个工具` : ""}${
             cost > 0.00005 ? ` · $${cost.toFixed(4)}` : ""
           } · 到 ${config.maxTurns} 步后续跑 1 次`;
-          await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", meta, undefined, {
-            template: "green",
-            title: "✅ 答完了（续跑一次）",
-          });
+          await deliverAnswer(
+            chatId,
+            cardId,
+            answer || "（模型没有返回文本）",
+            meta,
+            undefined,
+            claim === undefined ? { template: "green", title: "✅ 答完了（续跑一次）" } : doneVerdict(claim),
+          );
           if (total >= config.feishu.donePingSeconds) {
               await pingDone(
               chatId,

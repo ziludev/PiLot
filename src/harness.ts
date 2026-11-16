@@ -32,6 +32,7 @@ import { larkExtension } from "./lark-tools.ts";
 import { skillsExtension } from "./skills.ts";
 import { subagentExtension } from "./subagents.ts";
 import { projectExtension } from "./project-tools.ts";
+import { doneExtension } from "./done.ts";
 import { UsageSampler, UsageDays, sampleUsage, usageCalendar } from "./usage-days.ts";
 import { applySuggestions, curateMemory } from "./curator.ts";
 import { connectMcp, type McpRuntime } from "./mcp.ts";
@@ -200,6 +201,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   registry.install(contextGuardExtension);
   registry.install(subagentExtension);
   registry.install(projectExtension);
+  registry.install(doneExtension);
   registry.install(defineExtension({ name: "usage-sampler", tasks: [UsageSampler] }));
   if (mcp.extension !== undefined) registry.install(mcp.extension);
 
