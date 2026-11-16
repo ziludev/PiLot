@@ -288,6 +288,8 @@ npm run eval -- --json        # one envelope, for scripts
 - `bash` can in principle `cd` out of the workspace; the guard hook covers danger, it is not a sandbox.
 - One-click Feishu setup across tenants is impossible (see the CLI section).
 - Usage squares start on the day the sampler first ran; there is no per-day history before that.
+- Feishu cards do not render Markdown, they render their own subset: no tables, no inline code, no headings, no quote blocks, no `---`. The card builder translates those (tables become native `table` elements, `##` becomes bold, `---` becomes a divider, inline backticks are stripped, `>` becomes `▸`); anything outside that set arrives as literal characters.
+- A card holds 9000 characters. A longer answer is clipped at that limit with the code fence closed and an ellipsis, not split across cards; the longest real answer so far was 3543.
 - This is a personal assistant, not a product: prompt text and some UI copy are Chinese, and the owner is a single hard-coded name.
 
 ## License
