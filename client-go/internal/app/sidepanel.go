@@ -7,6 +7,7 @@ import (
 
 	"pitta/internal/i18n"
 	"pitta/internal/icons"
+	"pitta/internal/motion"
 	"pitta/internal/ops"
 	"pitta/internal/protocol"
 	"pitta/internal/theme"
@@ -17,7 +18,10 @@ import (
 // callback.
 func (a *App) sidePanel(c *ui.Context) {
 	t := theme.Current(c)
-	ui.Column(c).Fill().Background(t.Sidebar).Children(func() {
+	// Switching tabs swaps the panel's content: it rises into place as the
+	// React side panel's tab panels do.
+	ui.Column(c).Fill().Background(t.Sidebar).Key(string(a.sideTab)).
+		Transition(motion.FadeIn()).Children(func() {
 		a.sideTabs(c, t)
 		ui.Divider(c).Background(t.SidebarBorder)
 		ui.Scroll(c).Fill().Children(func() {

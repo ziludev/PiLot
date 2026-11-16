@@ -23,6 +23,7 @@ import (
 	"pitta/internal/diff"
 	"pitta/internal/i18n"
 	"pitta/internal/icons"
+	"pitta/internal/motion"
 	"pitta/internal/protocol"
 	"pitta/internal/theme"
 )
@@ -967,7 +968,10 @@ func iconButton(c *ui.Context, icon *ui.SVG, label string) ui.Element {
 // right-panel toggle uses to show the panel is open.
 func iconButtonTint(c *ui.Context, icon *ui.SVG, label string, tint ui.Color) ui.Element {
 	t := theme.Current(c)
-	button := ui.ButtonBase(c).Size(24, 24).Radius(6).Cursor(ui.CursorPointer)
+	// The background fades under the pointer instead of switching, as the
+	// React header's transition-colors does.
+	button := ui.ButtonBase(c).Size(24, 24).Radius(6).Cursor(ui.CursorPointer).
+		Transition(motion.Hover())
 	button.Label(label)
 	button.Tooltip(label)
 	if button.Hovered() {

@@ -11,6 +11,7 @@ import (
 	"pitta/internal/api"
 	"pitta/internal/i18n"
 	"pitta/internal/icons"
+	"pitta/internal/motion"
 	"pitta/internal/protocol"
 	"pitta/internal/theme"
 )
@@ -111,8 +112,11 @@ func (a *App) modelPicker(c *ui.Context) {
 // models ordered favourites-first, and the thinking levels of the chosen one.
 func (a *App) modelPalette(c *ui.Context) {
 	t := theme.Current(c)
+	// The palette comes up from the composer over 280 ms, as a popover would
+	// over its anchor; the rows inside a List cannot carry transitions.
 	ui.Column(c).FillWidth().Padding(10).Gap(6).Background(t.Popover).
-		BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
+		BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Key("model-palette").
+		Transition(motion.PopoverEnter()).Children(func() {
 		ui.TextInput(c, &a.modelQuery).FillWidth().FontSize(11).
 			Placeholder(i18n.T("searchModel")).Label(i18n.T("searchModel")).
 			OnTextKey(func(k ui.TextKey) bool { return a.modelKey(c, k) }).
