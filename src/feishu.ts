@@ -9,7 +9,7 @@ import { watchLive, type LiveSnapshot } from "./live.ts";
 import { setApprovalDecider, setNotifier, type ApprovalRequest } from "./channel.ts";
 import { log, logError } from "./log.ts";
 import { recent, record } from "./audit.ts";
-import { collectKetchup, formatKetchup } from "./ketchup.ts";
+import { collectKetchup, elapsed, formatKetchup } from "./ketchup.ts";
 import { note } from "./notes.ts";
 import { lastRequestMessages } from "./context-guard.ts";
 
@@ -29,6 +29,7 @@ import {
 } from "./cards.ts";
 import { lookupMessage } from "./threads.ts";
 import { readTurnDetails, saveTurnDetails, type TurnDetails } from "./details.ts";
+import { formatDecision, noteDecision, takeDecisions } from "./decisions.ts";
 import {
   adoptChatLevels,
   chatAccess,
@@ -120,16 +121,19 @@ function standaloneHeader(reason: string | undefined): CardHeader {
  * button — only in 1:1 chats, and it answered with a second card, so a group never saw the work
  * at all and every answer looked like a form to fill in.
  */
-function detailPanel(details: Omit<TurnDetails, "at">): Record<string, unknown> {
+export function detailPanel(details: Omit<TurnDetails, "at">): Record<string, unknown> {
   const lines = details.steps.map((step, index) => {
     const mark = step.ok ? "✅" : "⚠️";
     // A tool's output is whatever the tool printed: aligned columns and pipes included, which the
     // card markdown would flatten. The panel body goes through the same element conversion.
     return `${index + 1}. ${mark} **${step.name}**\n\n${step.preview.length > 0 ? step.preview : "（无输出）"}`;
   });
+  // The trail goes first: "why it took two minutes" is read before "what it ran".
+  const decisionLines = (details.decisions ?? []).map(formatDecision);
+  const body = decisionLines.length > 0 ? ["**决策**", ...decisionLines, ...lines] : lines;
   const summary = `${details.steps.length} 步 · ${details.seconds}s${
     details.costUsd > 0.00005 ? ` · $${details.costUsd.toFixed(4)}` : ""
-  }`;
+  }${decisionLines.length > 0 ? ` · ${decisionLines.length} 次决策` : ""}`;
   return {
     tag: "collapsible_panel",
     expanded: false,
@@ -143,7 +147,7 @@ function detailPanel(details: Omit<TurnDetails, "at">): Record<string, unknown> 
     border: { color: "grey", corner_radius: "5px" },
     vertical_spacing: "8px",
     padding: "8px 8px 8px 8px",
-    elements: bodyElements(lines.join("\n\n")),
+    elements: bodyElements(body.join("\n\n")),
   };
 }
 
@@ -1052,8 +1056,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
   setApprovalDecider(async (request) => {
     // The owner answers in their own DM. A card in the group would show everyone what is about
     // to be deleted, and a group member could not answer it anyway.
-    const ownerChat = await ownerChatId(runtime.harness, context).catch(() => undefined);
-    const target = ownerChat ?? request.surfaceId;
+    const ownerChat = await ownerChatId(runtime.harness, context).catch(() => undefined);    const target = ownerChat ?? request.surfaceId;
     const sent = target.startsWith("oc_")
       ? await client.im.message
           .create({
@@ -1081,6 +1084,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     }
     const cardId = sent?.data?.message_id;
     log("feishu", "approval card sent", { cardId, callId: request.callId.slice(-12), tool: request.tool });
+    // The turn's card should say it stopped to ask, not just lose two minutes with no explanation.
+    const askedAt = Date.now();
+    const trailKey = String(request.conversationId);
+    noteDecision(trailKey, { kind: "approval", text: `问你：${request.tool} — ${request.summary}` }, askedAt);
     return new Promise<boolean>((resolve) => {
       // The registry owns the pending state and the timeout; this surface only says what its card
       // should look like once the decision lands, whoever made it. Keeping a second map here is
@@ -1095,6 +1102,13 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         surfaceId: request.surfaceId,
         timeoutMs: request.timeoutMs,
         onSettled: ({ approved, by }) => {
+          noteDecision(trailKey, {
+            kind: "approval",
+            text:
+              by === "timeout"
+                ? `超时未确认，${request.tool} 已拒绝 · 等了 ${elapsed(request.timeoutMs)}`
+                : `你${approved ? "允许" : "拒绝"}了 ${request.tool}（${by === "client" ? "客户端" : "飞书"}）· 等了 ${elapsed(Date.now() - askedAt)}`,
+          });
           if (cardId === undefined) return;
           const text =
             by === "timeout"
@@ -1899,6 +1913,12 @@ const continuing = new Set<string>();
       const settled = await submission.wait(context);
       const seconds = Math.round((Date.now() - startedAt) / 100) / 10;
       log("feishu", "settled", { status: settled.status, reason: settled.reason ?? null, seconds });
+      // Read once, on every path: the trail belongs to this turn, and leaving it behind would make
+      // the next turn's card claim a decision it never made.
+      const decisions = takeDecisions(String(conversation.id));
+      if (settled.reason !== undefined) {
+        decisions.push({ at: Date.now(), kind: "stop", text: `结束：${settled.reason}` });
+      }
 
       // Freeze live output first, then write the answer.
       phase = "delivering";
@@ -1973,8 +1993,8 @@ const continuing = new Set<string>();
           const taken = await runtime
             .turnSteps(conversation, settled.entry as unknown as number, settled.answer as unknown as number)
             .catch(() => []);
-          if (taken.length > 0) {
-            steps = { steps: taken, seconds, costUsd: cost };
+          if (taken.length > 0 || decisions.length > 0) {
+            steps = { steps: taken, seconds, costUsd: cost, decisions };
             await saveTurnDetails(runtime.harness, context, message.message_id, steps).catch((error) =>
               logError("feishu", "could not save turn details", error),
             );

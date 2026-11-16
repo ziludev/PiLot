@@ -1,5 +1,6 @@
 import { defineDoc, type Harness } from "@earendil-works/pi-durable";
 import type { Context } from "@earendil-works/chord/context";
+import type { DecisionNote } from "./decisions.ts";
 
 export type ToolStep = {
   name: string;
@@ -12,6 +13,8 @@ export type TurnDetails = {
   steps: ToolStep[];
   seconds: number;
   costUsd: number;
+  /** Approvals asked and why the turn ended, when either happened. */
+  decisions?: DecisionNote[];
   at: number;
 };
 
