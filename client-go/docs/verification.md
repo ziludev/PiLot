@@ -238,3 +238,24 @@ $ tail -1 ~/learn/pi-durable-agent/logs/agent.log
 ```
 
 `CFBundleURLTypes` 里有 `pitta`（`PlistBuddy -c "Print :CFBundleURLTypes" build/darwin-arm64/Pitta.app/Contents/Info.plist`）。
+
+### 6. 安装与证据的边界
+
+```
+$ go tool mygo build -skip-dmg          → build/darwin-arm64/Pitta.app (15 MB)
+$ rsync -a --delete build/darwin-arm64/Pitta.app ~/Applications/
+$ open ~/Applications/Pitta.app
+$ pgrep -f "$HOME/Applications/Pitta.app/Contents/MacOS/Pitta"  → 62937
+$ tail -1 ~/learn/pi-durable-agent/logs/agent.log
+[http] client attached {"conversationId":9753}
+```
+
+**真窗口截图这一轮拿不到**：`CGSessionCopyCurrentDictionary` 报 `CGSSessionScreenIsLocked=1`，
+`CGWindowListCopyWindowInfo` 里窗口 `onscreen=0`（窗口存在、进程活着、`client attached` 有日志）。
+按目标里的规则如实记录，不伪造：`README` 首图与 `docs/manual-checks/` 之外的界面证据改用
+**应用自己的渲染路径**——`PITTA_LIVE=1 go test ./internal/app -run TestLiveConversation` 把真实
+后端返回的会话画成 1180×820 的 PNG（`/tmp/pitta-live.png`，README 首图即此图），它和窗口走同一套
+`ui.View` 代码，缺的只是"被窗口服务器合成到屏幕上"这一步。
+
+`go run .` 可以正常起窗并连桥；裸二进制下 `notify` 报 `not supported on this platform`（点通知
+需要 .app bundle 的 UserNotifications 授权），这是降级而不是崩溃：通知不可用时其余流程照常。

@@ -4,7 +4,7 @@
 
 A personal assistant that runs on [Pi Durable](https://earendil.com/posts/pi-durable/): talk to it in Feishu, watch it work in a desktop app, use it from a terminal — and if the process dies, the conversation does not.
 
-![The desktop client: a turn in progress, steps and their gantt bars, the answer](assets/readme/client.png)
+![The desktop client, drawn by mygo/ui: rail with chats and their cost, a folded tool timeline over a real answer, the composer](assets/readme/client.png)
 
 ![The Feishu card going from Working to Done](assets/readme/card.gif)
 
@@ -182,6 +182,7 @@ and each run their own instance; the owner list decides who controls what.
 cd client-go
 go run .                         # the window, connected to the local bridge
 go tool mygo build -skip-dmg     # build/darwin-arm64/Pitta.app
+rsync -a --delete build/darwin-arm64/Pitta.app ~/Applications/   # then `open ~/Applications/Pitta.app`
 ```
 
 The window is drawn by mygo/ui from Go: no webview, no front-end build step. Screens, key
