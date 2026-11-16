@@ -188,7 +188,20 @@ func (a *App) userBubble(c *ui.Context, t theme.Tokens, text string, images []im
 		if hovered {
 			a.messageActions(c, t, text, text)
 		}
-		ui.Column(c).MaxWidth(760).Padding(8, 12).Gap(6).Radius(12).Background(t.Muted).Children(func() {
+		bubble := ui.Column(c).MaxWidth(760).Padding(8, 12).Gap(6).Radius(12).Background(t.Muted)
+		bubble.ContextMenu(func(m *ui.Menu) {
+			if m.Item(i18n.T("copy")).Shortcut(ui.Cmd, ui.KeyC).Chosen() {
+				c.Services().WriteClipboard(text)
+				c.Toast(i18n.T("copied"))
+			}
+			if m.Item(i18n.T("edit")).Chosen() {
+				a.apply(func() { a.draft = text; a.invalidate() })
+			}
+			if m.Item(i18n.T("retry")).Chosen() {
+				a.sendText(text)
+			}
+		})
+		bubble.Children(func() {
 			if len(images) > 0 {
 				a.imagePreviews(c, t, images)
 			}
@@ -207,7 +220,17 @@ func (a *App) answerBlock(c *ui.Context, t theme.Tokens, text string, retryText 
 	row := ui.Row(c).Fill().Gap(2).AlignItems(ui.Center)
 	hovered := row.Hovered()
 	row.Children(func() {
-		ui.Column(c).MaxWidth(760).Padding(8, 12).Radius(12).Border(1, t.Border).Background(t.Card).Children(func() {
+		block := ui.Column(c).MaxWidth(760).Padding(8, 12).Radius(12).Border(1, t.Border).Background(t.Card)
+		block.ContextMenu(func(m *ui.Menu) {
+			if m.Item(i18n.T("copy")).Shortcut(ui.Cmd, ui.KeyC).Chosen() {
+				c.Services().WriteClipboard(text)
+				c.Toast(i18n.T("copied"))
+			}
+			if retryText != "" && m.Item(i18n.T("retry")).Chosen() {
+				a.sendText(retryText)
+			}
+		})
+		block.Children(func() {
 			markdown.View(c, text, &a.md)
 		})
 		if hovered {

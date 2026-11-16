@@ -24,15 +24,20 @@ func (a *App) composer(c *ui.Context) {
 		// Enter breaks the line and Cmd+Enter sends, as the React composer
 		// does: a Chinese input session confirms candidates with Enter, so
 		// sending on it would cut sentences short.
-		ui.TextArea(c, &a.draft).Fill().FontSize(13).MinHeight(64).Placeholder(i18n.T("placeholder")).OnTextKey(func(k ui.TextKey) bool {
-			if k.Key != ui.KeyEnter || k.Mods&(ui.Super|ui.Ctrl) == 0 {
-				return false
-			}
-			text := k.Text()
-			k.SetText("")
-			a.sendText(text)
-			return true
-		})
+		ui.TextArea(c, &a.draft).Fill().FontSize(13).MinHeight(64).Placeholder(i18n.T("placeholder")).
+			// An image on the clipboard becomes an attachment instead of a
+			// paste, which the React client could not do at all: its paste
+			// handler only ever saw text.
+			OnPaste(func(text string) bool { return a.pasteImage(c) }).
+			OnTextKey(func(k ui.TextKey) bool {
+				if k.Key != ui.KeyEnter || k.Mods&(ui.Super|ui.Ctrl) == 0 {
+					return false
+				}
+				text := k.Text()
+				k.SetText("")
+				a.sendText(text)
+				return true
+			})
 		// The bottom row of Composer.tsx: picker, a hairline, the steer box on
 		// the left; the send button on the right.
 		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {

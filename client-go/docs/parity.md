@@ -210,3 +210,18 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 `internal/app/modelpicker.go` 现在是 ModelPicker.tsx 的形状：触发器是 `M` 徽章 + 模型名 + 四格思考档条 + 档位文字 + 钥匙图标 + 折叠箭头；面板按 provider 分组（当前会话的 provider 默认展开，其余折叠，点组头折叠/展开，组头带钥匙图标与计数），组内收藏置顶，底部是 `Effort · 模型` + 档位与 `Set as default`/`Refresh`。
 
 代码高亮：React 的 `src/lib/markdown.tsx` 是自写的小子集渲染器（围栏代码只是等宽 `<pre>`，无 token 着色，无列表/表格/链接），Go 端用 mygo 的 `ui/markdown`，围栏块带语法着色、语言标签、Copy 按钮，另有表格、列表、引用、链接。这一项我们**多于**原版，不是缺失。
+
+### 2026-11 原生能力（第 26 轮）
+
+这些是 React 客户端做不到、或只能绕开的，Go 端直接接上了系统：
+
+| 能力 | 实现 | 原客户端 |
+| --- | --- | --- |
+| 自绘标题栏 | `main.go` 的 `TitleBarStyle: TitleBarHidden` + `TrafficLightPosition`，`railHeader` 按 `c.TitleBar()` 让位并 `DragWindow()` | 系统标题栏，少 28px 内容高度 |
+| 拖文件进来 | `App.View` 的 `root.DroppedFiles()` → `dropPaths`：图片变附件，其他文件在 FileView 里打开 | 无 |
+| 粘贴图片 | composer `OnPaste` → `pasteImage` 读 `transfer.PNG` 剪贴板 | 只能走路径 |
+| 右键菜单 | 消息气泡、rail 行挂 `ContextMenu`（复制/编辑/重试、置顶/重命名/归档/清理 worktree） | 无 |
+| ⌘K 快速切换 | `switcherDialog`：任意聊天按标题/#id 过滤，回车跳转 | 只有 rail 搜索框 |
+| ⌘N / ⌘B | 新建会话 / 收起右栏 | 无快捷键 |
+| Dock 角标 | `syncBadge` → `mygo.App.SetBadgeCount`（待批条数） | 无 |
+| 窗口标题 | `syncTitle`：`Pitta · <会话名>` | `<title>` 固定 |
