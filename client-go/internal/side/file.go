@@ -20,6 +20,9 @@ type FileProps struct {
 	Err       string
 	OnClose   func()
 	OnComment func(line string) // stage a review note on a line
+	// OnPreview opens the file in the system's preview, when the platform has
+	// one; nil hides the button.
+	OnPreview func()
 }
 
 // FileView draws one numbered line per row and scrolls sideways on long
@@ -56,6 +59,9 @@ func fileHeader(c *ui.Context, t theme.Tokens, p FileProps) {
 				meta += " · " + i18n.T("truncated")
 			}
 			ui.Text(c, meta).FontSize(10).TextColor(t.MutedFg)
+		}
+		if p.OnPreview != nil {
+			iconButton(c, icons.ExternalLink, i18n.T("preview"), t.MutedFg, p.OnPreview)
 		}
 		iconButton(c, icons.X, i18n.T("back"), t.MutedFg, p.OnClose)
 	})

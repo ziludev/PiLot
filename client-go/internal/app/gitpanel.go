@@ -195,6 +195,7 @@ func (a *App) fileView(c *ui.Context) {
 				a.invalidate()
 			})
 		},
+		OnPreview: a.previewFile,
 	})
 }
 

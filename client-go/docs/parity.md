@@ -235,3 +235,8 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 | 应用菜单 | `menu.go`：File / Edit（标准 role，⌘C⌘V⌘A 在原生输入框里可用）/ View / Window | 无菜单栏 |
 | 全局热键 | `⌘⇧Space` 把窗口叫到前台（`mygo.GlobalShortcut`） | 无 |
 | 面板点击 | 通知点击与热键都 `win.Show()` + `win.Focus()` | 只能切浏览器标签 |
+
+### 2026-11 预览与拖出（第 28 轮）
+
+- 文件视图头部多了「预览」按钮：`qlmanage -p` 打开系统预览窗口，PDF/图片/Office 文档不必再靠文本行视图。
+- 回答气泡可拖到别的应用：`DragData` 同时给出 `text/markdown` 与 `text/plain` 两种表示。

@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 
@@ -230,6 +231,12 @@ func (a *App) answerBlock(c *ui.Context, t theme.Tokens, text string, retryText 
 				a.sendText(retryText)
 			}
 		})
+		// The answer can be dragged into any other app as Markdown, which is
+		// what a native client can offer and a page cannot.
+		block.DragData(transfer.New(transfer.NewItem(
+			transfer.Bytes(transfer.Markdown, []byte(text)),
+			transfer.Bytes(transfer.Text, []byte(text)),
+		)))
 		block.Children(func() {
 			markdown.View(c, text, &a.md)
 		})
