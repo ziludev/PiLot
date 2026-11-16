@@ -25,7 +25,7 @@ func (a *App) maybeNotify() {
 			return
 		}
 		a.notifiedID = itoa(answer.ID)
-		notify.Answer(text)
+		notify.Answer(text, a.currentValue())
 	})
 }
 
@@ -38,4 +38,19 @@ func lastAssistant(entries []protocol.Entry) *protocol.Entry {
 		}
 	}
 	return nil
+}
+
+// OpenFromNotification shows a chat a notification click asked for: the window
+// comes forward and the chat opens, on the UI thread.
+func (a *App) OpenFromNotification(chatID int) {
+	if chatID <= 0 {
+		return
+	}
+	a.apply(func() {
+		if chatID == a.current {
+			return
+		}
+		a.selectConversation(chatID)
+		a.invalidate()
+	})
 }

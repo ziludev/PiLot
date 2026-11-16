@@ -87,14 +87,19 @@ func main() {
 				bounce = 0
 			}
 		})
-		notify.Sender = func(title, body string) error {
+		notify.Sender = func(id, title, body string) error {
 			return mygo.NewNotification(mygo.NotificationOptions{
-				ID: "answer", Title: title, Body: body, Group: "answers",
+				ID: id, Title: title, Body: body, Group: "answers",
 			}).Show()
 		}
-		mygo.App.OnNotificationClick(func(string) {
+		// A click lands on the chat the answer came from, not just on the app:
+		// the notification says which one in its id.
+		mygo.App.OnNotificationClick(func(id string) {
 			win.Show()
 			win.Focus()
+			if chatID, ok := notify.ChatFromID(id); ok {
+				a.OpenFromNotification(chatID)
+			}
 		})
 		installMenu(a)
 		registerHotkey(win)
