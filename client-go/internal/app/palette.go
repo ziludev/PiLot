@@ -12,6 +12,21 @@ import (
 // commands; anything else searches chats, so the common case costs no prefix.
 const palettePrefix = ">"
 
+// The lines the dictionary has no key for. They read as commands rather than
+// UI labels, so a constant with its reason is what the i18n rule allows; the
+// ones that do have a key (newChat, changes, memory, access, usage, pinned,
+// archive, theme, language) use it, so a Chinese window stays Chinese.
+const (
+	paletteFind      = "Find in this chat…"
+	paletteToggle    = "Toggle the side panel"
+	paletteExport    = "Export this chat as Markdown"
+	paletteSettings  = "Settings…"
+	paletteLogs      = "Open the agent's logs"
+	paletteQuit      = "Quit Pitta"
+	paletteNewWindow = "Open in a new window"
+	paletteHint      = "Run a command…  (⌫ to search chats)"
+)
+
 // paletteAction is one command: what it reads as, and what it does.
 type paletteAction struct {
 	Name string
@@ -23,21 +38,21 @@ type paletteAction struct {
 func (a *App) paletteActions() []paletteAction {
 	return []paletteAction{
 		{Name: i18n.T("newChat"), Run: func() { a.newConversation() }},
-		{Name: "Find in this chat", Run: func() { a.apply(func() { a.findOpen = true }) }},
-		{Name: "Toggle changes panel", Run: func() { a.toggleSide() }},
-		{Name: "Show changes", Run: func() { a.openSideTab(SideChanges) }},
-		{Name: "Show memory", Run: func() { a.openSideTab(SideMemory) }},
-		{Name: "Show access", Run: func() { a.openSideTab(SideAccess) }},
-		{Name: "Show usage", Run: func() { a.openSideTab(SideUsage) }},
-		{Name: "Export chat as Markdown", Run: func() { a.exportMarkdown() }},
-		{Name: "Pin or unpin this chat", Run: func() { a.togglePinSelected() }},
-		{Name: "Archive this chat", Run: func() { a.archiveSelected() }},
-		{Name: "Switch theme", Run: func() { a.toggleTheme() }},
-		{Name: "Switch language", Run: func() { a.toggleLang() }},
-		{Name: "Open in a new window", Run: func() { a.openInNewWindow(a.currentValue()) }},
-		{Name: "Settings", Run: func() { a.apply(func() { a.settingsOpen = true }) }},
-		{Name: "Open logs", Run: func() { bridge.OpenLogs() }},
-		{Name: "Quit", Run: func() { a.askQuit() }},
+		{Name: paletteFind, Run: func() { a.apply(func() { a.findOpen = true }) }},
+		{Name: paletteToggle, Run: func() { a.toggleSide() }},
+		{Name: i18n.T("changes"), Run: func() { a.openSideTab(SideChanges) }},
+		{Name: i18n.T("memory"), Run: func() { a.openSideTab(SideMemory) }},
+		{Name: i18n.T("access"), Run: func() { a.openSideTab(SideAccess) }},
+		{Name: i18n.T("usage"), Run: func() { a.openSideTab(SideUsage) }},
+		{Name: paletteExport, Run: func() { a.exportMarkdown() }},
+		{Name: i18n.T("pinned"), Run: func() { a.togglePinSelected() }},
+		{Name: i18n.T("archive"), Run: func() { a.archiveSelected() }},
+		{Name: i18n.T("theme"), Run: func() { a.toggleTheme() }},
+		{Name: i18n.T("language"), Run: func() { a.toggleLang() }},
+		{Name: paletteNewWindow, Run: func() { a.openInNewWindow(a.currentValue()) }},
+		{Name: paletteSettings, Run: func() { a.apply(func() { a.settingsOpen = true }) }},
+		{Name: paletteLogs, Run: func() { bridge.OpenLogs() }},
+		{Name: paletteQuit, Run: func() { a.askQuit() }},
 	}
 }
 
