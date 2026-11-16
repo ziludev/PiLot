@@ -141,16 +141,21 @@ type App struct {
 	transcriptScroll ui.ScrollState
 	scrollViewH      float32
 	pageGliding      bool
-	atBottom         bool
-	stickToBottom    bool
-	scrollY          float32
-	scrollMaxY       float32
-	newMessages      int
-	sideSynced       bool
-	mergeBusy        bool
-	merge            *protocol.MergeResult
-	changesLoading   bool
-	pushNote         string
+	previewScale     float32
+	// seenApprovals remembers which waits have already sounded the alert, and
+	// waitingAlert remembers that one is still running.
+	seenApprovals  map[string]bool
+	waitingAlert   bool
+	atBottom       bool
+	stickToBottom  bool
+	scrollY        float32
+	scrollMaxY     float32
+	newMessages    int
+	sideSynced     bool
+	mergeBusy      bool
+	merge          *protocol.MergeResult
+	changesLoading bool
+	pushNote       string
 
 	menu          chatMenu
 	findOpen      bool
@@ -267,22 +272,24 @@ func New(cfg Config) *App {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &App{
-		ctx:          ctx,
-		cancel:       cancel,
-		cfg:          cfg,
-		api:          api.New(cfg.BaseURL, cfg.Token),
-		railWidth:    width,
-		sideWidth:    sideWidth,
-		sideTab:      SideChanges,
-		prefs:        p,
-		focused:      true,
-		stepOpen:     map[int]bool{},
-		previewImage: -1,
-		turnWindow:   60,
-		commitDiffs:  map[string]string{},
-		modelsFav:    p.Favorites,
-		modelsRecent: p.Recents,
-		unread:       unreadFromPrefs(p),
+		ctx:           ctx,
+		cancel:        cancel,
+		cfg:           cfg,
+		api:           api.New(cfg.BaseURL, cfg.Token),
+		railWidth:     width,
+		sideWidth:     sideWidth,
+		sideTab:       SideChanges,
+		prefs:         p,
+		focused:       true,
+		stepOpen:      map[int]bool{},
+		previewImage:  -1,
+		seenApprovals: map[string]bool{},
+		previewScale:  1,
+		turnWindow:    60,
+		commitDiffs:   map[string]string{},
+		modelsFav:     p.Favorites,
+		modelsRecent:  p.Recents,
+		unread:        unreadFromPrefs(p),
 		// A chat opens at its newest turn, as React's transcript does.
 		atBottom:      true,
 		stickToBottom: true,
@@ -804,7 +811,7 @@ func (a *App) View(c *ui.Context) {
 	a.taskDialog(c)
 	a.shortcutsDialog(c, t)
 	a.imageDialog(c, t)
-	a.previewDialog(c)
+	a.previewDialog(c, t)
 	a.errorPanel(c, t)
 	a.toasts(c)
 	// The split writes the dragged width into railWidth; keep a copy once it

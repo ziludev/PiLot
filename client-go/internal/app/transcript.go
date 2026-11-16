@@ -113,11 +113,16 @@ func (a *App) turnBlock(c *ui.Context, t theme.Tokens, turn *turns.Turn, live, f
 			a.reportBlock(c, t, turns.Text(report))
 		}
 		if len(turn.Steps) > 0 {
-			ui.Column(c).Gap(4).Padding(0, 0, 0, 5).
-				BorderWidth(0, 0, 0, 1).BorderColor(t.Border).Children(func() {
-				for _, step := range turn.Steps {
-					a.stepRow(c, t, step)
-				}
+			// The steps hang off a rounded 2px rail, as Transcript.tsx's
+			// TurnRail does: a hairline border reads as a table rule instead of
+			// a timeline.
+			ui.Row(c).Gap(7).Children(func() {
+				ui.Column(c).Width(2).Radius(1).Background(t.Border).FillHeight()
+				ui.Column(c).Gap(4).Grow(1).Children(func() {
+					for _, step := range turn.Steps {
+						a.stepRow(c, t, step)
+					}
+				})
 			})
 		}
 		for _, final := range turn.Finals {

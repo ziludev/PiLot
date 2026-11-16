@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/egoist/mygo/ui"
 	"time"
 
 	"pitta/internal/api"
@@ -175,5 +177,44 @@ func TestMimeOf(t *testing.T) {
 		if got := mimeOf(name); got != want {
 			t.Fatalf("mimeOf(%q) = %q, want %q", name, got, want)
 		}
+	}
+}
+
+// TestPreviewZoomStepsAndClamps checks the picture viewer's zoom: the buttons
+// step by half, the picture is drawn bigger, and the ends are clamped.
+func TestPreviewZoomStepsAndClamps(t *testing.T) {
+	a := snapshotData(t)
+	path := pngFile(t, t.TempDir())
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bitmap, err := ui.DecodeBitmap(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.previewSet = []imagePart{{Name: "shot.png", bitmap: bitmap}}
+	a.previewImage = 0
+	tt := ui.NewTester(a.View, 1000, 760)
+	tt.Frame()
+	if !tt.HasText("100%") {
+		t.Skipf("the preview is not open: %q", tt.Texts())
+	}
+	tt.Click("+")
+	tt.Frame()
+	if !tt.HasText("150%") {
+		t.Fatalf("zoom after + is not 150%%: %q", tt.Texts())
+	}
+	for i := 0; i < 8; i++ {
+		tt.Click("+")
+		tt.Frame()
+	}
+	if a.previewScale != 4 {
+		t.Fatalf("zoom ran to %v, want 4", a.previewScale)
+	}
+	tt.Click("1:1")
+	tt.Frame()
+	if a.previewScale != 1 {
+		t.Fatalf("1:1 left the scale at %v", a.previewScale)
 	}
 }

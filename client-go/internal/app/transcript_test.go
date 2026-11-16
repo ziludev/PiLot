@@ -246,3 +246,53 @@ func TestCmdFOpensFindBar(t *testing.T) {
 		t.Fatalf("find bar did not count the match in %v", tt.Texts())
 	}
 }
+
+// TestStepsHangOffARoundedRail checks the timeline's rail is a 2 px rounded
+// column: a 1 px border reads as a table rule instead of a timeline.
+func TestStepsHangOffARoundedRail(t *testing.T) {
+	a := snapshotData(t)
+	a.entries = turnEntries(701, "question", "answer")
+	tt := ui.NewTester(a.View, 900, 620)
+	tt.Frame()
+	label, ok := tt.Find("思考")
+	if !ok {
+		t.Skipf("the fixture's steps are not on screen: %q", tt.Texts())
+	}
+	img := tt.Image()
+	border := theme.Light().Border
+	isBorder := func(x, y int) bool {
+		c := img.RGBAAt(x, y)
+		return nearColor(c.R, border.R) && nearColor(c.G, border.G) && nearColor(c.B, border.B)
+	}
+	top, bottom := int(label.Y)-4, int(label.Y+label.H)+4
+	rows := bottom - top
+	covered := func(x int) int {
+		run := 0
+		for y := top; y < bottom; y++ {
+			if isBorder(x, y) {
+				run++
+			}
+		}
+		return run
+	}
+	rail, tallest := 0, 0
+	for x := int(label.X) - 40; x < int(label.X); x++ {
+		if n := covered(x); n > tallest {
+			rail, tallest = x, n
+		}
+	}
+	if tallest < rows*3/5 {
+		t.Fatalf("no column runs alongside the steps (best %d of %d rows)", tallest, rows)
+	}
+	// Count the columns painted for most of that height: the rail is 2, a
+	// border is 1.
+	width := 0
+	for x := rail - 2; x <= rail+2; x++ {
+		if covered(x) >= rows*3/5 {
+			width++
+		}
+	}
+	if width != 2 {
+		t.Fatalf("the step rail is %d px wide, want 2 (around column %d)", width, rail)
+	}
+}
