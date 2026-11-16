@@ -6,6 +6,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"pitta/internal/i18n"
+
 	"pitta/internal/theme"
 )
 
@@ -77,4 +79,27 @@ func hasDarkPixel(img *image.RGBA, x0, x1, y int, ink ui.Color) bool {
 		}
 	}
 	return false
+}
+
+// TestRailHeaderClearsTheTrafficLights checks the layout the hidden title bar
+// asks for: with controls taking the top-left corner, the rail's first row
+// starts to their right, so the avatar is never drawn under them.
+func TestRailHeaderClearsTheTrafficLights(t *testing.T) {
+	a := snapshotData(t)
+	a.prefs.RailWidth = 260
+	for _, bar := range []ui.TitleBar{{}, {Height: 28, Left: 78}} {
+		tt := ui.NewTester(a.View, 1180, 820)
+		tt.SetTitleBar(bar)
+		tt.Frame()
+		rect, ok := tt.Find(i18n.T("appName"))
+		if !ok {
+			t.Fatalf("app name not drawn with title bar %+v", bar)
+		}
+		if want := bar.Left + 12; rect.X < want {
+			t.Fatalf("app name at x=%.1f, under the controls (want >= %.1f)", rect.X, want)
+		}
+		if want := bar.Bottom + 8; rect.Y < want {
+			t.Fatalf("app name at y=%.1f, under the controls (want >= %.1f)", rect.Y, want)
+		}
+	}
 }
