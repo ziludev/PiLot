@@ -19,6 +19,11 @@ func TestMain(m *testing.M) {
 	if err := os.Setenv("HOME", dir); err != nil {
 		panic(err)
 	}
+	// Preferences are in-memory only during tests: the file is per-HOME, and
+	// tests share one HOME, so a written theme or favourite would decide the
+	// next test's starting state. The tests that do exercise the file call
+	// savePrefsFile directly.
+	prefsWriter = func(prefs) {}
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)

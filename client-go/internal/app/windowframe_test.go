@@ -8,7 +8,7 @@ func TestPrefsCarryTheWindowFrame(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 	prefs := prefs{WindowX: 120, WindowY: 80, WindowW: 1180, WindowH: 820, LastChat: 42}
-	savePrefs(prefs)
+	savePrefsFile(prefs)
 	back := loadPrefs()
 	if back.WindowX != 120 || back.WindowY != 80 || back.WindowW != 1180 || back.WindowH != 820 {
 		t.Fatalf("frame came back as %+v", back)

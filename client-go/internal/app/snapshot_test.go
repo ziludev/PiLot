@@ -22,7 +22,10 @@ func snapshotData(t *testing.T) *App {
 	a.previewImage = -1
 	// The pictures must not depend on the preference file another test left
 	// behind; each snapshot test overrides the theme it wants.
-	a.prefs.Theme = "light"
+	// Start from a known preference set: New() reads ~/.pitta/ui.json, and
+	// another test's pins, order or recents would otherwise leak in here.
+	a.prefs = prefs{Theme: "light"}
+	a.railCursor = 0
 	a.conn = ConnOpen
 	a.current = 11
 	a.surfaces = []protocol.Surface{
@@ -74,7 +77,9 @@ func snapshotData(t *testing.T) *App {
 func TestSnapshotMainWindow(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		a := snapshotData(t)
-		a.prefs.Theme = "light"
+		// Start from a known preference set: New() reads ~/.pitta/ui.json, and
+		// another test's pins, order or recents would otherwise leak in here.
+		a.prefs = prefs{Theme: "light"}
 		if dark {
 			a.prefs.Theme = "dark"
 		}
@@ -222,7 +227,10 @@ func TestSnapshotChatMenu(t *testing.T) {
 	a.previewImage = -1
 	// The pictures must not depend on the preference file another test left
 	// behind; each snapshot test overrides the theme it wants.
-	a.prefs.Theme = "light"
+	// Start from a known preference set: New() reads ~/.pitta/ui.json, and
+	// another test's pins, order or recents would otherwise leak in here.
+	a.prefs = prefs{Theme: "light"}
+	a.railCursor = 0
 	a.current = 7
 	a.surfaces = []protocol.Surface{{ConversationID: 7, SurfaceID: "s7", Title: "想摸鱼"}}
 	a.menu.open = true
@@ -343,7 +351,9 @@ func TestSnapshotTurn(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		// Pin the preference: the picture must not depend on the preference
 		// file another test happened to leave behind.
-		a.prefs.Theme = "light"
+		// Start from a known preference set: New() reads ~/.pitta/ui.json, and
+		// another test's pins, order or recents would otherwise leak in here.
+		a.prefs = prefs{Theme: "light"}
 		if dark {
 			a.prefs.Theme = "dark"
 		}

@@ -34,13 +34,16 @@ func frame(t *testing.T, w, h int, view func(c *ui.Context)) *ui.Tester {
 // the pixels.
 func savePNG(t *testing.T, tt *ui.Tester, name string) {
 	t.Helper()
+	// The picture is for a look at the panel; a full disk must not fail it.
 	f, err := os.Create(name)
 	if err != nil {
-		t.Fatalf("create %s: %v", name, err)
+		t.Logf("screenshot %s: %v", name, err)
+		return
 	}
 	defer f.Close()
 	if err := png.Encode(f, tt.Image()); err != nil {
-		t.Fatalf("encode %s: %v", name, err)
+		t.Logf("screenshot %s: %v", name, err)
+		return
 	}
 	t.Logf("wrote %s", name)
 }

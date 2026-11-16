@@ -56,16 +56,19 @@ func testFile() *protocol.FilePayload {
 	return &protocol.FilePayload{Path: "main.go", Content: b.String(), Lines: 200, Size: 4096}
 }
 
-// savePNG writes the frame to /tmp/pitta-side.png for a look at the panel.
+// savePNG writes the frame to /tmp/pitta-side.png for a look at the panel. A
+// full disk must not fail the test: the picture is a convenience, the
+// assertions are the point.
 func savePNG(t *testing.T, tt *ui.Tester) {
 	t.Helper()
 	f, err := os.Create("/tmp/pitta-side.png")
 	if err != nil {
-		t.Fatalf("screenshot: %v", err)
+		t.Logf("screenshot: %v", err)
+		return
 	}
 	defer f.Close()
 	if err := png.Encode(f, tt.Image()); err != nil {
-		t.Fatalf("screenshot: %v", err)
+		t.Logf("screenshot: %v", err)
 	}
 }
 

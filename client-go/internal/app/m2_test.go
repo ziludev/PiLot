@@ -18,6 +18,8 @@ import (
 func TestThemeToggleCyclesThreeStates(t *testing.T) {
 	i18n.Set(i18n.EN)
 	a := New(Config{})
+	// The cycle has a defined start; a theme another test wrote must not move it.
+	a.prefs.Theme = ""
 	seen := []string{}
 	for i := 0; i < 4; i++ {
 		a.toggleTheme()
