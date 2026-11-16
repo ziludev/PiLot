@@ -50,3 +50,27 @@ func broadcastSurfaces(from *App, surfaces []protocol.Surface) {
 		})
 	}
 }
+
+// broadcastApprovals hands a freshly polled approval list to the other
+// windows. Two windows polling five seconds apart would otherwise disagree
+// about what waits for the user, and the one that resolved an approval would
+// keep showing it while the other had already dropped it.
+func broadcastApprovals(from *App, approvals []protocol.PendingApproval) {
+	surfaceHub.Lock()
+	listeners := make([]*App, 0, len(surfaceHub.subs))
+	for other := range surfaceHub.subs {
+		if other != from {
+			listeners = append(listeners, other)
+		}
+	}
+	surfaceHub.Unlock()
+	for _, other := range listeners {
+		other := other
+		other.post(func() {
+			other.approvals = approvals
+			other.syncBadge()
+			other.syncTitle()
+			other.invalidate()
+		})
+	}
+}

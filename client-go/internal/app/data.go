@@ -99,6 +99,7 @@ func (a *App) loadApprovals(ctx context.Context) error {
 		a.invalidate()
 	})
 	a.publishTray()
+	broadcastApprovals(a, approvals)
 	return nil
 }
 

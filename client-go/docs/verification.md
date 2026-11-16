@@ -149,3 +149,7 @@ $ go test ./internal/i18n -run TestEveryLiteralKeyExists -v
 真窗口这一轮拍不到（显示器休眠，`CGWindowList` 里窗口 `onscreen=false`），时间轴与图片缩放的证据改用仓库内的快照：`docs/snapshots/turn-{light,dark}.png`（`TestSnapshotTurn`，`PITTA_SNAPSHOT_DIR=../../docs/snapshots`）。
 | `TestSurfacesReachTheOtherWindows` | 一个窗口载入的会话列表同步到另一个窗口，且不覆盖自己 |
 | `TestTitleCarriesTheApprovalWait` | 标题的等待秒数与未读计数 |
+| `TestPrefsCarryTheWindowFrame` | 窗口位置/尺寸随 `ui.json` 往返 |
+| `TestQuitAsksWhileATurnRuns` | 有回合时 ⌘Q 先问，确认后退出一次 |
+| `TestQuitLeavesWhenIdle` | 空闲 ⌘Q 直接退出、不弹窗 |
+| `TestApprovalsReachTheOtherWindows` | 审批列表同步到另一个窗口 |

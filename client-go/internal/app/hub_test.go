@@ -46,3 +46,24 @@ func TestTitleCarriesTheApprovalWait(t *testing.T) {
 		t.Fatalf("unread count %d, want 2", got)
 	}
 }
+
+// TestApprovalsReachTheOtherWindows checks a resolved approval disappears from
+// both windows at once instead of lingering until the other window's own poll.
+func TestApprovalsReachTheOtherWindows(t *testing.T) {
+	one, two := snapshotData(t), snapshotData(t)
+	one.previewImage, two.previewImage = -1, -1
+	subscribeSurfaces(one)
+	subscribeSurfaces(two)
+	t.Cleanup(func() { unsubscribeSurfaces(one); unsubscribeSurfaces(two) })
+
+	two.approvals = []protocol.PendingApproval{{CallID: "call_1", Tool: "bash"}}
+	broadcastApprovals(one, nil)
+	if len(two.approvals) != 0 {
+		t.Fatalf("the other window still shows %d approvals", len(two.approvals))
+	}
+	left := []protocol.PendingApproval{{CallID: "call_2", Tool: "edit"}}
+	broadcastApprovals(one, left)
+	if len(two.approvals) != 1 || two.approvals[0].CallID != "call_2" {
+		t.Fatalf("the other window shows %+v", two.approvals)
+	}
+}

@@ -71,6 +71,7 @@ func main() {
 			return os.WriteFile(path, data, 0o644)
 		})
 		app.SetPicker(mygo.Dialog.Open)
+		app.SetQuit(mygo.App.Quit)
 		// An approval is the one thing that must reach the user while the
 		// window is behind others: the system alert plus a Dock bounce, which
 		// stops as soon as the wait is over.
