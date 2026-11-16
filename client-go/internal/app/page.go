@@ -1,8 +1,14 @@
 package app
 
+import (
+	"time"
+
+	"github.com/egoist/mygo/ui"
+)
+
 // scrollPage moves the transcript by most of a screen, which is how a long chat
-// is read. Turns are not virtualized, so their offsets are only exact for the
-// ones drawn, and a page is the measurement that always holds.
+// is read: a page is the measurement that always holds, since turns are only
+// measured once they are drawn.
 func (a *App) scrollPage(direction int) {
 	page := a.scrollViewH * 0.85
 	if page <= 0 {
@@ -21,11 +27,10 @@ func (a *App) scrollPage(direction int) {
 	if a.scrollMaxY > 0 && target > a.scrollMaxY {
 		target = a.scrollMaxY
 	}
-	// Paging back stops the transcript from following new answers.
+	// Paging back stops the transcript from following new answers, and the
+	// glide is why followScroll must stand aside until it lands.
 	a.stickToBottom = false
 	a.atBottom = false
-	// The offset moves directly rather than gliding: followScroll runs on the
-	// next frame and would read an unchanged Y as "still at the bottom" and
-	// snap back.
-	a.transcriptScroll.Y = target
+	a.pageGliding = true
+	a.transcriptScroll.ScrollTo(0, target, ui.Animation{Duration: 180 * time.Millisecond, Ease: ui.EaseOut})
 }

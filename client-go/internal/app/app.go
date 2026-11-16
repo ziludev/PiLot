@@ -140,6 +140,7 @@ type App struct {
 	mainPane         float32
 	transcriptScroll ui.ScrollState
 	scrollViewH      float32
+	pageGliding      bool
 	atBottom         bool
 	stickToBottom    bool
 	scrollY          float32
@@ -774,6 +775,14 @@ func (a *App) View(c *ui.Context) {
 	})
 	c.OnWindowShortcut(ui.Cmd, ui.KeyUp, func() { a.scrollPage(-1) })
 	c.OnWindowShortcut(ui.Cmd, ui.KeyDown, func() { a.scrollPage(1) })
+	for i, key := range quickKeys {
+		i, key := i, key
+		c.OnWindowShortcut(ui.Cmd, key, func() {
+			if id := a.chatForQuickKey(i); id != 0 {
+				a.apply(func() { a.selectConversation(id) })
+			}
+		})
+	}
 	c.OnWindowShortcut(ui.Cmd, ui.KeySlash, func() {
 		a.apply(func() { a.shortcutsOpen = true; a.invalidate() })
 	})
