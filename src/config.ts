@@ -148,6 +148,8 @@ export const config = {
     modelPath: process.env.AGENT_ASR_MODEL_PATH ?? "",
     language: process.env.AGENT_ASR_LANG ?? "zh",
   },
+  /** One message a day for `/digest`; "off" keeps the task terminal and silent. */
+  digestAt: process.env.AGENT_DIGEST_AT ?? "08:30",
   magpie: {
     baseUrl: process.env.MAGPIE_BASE_URL ?? "http://127.0.0.1:3425/v1",
     apiKey: process.env.MAGPIE_API_KEY ?? "magpie",

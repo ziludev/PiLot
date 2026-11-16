@@ -25,7 +25,8 @@ A personal assistant that runs on [Pi Durable](https://earendil.com/posts/pi-dur
 | Input | Text, images (Feishu image/post messages, pasted screenshots), voice (local whisper). |
 | Interrupt | `/stop` or the client's stop button. Background tasks keep running. |
 | Notifications | A Feishu card answer is an *update*, and Feishu does not notify on updates. So a turn longer than 45 s also sends one short message (`✅ done · 53s` plus the first line), in the same topic. `FEISHU_DONE_PING_SECONDS` tunes it, `0` turns it off. |
-| Catch up | `/ketchup` (or `/进度`) answers "what happened?" without scrolling: runs in flight, tasks queued behind them, every approval still waiting on you with how long it has waited, and the last few audit rows. Owner only, because the approval lines name your own tool calls. |
+| Morning digest | Once a day at `AGENT_DIGEST_AT` the owner gets one message covering the last 12 hours: how many turns ran and how many declared the goal met, every turn that fell short with the reason it gave, approvals, and the audit tail. A quiet night sends nothing. `/digest` (or `/早报`) asks for it on demand. |
+| Catch up | `/ketchup` (或 `/进度`) answers "what happened?" without scrolling: runs in flight, tasks queued behind them, every approval still waiting on you with how long it has waited, and the last few audit rows. Owner only, because the approval lines name your own tool calls. |
 
 ### The card says how it ended
 
@@ -119,6 +120,7 @@ Everything lives in `.env`; `.env.example` explains every key.
 | `FEISHU_ALLOWED_CHAT_IDS` | chats pinned to `owner` level (empty: every chat starts `closed`) |
 | `AGENT_OWNER_NAME` | the name the prompt uses for the owner; wording only, never a permission |
 | `FEISHU_DONE_PING_SECONDS` | extra completion message for turns longer than this; `0` off |
+| `AGENT_DIGEST_AT` | when the overnight digest arrives (`08:30`, Asia/Shanghai); `off` disables it |
 | `AGENT_PROVIDER`, `AGENT_MODEL`, `AGENT_THINKING` | default provider, model and thinking level |
 | `MAGPIE_BASE_URL`, `MAGPIE_API_KEY` | when `AGENT_PROVIDER=magpie`: a local OpenAI-compatible proxy |
 | `AGENT_WORKSPACE`, `AGENT_DB` | the directory tools may touch, and the SQLite file |

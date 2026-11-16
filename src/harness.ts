@@ -33,6 +33,7 @@ import { skillsExtension } from "./skills.ts";
 import { subagentExtension } from "./subagents.ts";
 import { projectExtension } from "./project-tools.ts";
 import { doneExtension } from "./done.ts";
+import { DailyDigest } from "./digest.ts";
 import { UsageSampler, UsageDays, sampleUsage, usageCalendar } from "./usage-days.ts";
 import { applySuggestions, curateMemory } from "./curator.ts";
 import { connectMcp, type McpRuntime } from "./mcp.ts";
@@ -203,6 +204,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   registry.install(projectExtension);
   registry.install(doneExtension);
   registry.install(defineExtension({ name: "usage-sampler", tasks: [UsageSampler] }));
+  registry.install(defineExtension({ name: "digest", tasks: [DailyDigest] }));
   if (mcp.extension !== undefined) registry.install(mcp.extension);
 
   // Spans into their own file: `durable trace` reads it read-only while the agent runs.
@@ -266,6 +268,15 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
       return undefined;
     }, context);
     log("usage", "sampler started");
+  }
+
+  // One digest, alive for the life of the storage: it sleeps until AGENT_DIGEST_AT on its own.
+  if (!inspection.tasks.some((task) => task.record.kind === "app.digest")) {
+    await root.commit(async (tx) => {
+      await tx.createTask(DailyDigest, null, { ownership: { kind: "conversation" }, background: true });
+      return undefined;
+    }, context);
+    log("digest", "morning digest scheduled", { at: config.digestAt });
   }
 
   const storedDefault = await harness.snapshot(DefaultModel, context).catch(() => undefined);
