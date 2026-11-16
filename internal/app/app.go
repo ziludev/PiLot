@@ -586,6 +586,13 @@ func (a *App) View(c *ui.Context) {
 	a.applyThemeChoice(c)
 	t := theme.Current(c)
 	theme.Apply(c, t)
+	// ConvSearch.tsx:16 binds meta/ctrl+F window-wide; OnWindowShortcut fires
+	// with no element focused, which is the same reach.
+	// ui.Cmd is Cmd on darwin and Ctrl elsewhere; a combined Super|Ctrl mask
+	// matches neither, since modifiers are matched exactly.
+	c.OnWindowShortcut(ui.Cmd, ui.KeyF, func() {
+		a.apply(func() { a.findOpen = true; a.invalidate() })
+	})
 	ui.Split(c, &a.railWidth, func() { a.rail(c) }, func() { a.pane(c) }).Fill()
 	a.chatMenuDialog(c, t)
 	a.taskDialog(c)

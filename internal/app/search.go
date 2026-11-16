@@ -82,7 +82,8 @@ func (a *App) focusedTurn() int {
 // buttons, shown in the header while the conversation is open.
 func (a *App) findBar(c *ui.Context, t theme.Tokens) {
 	ui.Row(c).Gap(4).Children(func() {
-		ui.TextInput(c, &a.convQuery).FontSize(11).Width(180).Placeholder(i18n.T("findShort")).
+		ui.TextInput(c, &a.convQuery).FontSize(11).Width(180).Label(i18n.T("findShort")).
+			Placeholder(i18n.T("findShort")).
 			OnChange(func() {
 				a.apply(func() {
 					a.convMatches = a.searchTurns()

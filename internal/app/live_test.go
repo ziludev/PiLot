@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-
-	"pitta/internal/bridge"
 )
 
 // TestLiveBridgeWindow renders the shell against the agent that runs on this
@@ -21,7 +19,7 @@ func TestLiveBridgeWindow(t *testing.T) {
 	if os.Getenv("PITTA_LIVE") != "1" {
 		t.Skip("set PITTA_LIVE=1 to render against the running agent")
 	}
-	cfg := Config{BaseURL: bridge.BaseURL(), Token: bridge.Token(), Home: bridge.Home()}
+	cfg := liveConfig()
 	a := New(cfg)
 	a.init()
 	if len(a.surfaces) == 0 {
@@ -79,7 +77,7 @@ func TestLiveSidePanels(t *testing.T) {
 	if os.Getenv("PITTA_LIVE") != "1" {
 		t.Skip("set PITTA_LIVE=1 to render against the running agent")
 	}
-	cfg := Config{BaseURL: bridge.BaseURL(), Token: bridge.Token(), Home: bridge.Home()}
+	cfg := liveConfig()
 	a := New(cfg)
 	a.init()
 	a.selectConversation(liveConversation(t, a))

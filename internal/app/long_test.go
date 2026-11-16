@@ -9,7 +9,6 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 
-	"pitta/internal/bridge"
 	"pitta/internal/diff"
 	"pitta/internal/protocol"
 	"pitta/internal/turns"
@@ -23,7 +22,7 @@ func TestLiveLongConversation(t *testing.T) {
 	if os.Getenv("PITTA_LIVE") == "" {
 		t.Skip("set PITTA_LIVE=1 to read the real bridge")
 	}
-	a := New(Config{BaseURL: bridge.BaseURL(), Token: bridge.Token(), Home: bridge.Home()})
+	a := New(liveConfig())
 	a.previewImage = -1
 	a.init()
 	conversationID := longestConversation(t, a)
@@ -155,7 +154,7 @@ func TestLivePatchRender(t *testing.T) {
 	if os.Getenv("PITTA_LIVE") == "" {
 		t.Skip("set PITTA_LIVE=1 to read the real bridge")
 	}
-	a := New(Config{BaseURL: bridge.BaseURL(), Token: bridge.Token(), Home: bridge.Home()})
+	a := New(liveConfig())
 	a.previewImage = -1
 	a.init()
 	conversationID, _, _ := patchiestConversation(t, a)
@@ -203,7 +202,7 @@ func TestLiveStreamingFrames(t *testing.T) {
 	if os.Getenv("PITTA_E2E") == "" {
 		t.Skip("set PITTA_E2E=1 to spend a real model call")
 	}
-	a := New(Config{BaseURL: bridge.BaseURL(), Token: bridge.Token(), Home: bridge.Home()})
+	a := New(liveConfig())
 	a.previewImage = -1
 	a.init()
 	conversationID, surfaceID, err := a.api.NewConversation(context.Background(), a.project)
@@ -271,7 +270,7 @@ func TestLiveMarkdownRender(t *testing.T) {
 	if os.Getenv("PITTA_LIVE") == "" {
 		t.Skip("set PITTA_LIVE=1 to read the real bridge")
 	}
-	a := New(Config{BaseURL: bridge.BaseURL(), Token: bridge.Token(), Home: bridge.Home()})
+	a := New(liveConfig())
 	a.previewImage = -1
 	a.init()
 	loadEntries(t, a, longestConversation(t, a))

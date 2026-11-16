@@ -1,10 +1,10 @@
 # 功能对齐表（React 客户端 → Go/mygo）
 
 基线：`/Users/alexwang/learn/pi-durable-agent/client/src`（React 19 + shadcn + zustand）。
-本仓：`/Users/alexwang/work/pitta-mygo`（Go + mygo/ui v0.6.4，原生 GPU 渲染）。
+本仓：`/Users/alexwang/work/pitta-mygo`（Go + mygo/ui v0.9.1，原生 GPU 渲染；版本选择与降级实验见 `docs/mygo-version.md`）。
 状态用词：`TODO` 未开始 / `WIP` 进行中 / `done` 已对齐 / `diff` 已实现但与 React 有差异 / `n/a` 不复刻（并说明原因）。
 
-## 1. store.ts 状态域
+## 1. store.ts 状态域（State 的 49 个字段归并成下面 26 行）
 
 | 状态域 | React 行为 | Go 实现 | 状态 |
 | --- | --- | --- | --- |
@@ -35,7 +35,7 @@
 | `composerDraft` | 「编辑重发」推入输入框 | `App.draft` | done |
 | `surfaceFilter` | all/client/feishu 过滤 | `App.prefs.SurfaceFilter` | done |
 
-## 2. 组件（`client/src/components`，24 个）
+## 2. 组件（`client/src/components` 下 24 个 `.tsx`，另有 shadcn 的 `ui/` 目录）
 
 | 组件 | 职责 | Go 落点 | 状态 |
 | --- | --- | --- | --- |
@@ -66,14 +66,14 @@
 
 `client/src/components/ui`（17 个 shadcn 原语）不复刻：mygo `ui` 包自带 Button/Select/Popover/Modal/Tabs/Segmented/Tooltip 等，外观由 `internal/theme` 的 shadcn token 决定。
 
-## 3. lib 模块（`client/src/lib`，8 个）
+## 3. lib 模块（`client/src/lib`，8 个文件）
 
 | 模块 | 职责 | Go 落点 | 状态 |
 | --- | --- | --- | --- |
 | `api.ts` | HTTP 客户端与端点 | `internal/api`（client.go + watch.go） | done |
 | `turns.ts` | 回合切分、统计、阶段 | `internal/turns`（turns.go + text.go） | done |
 | `turn-state.ts` | 单回合 live 阶段 | `turns.State`/`Status` | done |
-| `diff.tsx` | patch 解析与渲染 | `internal/diff`（parse.go + render.go） | done |
+| `diff.tsx` | patch 解析与渲染 | `internal/diff`（diff.go 解析 + render.go 渲染） | done |
 | `markdown.tsx` | Markdown 渲染 | `ui/markdown`（mygo 自带，View/Stream） | done |
 | `i18n.ts` | 中英文案 | `internal/i18n`（183 键逐字抽取） | done |
 | `motion.ts` | 入场/脉冲动画 | 未实现：mygo 帧循环无过渡 API | n/a |
@@ -84,7 +84,7 @@
 1. **无 localStorage**：偏好存 `~/.pitta/ui.json`（原子写），字段与 localStorage 键一一对应。
 2. **无 Tailwind/Radix**：外观由 `internal/theme` 的 shadcn zinc 换算值驱动，每帧写入 `ui.Theme`；`Radius=10`（0.625rem）。
 3. **无 motion**：mygo 帧循环没有过渡/动画原语，入场与脉冲省略。
-4. **会话内搜索是「回合跳转」**：React 高亮命中的 entry 并滚动定位；这里按回合过滤、给命中回合加主色外框，不滚动（滚动定位需要行高缓存，未做）。
+4. **会话内搜索是「回合跳转」**：⌘F 打开查找条（`internal/app/search.go`，与 React `ConvSearch.tsx:16` 同一手势；mygo 的 `OnWindowShortcut` 修饰键按完全匹配，故注册 `ui.Cmd`），但定位方式是给命中回合加主色外框并把窗口移到该回合，不滚动、不逐 entry 高亮。
 5. **TurnRail/TurnDurations 是简化版**：色点没有竖连线，耗时分段条没有逐段图例。
 6. **ModelPicker 是弹层而非命令面板**：留在 composer 上方弹出，搜索/收藏/最近/思考档齐备，没有键盘方向键导航。
 7. **AccessPanel** 用 All/Group/Owner/Closed 过滤代替 React 的分组表头，审计固定 40 条（与 React `limit=40` 一致）。
@@ -103,7 +103,7 @@
 | push 试运行 | `POST /api/git/push`（dryRun） | ok：`status="no-remote"`（该 worktree 无 remote，未推送） |
 | 提交 | `POST /api/commit` | 只在假桥测试（`internal/app/sidepanel_test.go`）：会改用户 worktree，不在真实仓库执行 |
 | 合并 | `POST /api/merge` | 同上：会改 worktree |
-| 审批决策 | `POST /api/approvals` | 同上：会放行/拒绝真实运行中的工具调用 |
+| 审批决策（拒绝） | `GET` + `POST /api/approvals` | ok：新建会话要求 agent 执行 `sudo -n true`（guard 的 sudo 规则会挂起），客户端读到 `callId=call_00_Bv3PY4…`、`tool=bash`、`reason="提权执行：sudo -n true"`，再经 `api.DecideApproval{Approved:false}` 拒绝，`{ok:true}`，随后审批列表归零。复现：`PITTA_APPROVAL=1 go test ./internal/app -run TestLiveApprovalDecision -v`（拒绝，命令不会执行） |
 
 `POST /api/surface-meta` 必须带 `surfaceId` 或可解析的 `conversationId`：老会话的 surface 可能已不存在，此时带 `conversationId` 会得到 400 `surfaceId or conversationId required`，故 `App.apiSurfaceMeta` 会顺带填 `surfaceId`。
 
@@ -129,3 +129,22 @@
 - 全选 + Backspace 清空；`Shift+←` 选中后输入替换选中内容（`fresX`）。
 - 中文 IME：`tt.Compose("nihao", 5)` 预编辑不进草稿、预编辑期间 Enter 既不发送也不换行；提交后草稿为 `你好`；`Cmd+Enter` 发出 `你好`。
 - 手工确认（真窗口）：拼音输入候选框跟随光标，英文 Geist + 中文系统回退字体混排正常，`/tmp/pitta-fonts.png`。
+
+### 7.1 打包应用的真窗口记录
+
+`~/Applications/Pitta.app`（`go tool mygo build -skip-dmg`，12.8MB）启动后连真实后端，截图确认：
+
+| 项目 | 证据 |
+| --- | --- |
+| 中文排版与字体回退 | 真实回答「命令被系统拦下了，我没有执行。拦截原因写的是「未获批准（提权执行）」」在回答气泡里按 Geist + 系统 CJK 回退渲染，无豆腐块、无截断（`/tmp/pitta-manual/05-back.png`） |
+| Markdown 渲染 | 同一窗口内多段中文回答、行内代码与列表正常（同上截图） |
+| 流式 | 同一会话由真实模型逐段产出，耗时条显示 `1 tool · $0.00 · 3.0s`（`internal/app/live_test.go` 也断言过 `streamed=true`） |
+| 审批拒绝在客户端可见 | 拒绝响应后，回答里出现「未获批准（提权执行）」，后端日志 `[approval] resolved {approved:false, by:"client"}` + `[guard] bash denied`（`internal/app/approval_live_test.go`） |
+
+**尚未取得手工记录、仅有 tester 级证据的三项**（合成事件到不了该窗口：`AXIsProcessTrusted`/`CGPreflightPostEventAccess` 均为 true、鼠标移动事件生效，但点击 rail 行或 Search 图标、`keyboardSetUnicodeString` 打字都不引起 UI 变化；`internal/app/input_test.go` 覆盖同样的逻辑）：
+
+- Shift+Enter 在真窗口里换行（测试 `TestEnterKeepsNewline`）
+- Shift+← 选区后输入替换（测试 `TestSelectAllAndBackspaceClears`）
+- Cmd+V 粘贴系统剪贴板（测试 `TestPasteInsertsClipboardText`）
+
+这三项需要人工在窗口里点一次确认；同一原因也说明「真实窗口是否响应鼠标点击」本身还没被验证。

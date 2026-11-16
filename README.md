@@ -1,6 +1,6 @@
 # Pitta（Go + mygo）
 
-pi-durable-agent 的桌面客户端，用 Go 和 [mygo](https://github.com/egoist/mygo) 的 `ui` 包原生渲染（GPU，Metal），不走 webview。
+pi-durable-agent 的桌面客户端，用 Go 和 [mygo](https://github.com/egoist/mygo) 的 `ui` 包原生渲染（GPU，Metal），不走 webview。渲染基于 `github.com/egoist/mygo` **v0.9.1**（`go.mod:5`；为什么不是 0.6.4 见 `docs/mygo-version.md`）。
 功能对齐基线是同一后端的 React 客户端（`pi-durable-agent/client/src`），逐条对照见 [docs/parity.md](docs/parity.md)。
 
 ## 构建与运行

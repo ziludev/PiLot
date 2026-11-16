@@ -80,11 +80,13 @@ func (a *App) approvalBar(c *ui.Context, t theme.Tokens) {
 }
 
 // waitedSuffix words how long the call has been blocked.
+// waitedSuffix says how long a call has been parked. createdAt is epoch
+// milliseconds, as src/approvals.ts stamps it with Date.now().
 func waitedSuffix(createdAt int64) string {
 	if createdAt <= 0 {
 		return ""
 	}
-	seconds := time.Now().Unix() - createdAt
+	seconds := (time.Now().UnixMilli() - createdAt) / 1000
 	if seconds < 0 {
 		seconds = 0
 	}

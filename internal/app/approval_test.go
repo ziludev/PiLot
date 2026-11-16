@@ -53,7 +53,7 @@ func TestApprovalBarDecidesTheCall(t *testing.T) {
 		Tool:      "bash",
 		Summary:   "git push origin main",
 		Reason:    "pushes to a remote",
-		CreatedAt: time.Now().Add(-3 * time.Second).Unix(),
+		CreatedAt: time.Now().Add(-3 * time.Second).UnixMilli(),
 	}}
 
 	tt := ui.NewTester(a.composer, 800, 200)

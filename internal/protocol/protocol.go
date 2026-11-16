@@ -156,7 +156,9 @@ type PendingApproval struct {
 	Summary   string `json:"summary"`
 	Reason    string `json:"reason"`
 	SurfaceID string `json:"surfaceId"`
-	CreatedAt int64  `json:"createdAt"`
+	// CreatedAt is epoch milliseconds: src/approvals.ts stamps it with
+	// Date.now(), not seconds.
+	CreatedAt int64 `json:"createdAt"`
 }
 
 // Note is one memory line.

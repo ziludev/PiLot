@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"pitta/internal/bridge"
 	"pitta/internal/protocol"
 	"pitta/internal/turns"
 )
@@ -19,7 +18,7 @@ func TestLiveTurnAgainstTheBridge(t *testing.T) {
 		t.Skip("set PITTA_E2E=1 to spend a real model call")
 	}
 
-	cfg := Config{BaseURL: bridge.BaseURL(), Token: bridge.Token(), Home: bridge.Home()}
+	cfg := liveConfig()
 	a := New(cfg)
 	a.init()
 	if len(a.surfaces) == 0 {

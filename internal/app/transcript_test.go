@@ -7,6 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"pitta/internal/i18n"
 	"pitta/internal/protocol"
 	"pitta/internal/theme"
 )
@@ -212,5 +213,32 @@ func TestFindBarJumpsToAnOldTurn(t *testing.T) {
 	tt.Frame()
 	if !tt.HasText("the needle sits here") {
 		t.Fatal("match lost after widening the window")
+	}
+}
+
+// TestCmdFOpensFindBar covers the window-wide shortcut ConvSearch.tsx binds:
+// the root's OnShortcut has to fire even with nothing focused.
+func TestCmdFOpensFindBar(t *testing.T) {
+	a := New(Config{})
+	a.previewImage = -1
+	a.entries = turnEntries(1, "where is it", "the answer")
+	tt := ui.NewTester(a.View, 1000, 700)
+	tt.Frame()
+	if a.findOpen {
+		t.Fatal("find bar open before the shortcut")
+	}
+	tt.Key(ui.Cmd, ui.KeyF)
+	tt.Frame()
+	if !a.findOpen {
+		t.Fatal("cmd+F did not open the find bar")
+	}
+	// Typing goes into the bar's field and reports the match it found.
+	if err := tt.Click(i18n.T("findShort")); err != nil {
+		t.Fatal(err)
+	}
+	tt.Type("answer")
+	tt.Frame()
+	if !tt.HasText("1/1") {
+		t.Fatalf("find bar did not count the match in %v", tt.Texts())
 	}
 }

@@ -13,7 +13,7 @@ const Title = "Agent · 回答完成"
 // Answer posts a macOS notification with the answer's opening words, the way
 // the client notifies its owner when the window is in the background.
 //
-// mygo v0.6.4 has no notification API of its own, so this asks osascript; a
+// mygo v0.9.1 has no notification API of its own, so this asks osascript; a
 // failure is logged and never blocks the UI, since a missing notification must
 // not cost the reader the answer itself.
 func Answer(text string) {
