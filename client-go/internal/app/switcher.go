@@ -18,18 +18,25 @@ import (
 // i18n key because the shared dictionary holds exactly what i18n.ts holds.
 const switcherHint = "Jump to a chat…"
 
+// paletteHint is what the field says once ">" turns it into a command list.
+const paletteHint = "Run a command…  (⌫ to search chats)"
+
 // switcher is the Cmd+K jump list: every chat, newest first, narrowed as you
 // type. It exists because a native window can bind a shortcut that the React
 // client only reached through the rail's search field.
 type switcher struct {
 	open  bool
 	query string
+	// at is the row the arrows are on. Filtering resets it, so Enter after
+	// typing runs the first match rather than whatever was highlighted before.
+	at int
 }
 
 // openSwitcher shows the palette with an empty query.
 func (a *App) openSwitcher() {
 	a.switcher.open = true
 	a.switcher.query = ""
+	a.switcher.at = 0
 	a.invalidate()
 }
 
@@ -50,50 +57,105 @@ func (a *App) switcherMatches() []protocol.Surface {
 	return matched
 }
 
-// switcherDialog draws the palette while it is open.
+// switcherDialog draws the palette while it is open: chats by default,
+// commands once the query starts with ">". Arrows move, Enter runs.
 func (a *App) switcherDialog(c *ui.Context, t theme.Tokens) {
 	if !a.switcher.open {
 		return
 	}
-	rows := a.switcherMatches()
-	open := func(row protocol.Surface) {
-		a.selectConversation(row.ConversationID)
+	commands := paletteMode(a.switcher.query)
+	chats := []protocol.Surface(nil)
+	actions := []paletteAction(nil)
+	if commands {
+		actions = a.paletteMatches(a.switcher.query)
+	} else {
+		chats = a.switcherMatches()
+	}
+	total := len(chats)
+	if commands {
+		total = len(actions)
+	}
+	if a.switcher.at >= total {
+		a.switcher.at = total - 1
+	}
+	if a.switcher.at < 0 {
+		a.switcher.at = 0
+	}
+	run := func(index int) {
+		if index < 0 || index >= total {
+			return
+		}
+		// Close first: a command that opens a dialog of its own must not be
+		// asked to draw behind this one.
 		a.apply(func() { a.switcher.open = false })
+		if commands {
+			actions[index].Run()
+			return
+		}
+		a.selectConversation(chats[index].ConversationID)
+	}
+	hint := switcherHint
+	if commands {
+		hint = paletteHint
 	}
 	ui.DialogBase(c, &a.switcher.open, func(backdrop, panel ui.Element) {
 		backdrop.Background(ui.RGBA(0, 0, 0, 0.25))
 		panel.Width(460).Padding(10).Gap(6).Radius(12).Material(panelGlass())
 		panel.Children(func() {
 			ui.TextInput(c, &a.switcher.query).FillWidth().FontSize(12).
-				Placeholder(switcherHint).Label(switcherHint).
-				OnSubmit(func() {
-					if len(rows) > 0 {
-						open(rows[0])
-					}
-				}).
+				Placeholder(hint).Label(hint).
+				OnChange(func() { a.switcher.at = 0 }).
+				OnSubmit(func() { run(a.switcher.at) }).
 				OnTextKey(func(k ui.TextKey) bool {
-					if k.Key != ui.KeyEnter || len(rows) == 0 {
+					switch k.Key {
+					case ui.KeyDown:
+						if a.switcher.at+1 < total {
+							a.switcher.at++
+							a.invalidate()
+							return true
+						}
 						return false
+					case ui.KeyUp:
+						if a.switcher.at > 0 {
+							a.switcher.at--
+							a.invalidate()
+							return true
+						}
+						return false
+					case ui.KeyEnter:
+						run(a.switcher.at)
+						return true
 					}
-					open(rows[0])
-					return true
+					return false
 				})
-			if len(rows) == 0 {
+			if total == 0 {
 				ui.Text(c, i18n.T("noHits")).FontSize(11).TextColor(t.MutedFg).Padding(6, 4)
 				return
 			}
-			shown := rows
-			if len(shown) > 8 {
-				shown = shown[:8]
+			limit := total
+			if limit > 8 {
+				limit = 8
 			}
-			for _, row := range shown {
-				surface := row
-				ui.Row(c).FillWidth().Gap(6).Padding(5, 6).Radius(6).AlignItems(ui.Center).
-					OnClick(func() { open(surface) }).Children(func() {
+			for i := 0; i < limit; i++ {
+				index := i
+				row := ui.Row(c).FillWidth().Gap(6).Padding(5, 6).Radius(6).AlignItems(ui.Center)
+				if index == a.switcher.at {
+					row = row.Background(t.Accent)
+				}
+				row.OnClick(func() { run(index) }).Children(func() {
+					if commands {
+						ui.Icon(c, icons.ChevronRight).Size(10, 10).TextColor(t.MutedFg)
+						ui.Text(c, actions[index].Name).FontSize(12).TextColor(t.Foreground).Grow(1).SingleLine()
+						return
+					}
+					surface := chats[index]
 					switcherIcon(c, t, surface)
 					ui.Text(c, surfaceTitle(surface)).FontSize(12).TextColor(t.Foreground).Grow(1).SingleLine()
 					ui.Text(c, "#"+itoa(surface.ConversationID)).FontSize(10).TextColor(t.MutedFg)
 				})
+			}
+			if total > limit {
+				ui.Text(c, "+"+itoa(total-limit)+" more").FontSize(10).TextColor(t.MutedFg).Padding(4, 6)
 			}
 		})
 	})
