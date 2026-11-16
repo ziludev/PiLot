@@ -83,10 +83,6 @@ type App struct {
 	// only on the UI thread, so a background read of it would race.
 	currentID atomic.Int64
 
-	// postFn replaces the window hand-off in tests, so a test can make an
-	// update land late and prove the code waits where it must.
-	postFn func(func())
-
 	// Layout and widget state: UI thread only, never read from a goroutine.
 	railWidth     float32
 	railListState ui.ListState
@@ -250,14 +246,9 @@ func (a *App) apply(fn func()) {
 	a.post(fn)
 }
 
-// post runs fn on the window's own thread. It is win.Update outside tests; a
-// test replaces it to model an update that runs later, which is what made the
-// startup path read a conversation id that had not been written yet.
+// post runs fn on the window's own thread, without waiting for it. Without a
+// window (tests) it runs inline.
 func (a *App) post(fn func()) {
-	if a.postFn != nil {
-		a.postFn(fn)
-		return
-	}
 	if a.win == nil {
 		fn()
 		return
@@ -265,16 +256,21 @@ func (a *App) post(fn func()) {
 	a.win.Update(fn)
 }
 
-// applyWait runs fn on the main thread and waits for it. Goroutines use it
-// when the next step depends on the state fn writes: win.Update only queues
-// fn, so reading a.current right after apply can see the old value.
+// applyWait runs fn on the main thread and waits for it, running it directly
+// when the caller is the main thread already. Goroutines use it when the next
+// step depends on the state fn writes: win.Update only queues fn, so reading
+// a.current right after apply can see the old value.
+//
+// It must not queue and then wait on a channel: click and shortcut handlers
+// run on the main thread, and waiting there for the main loop itself deadlocks
+// the window (macOS then says the application is not responding). RunOnMain
+// runs fn directly when it is already the main thread, which is that case.
 func (a *App) applyWait(fn func()) {
-	done := make(chan struct{})
-	a.post(func() {
+	if a.win == nil {
 		fn()
-		close(done)
-	})
-	<-done
+		return
+	}
+	mygo.RunOnMain(fn)
 }
 
 // invalidate asks for one more frame.
