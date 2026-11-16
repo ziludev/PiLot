@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { Copy, Pencil, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
@@ -8,21 +8,20 @@ import { tr } from "@/i18n";
 import type { Entry } from "@/lib/api";
 import { Markdown } from "@/lib/markdown";
 import { StepRail, TurnDivider, partsOf, textOf, useElapsed, duration } from "@/components/TurnRail";
-import { clockOf, entryText, groupTurns } from "@/lib/turns";
+import { clockOf, entryText, groupTurns, type Turn } from "@/lib/turns";
 import { isLive, runningTool, turnState, type TurnState } from "@/lib/turn-state";
 import { Spinner } from "@/components/ui/spinner";
 import { useStore } from "@/store";
 
-
-
-
-
-
+/** Turns rendered before the "load earlier" button appears. Streaming only ever touches the
+ * last turn; rendering a thousand settled ones buys nothing and costs a scroll frame. */
+const TURN_WINDOW = 60;
 
 /** Copy / resend / edit on hover. Regenerating in place is not possible: resending the
  * same input is the honest equivalent, and it keeps the transcript truthful. */
 function MessageActions({ text, onRetry }: { text: string; onRetry?: () => void }) {
-  const { lang, setComposerDraft, submit } = useStore();
+  const lang = useStore((state) => state.lang);
+  const setComposerDraft = useStore((state) => state.setComposerDraft);
   const copy = (): void => {
     void navigator.clipboard?.writeText(text);
     toast(tr(lang, "copied"));
@@ -49,7 +48,8 @@ function MessageActions({ text, onRetry }: { text: string; onRetry?: () => void 
 }
 
 function UserBubble({ entry, onRetry }: { entry: Entry; onRetry?: () => void }) {
-  const { lang, convQuery } = useStore();
+  const lang = useStore((state) => state.lang);
+  const convQuery = useStore((state) => state.convQuery);
   const parts = partsOf(entry.model);
   const images = parts
     .filter((part) => part["type"] === "image")
@@ -74,7 +74,8 @@ function UserBubble({ entry, onRetry }: { entry: Entry; onRetry?: () => void }) 
 
 function AnswerBubble({ entry, retryText }: { entry: Entry; retryText?: string }) {
   const convQuery = useStore((state) => state.convQuery);
-  const { lang, submit } = useStore();
+  const lang = useStore((state) => state.lang);
+  const submit = useStore((state) => state.submit);
   return (
     <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="group flex max-w-[92%] items-start gap-1">
       <div className="rounded-xl rounded-bl-sm border border-border bg-card/70 px-3 py-2 text-[13px] leading-relaxed">
@@ -95,7 +96,8 @@ function AnswerBubble({ entry, retryText }: { entry: Entry; retryText?: string }
 }
 
 function FeatureReport({ entry }: { entry: Entry }) {
-  const { lang, convQuery } = useStore();
+  const lang = useStore((state) => state.lang);
+  const convQuery = useStore((state) => state.convQuery);
   const payload = (entry.data ?? {}) as { text?: string };
   return (
     <div className="max-w-[92%] rounded-lg border border-border bg-card/60 p-2.5">
@@ -124,7 +126,7 @@ function NoteLine({ entry }: { entry: Entry }) {
 }
 
 function LiveBlock({ state, start }: { state: TurnState; start?: number }) {
-  const { lang } = useStore();
+  const lang = useStore((state) => state.lang);
   // Ticks only while the model is between tool calls, where nothing else moves.
   const spent = useElapsed(state.kind === "thinking" ? start : undefined);
   const elapsedText = spent === undefined || spent < 1_000 ? null : (
@@ -153,17 +155,88 @@ function LiveBlock({ state, start }: { state: TurnState; start?: number }) {
   );
 }
 
+/**
+ * A settled turn. Memoized on the turn object: `useStableTurns` hands back the same reference
+ * while the content is unchanged, so streaming a token into the last turn does not re-render
+ * the two hundred above it.
+ */
+const TurnRow = memo(function TurnRow({ turn, live }: { turn: Turn; live: boolean }) {
+  const submit = useStore((state) => state.submit);
+  const userText = turn.user === undefined ? undefined : textOf(partsOf(turn.user.model));
+  return (
+    <div className="flex flex-col gap-1.5" data-entry={turn.anchor.id}>
+      {turn.user === undefined ? null : (
+        <UserBubble entry={turn.user} onRetry={() => void submit(textOf(partsOf(turn.user!.model)), "followUp")} />
+      )}
+      {turn.reports.map((entry) => (
+        <FeatureReport key={entry.id} entry={entry} />
+      ))}
+      <StepRail steps={turn.steps} stats={turn.stats} live={live} />
+      {turn.finals.map((entry) => (
+        <div key={entry.id} data-entry={entry.id}>
+          <AnswerBubble entry={entry} retryText={userText} />
+        </div>
+      ))}
+      {turn.notes.map((entry) => (
+        <NoteLine key={entry.id} entry={entry} />
+      ))}
+      <TurnDivider stats={turn.stats} live={live} />
+    </div>
+  );
+});
+
+/** Content fingerprint: same id list, same step count, same end time means the turn is settled
+ * and its previous object can be reused. Only the newest turn ever fails this. */
+function turnSignature(turn: Turn): string {
+  return [
+    turn.id,
+    turn.anchor.id,
+    turn.finals.length,
+    turn.notes.length,
+    turn.reports.length,
+    turn.steps.length,
+    turn.stats.end ?? 0,
+    turn.stats.ms ?? 0,
+  ].join("|");
+}
+
+function useStableTurns(turns: Turn[]): Turn[] {
+  const cache = useRef(new Map<number, { sig: string; turn: Turn }>());
+  return useMemo(() => {
+    const next = new Map<number, { sig: string; turn: Turn }>();
+    const out = turns.map((turn) => {
+      const sig = turnSignature(turn);
+      const hit = cache.current.get(turn.id);
+      const value = hit !== undefined && hit.sig === sig ? hit.turn : turn;
+      next.set(turn.id, { sig, turn: value });
+      return value;
+    });
+    cache.current = next;
+    return out;
+  }, [turns]);
+}
+
 export function Transcript() {
-  const { entries, focusEntry, lang, convQuery, setConvMatches, submit, approvalWaits, usage, busy, live } =
-    useStore();
+  const entries = useStore((state) => state.entries);
+  const focusEntry = useStore((state) => state.focusEntry);
+  const lang = useStore((state) => state.lang);
+  const convQuery = useStore((state) => state.convQuery);
+  const setConvMatches = useStore((state) => state.setConvMatches);
+  const submit = useStore((state) => state.submit);
+  const approvalWaits = useStore((state) => state.approvalWaits);
+  const usage = useStore((state) => state.usage);
+  const busy = useStore((state) => state.busy);
+  const live = useStore((state) => state.live);
   const boxRef = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
   const [unseen, setUnseen] = useState(0);
+  const [limit, setLimit] = useState(TURN_WINDOW);
   const lastFocus = useRef<number | undefined>(undefined);
   /** Entry id of the newest answer we already notified about. */
   const notified = useRef<number | undefined>(undefined);
   const seenCount = useRef(0);
-  const turns = useMemo(() => groupTurns(entries, approvalWaits), [entries, approvalWaits]);
+  const grouped = useMemo(() => groupTurns(entries, approvalWaits), [entries, approvalWaits]);
+  const turns = useStableTurns(grouped);
   // The newest turn has no answer yet and the conversation is running: that turn is live, and every
   // line under it must look live instead of settled. One derivation for the whole window.
   const liveTurn = turns[turns.length - 1];
@@ -180,6 +253,20 @@ export function Transcript() {
     () => turns.reduce((sum, turn) => sum + (turn.stats.ms ?? 0), 0),
     [turns],
   );
+
+  // Only the tail is mounted; the button at the top grows the window backwards.
+  const hidden = Math.max(0, turns.length - limit);
+  const shown = hidden > 0 ? turns.slice(hidden) : turns;
+
+  const growWindow = (by: number): void => {
+    const box = boxRef.current;
+    const before = box?.scrollHeight ?? 0;
+    setLimit((value) => value + by);
+    // Keep the reader where they were: content is inserted above the viewport.
+    requestAnimationFrame(() => {
+      if (box !== null && box !== undefined) box.scrollTop += box.scrollHeight - before;
+    });
+  };
 
   // In-conversation search: matches are cheap here, the whole window is in memory.
   useEffect(() => {
@@ -214,6 +301,9 @@ export function Transcript() {
   // ?entry=<id> and search hits: jump every time the target changes, not only once.
   useEffect(() => {
     if (focusEntry === undefined || lastFocus.current === focusEntry) return;
+    // The target may sit below the mounted window: open enough of it before looking.
+    const index = turns.findIndex((turn) => turn.anchor.id === focusEntry || turn.finals.some((f) => f.id === focusEntry));
+    if (index >= 0 && index < hidden) setLimit(turns.length - index + 5);
     const node = boxRef.current?.querySelector<HTMLElement>(`[data-entry="${focusEntry}"]`);
     if (node === undefined || node === null) return;
     lastFocus.current = focusEntry;
@@ -224,7 +314,7 @@ export function Transcript() {
     node.classList.add("ring-1", "ring-primary/40", "rounded-lg");
     const timer = setTimeout(() => node.classList.remove("ring-1", "ring-primary/40", "rounded-lg"), 1500);
     return () => clearTimeout(timer);
-  }, [turns, focusEntry]);
+  }, [turns, focusEntry, hidden]);
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -279,35 +369,16 @@ export function Transcript() {
       className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4"
     >
       <div className="flex flex-col gap-2">
-        {turns.map((turn, index) => (
-          <div key={turn.id} className="flex flex-col gap-1.5" data-entry={turn.anchor.id}>
-            {turn.user !== undefined ? (
-              <UserBubble
-                entry={turn.user}
-                onRetry={() => void submit(textOf(partsOf(turn.user!.model)), "followUp")}
-              />
-            ) : null}
-            {turn.reports.map((entry) => (
-              <FeatureReport key={entry.id} entry={entry} />
-            ))}
-            <StepRail
-              steps={turn.steps}
-              stats={turn.stats}
-              live={running && index === turns.length - 1}
-            />
-            {turn.finals.map((entry) => (
-              <div key={entry.id} data-entry={entry.id}>
-                <AnswerBubble
-                  entry={entry}
-                  retryText={turn.user === undefined ? undefined : textOf(partsOf(turn.user.model))}
-                />
-              </div>
-            ))}
-            {turn.notes.map((entry) => (
-              <NoteLine key={entry.id} entry={entry} />
-            ))}
-            <TurnDivider stats={turn.stats} live={running && index === turns.length - 1} />
-          </div>
+        {hidden > 0 ? (
+          <button
+            onClick={() => growWindow(TURN_WINDOW)}
+            className="mx-auto mb-1 rounded-full border border-border bg-card/60 px-3 py-1 text-[11px] text-muted-foreground hover:text-foreground"
+          >
+            ↑ {hidden} {tr(lang, "earlierTurns")}
+          </button>
+        ) : null}
+        {shown.map((turn, index) => (
+          <TurnRow key={turn.id} turn={turn} live={running && index === shown.length - 1} />
         ))}
         <LiveBlock state={state} start={liveTurn?.stats.start} />
       </div>
@@ -315,3 +386,4 @@ export function Transcript() {
     </div>
   );
 }
+

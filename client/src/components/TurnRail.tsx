@@ -129,7 +129,7 @@ function StepBar({ step, turn }: { step: Step; turn: TurnStats }) {
 }
 
 function StepRow({ step, turn }: { step: Step; turn: TurnStats }) {
-  const { lang } = useStore();
+  const lang = useStore((state) => state.lang);
   const [open, setOpen] = useState(false);
   const parts = partsOf(step.entry.model);
   const thinking = thinkingOf(parts);
@@ -173,7 +173,7 @@ function StepRow({ step, turn }: { step: Step; turn: TurnStats }) {
 
 /** The run's machinery, collapsed to a summary; each step carries its own timing. */
 export function StepRail({ steps, stats, live }: { steps: Step[]; stats: TurnStats; live?: boolean }) {
-  const { lang } = useStore();
+  const lang = useStore((state) => state.lang);
   // ?steps=1 opens every rail (demos and screenshots).
   const [open, setOpen] = useState(new URLSearchParams(location.search).get("steps") === "1");
   if (steps.length === 0) return null;
@@ -254,7 +254,7 @@ function PhaseBar({ phases, live }: { phases: TurnStats["phases"]; live?: boolea
 /** The batch divider: what a finished turn amounted to. While the turn still runs it says so and
  * keeps ticking — the same numbers with no motion read as "stopped" even mid-run. */
 export function TurnDivider({ stats, live }: { stats: TurnStats; live?: boolean }) {
-  const { lang } = useStore();
+  const lang = useStore((state) => state.lang);
   const elapsed = useElapsed(live === true ? stats.start : undefined);
   const ms = live === true && elapsed !== undefined ? elapsed : stats.ms;
   const pieces = [

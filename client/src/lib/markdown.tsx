@@ -1,7 +1,15 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 
-/** Tiny markdown subset: fenced code, inline code, bold, line breaks. React escapes text. */
-export function Markdown({ text, highlight }: { text: string; highlight?: string }): ReactNode {
+/** Tiny markdown subset: fenced code, inline code, bold, line breaks. React escapes text.
+ * Memoized: a streaming turn re-renders its own bubble every token, and every settled bubble
+ * above it must stay untouched. */
+export const Markdown = memo(function Markdown({
+  text,
+  highlight,
+}: {
+  text: string;
+  highlight?: string;
+}): ReactNode {
   const blocks = text.split(/```/);
   return (
     <>
@@ -21,7 +29,7 @@ export function Markdown({ text, highlight }: { text: string; highlight?: string
       })}
     </>
   );
-}
+});
 
 function inline(text: string, highlight?: string): ReactNode[] {
   const nodes: ReactNode[] = [];
