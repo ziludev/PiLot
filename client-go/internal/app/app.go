@@ -147,7 +147,15 @@ type App struct {
 	seenApprovals map[string]bool
 	waitingAlert  bool
 	// quitAsk holds the ⌘Q confirmation open while a turn is still running.
-	quitAsk        bool
+	quitAsk bool
+	// settingsOpen holds the ⌘, panel.
+	settingsOpen bool
+	// ownChat is the chat this window was opened for; 0 for the first window,
+	// which loads whichever chat the reader picks.
+	ownChat int
+	// titleTick counts the title refreshes, which is what makes a long wait
+	// blink.
+	titleTick      int
 	atBottom       bool
 	stickToBottom  bool
 	scrollY        float32
@@ -305,6 +313,7 @@ func NewSecondary(cfg Config, client *api.Client, conversationID int) *App {
 	a := New(cfg)
 	a.api = client
 	a.secondary = true
+	a.ownChat = conversationID
 	a.current = conversationID
 	a.currentID.Store(int64(conversationID))
 	return a
@@ -338,10 +347,23 @@ func (a *App) Attach(win *mygo.Window) {
 		// Where the window was is where it should come back: the last chat,
 		// the divider widths, the filters.
 		a.savePrefsNow()
+		if a.ownChat != 0 {
+			forgetOwnWindow(a.ownChat)
+		}
 		a.cancel()
 		unsubscribeSurfaces(a)
 	})
 	subscribeSurfaces(a)
+	// A window that shows one chat of its own says so, so the rail of the
+	// first window can point at it instead of loading the chat again.
+	if a.ownChat != 0 {
+		chat := a.ownChat
+		win := win
+		noteOwnWindow(a, chat, func() {
+			win.Show()
+			win.Focus()
+		})
+	}
 	a.restoreFrame()
 	go a.tickTitle()
 	win.OnFocus(func() {
@@ -677,21 +699,7 @@ func (a *App) syncTitle() {
 	if a.win == nil {
 		return
 	}
-	title := "Pitta"
-	for _, surface := range a.surfaces {
-		if surface.ConversationID == a.currentValue() {
-			title = "Pitta · " + surfaceTitle(surface)
-			break
-		}
-	}
-	// A wait for approval is the one thing worth reading off the window
-	// switcher, where a hidden window still shows its title.
-	if waited := a.waitedSuffix(); waited != "" {
-		title = "⚠ " + waited + " · " + title
-	} else if unread := a.unreadCount(); unread > 0 {
-		title = "(" + itoa(unread) + ") " + title
-	}
-	a.win.SetTitle(title)
+	a.win.SetTitle(a.titleText())
 }
 
 // submit sends what the composer holds, as the Send button does.
@@ -811,6 +819,9 @@ func (a *App) View(c *ui.Context) {
 	// ⌘W closes the window the way the red button does, which is what a
 	// desktop app's owner expects from the key.
 	c.OnWindowShortcut(ui.Cmd, ui.KeyQ, func() { a.askQuit() })
+	c.OnWindowShortcut(ui.Cmd, ui.KeyComma, func() {
+		a.apply(func() { a.settingsOpen = true; a.invalidate() })
+	})
 	c.OnWindowShortcut(ui.Cmd, ui.KeyW, func() {
 		if a.win != nil {
 			a.win.Close()
@@ -836,6 +847,7 @@ func (a *App) View(c *ui.Context) {
 	a.chatMenuDialog(c, t)
 	a.taskDialog(c)
 	a.quitDialog(c, t)
+	a.settingsDialog(c, t)
 	a.shortcutsDialog(c, t)
 	a.imageDialog(c, t)
 	a.previewDialog(c, t)

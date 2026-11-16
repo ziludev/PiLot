@@ -74,3 +74,50 @@ func broadcastApprovals(from *App, approvals []protocol.PendingApproval) {
 		})
 	}
 }
+
+// openWindows records which chats have a window of their own, so the rail can
+// say so and a click can bring that window forward instead of loading the chat
+// a second time in this one.
+var openWindows = struct {
+	sync.Mutex
+	byChat map[int]ownWindow
+}{byChat: map[int]ownWindow{}}
+
+// ownWindow is a window opened for one chat, and who owns it, so the owner's
+// own clicks do not send it forward.
+type ownWindow struct {
+	owner *App
+	focus func()
+}
+
+// noteOwnWindow registers a window opened for one chat.
+func noteOwnWindow(owner *App, chat int, focus func()) {
+	if chat == 0 || focus == nil {
+		return
+	}
+	openWindows.Lock()
+	defer openWindows.Unlock()
+	openWindows.byChat[chat] = ownWindow{owner: owner, focus: focus}
+}
+
+// forgetOwnWindow drops the registration when that window closes.
+func forgetOwnWindow(chat int) {
+	openWindows.Lock()
+	defer openWindows.Unlock()
+	delete(openWindows.byChat, chat)
+}
+
+// ownWindowFocus returns the focus function of the window showing chat, if one
+// is open.
+// focusOwnWindow brings forward the window showing chat, unless it is the one
+// asking. It reports whether a window was raised.
+func focusOwnWindow(asker *App, chat int) bool {
+	openWindows.Lock()
+	window, ok := openWindows.byChat[chat]
+	openWindows.Unlock()
+	if !ok || window.owner == asker {
+		return false
+	}
+	window.focus()
+	return true
+}

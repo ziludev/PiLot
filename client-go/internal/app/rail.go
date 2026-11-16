@@ -352,7 +352,14 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 	if lift := line.AnimateTo("lift", target, motion.Lift); lift != 0 {
 		line.Translate(0, lift)
 	}
-	line.OnClick(func() { a.selectConversation(s.ConversationID) })
+	line.OnClick(func() {
+		// A chat already open in a window of its own comes forward instead of
+		// being loaded here a second time.
+		if focusOwnWindow(a, s.ConversationID) {
+			return
+		}
+		a.selectConversation(s.ConversationID)
+	})
 	// A right-click gives the row what the hover cluster offers, plus the
 	// destructive actions that a native menu can carry without a dialog.
 	line.ContextMenu(func(m *ui.Menu) {

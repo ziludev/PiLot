@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -65,5 +66,56 @@ func TestApprovalsReachTheOtherWindows(t *testing.T) {
 	broadcastApprovals(one, left)
 	if len(two.approvals) != 1 || two.approvals[0].CallID != "call_2" {
 		t.Fatalf("the other window shows %+v", two.approvals)
+	}
+}
+
+// TestLongWaitBlinksInTheTitle checks a wait past five minutes alternates its
+// marker instead of sitting still, and that a fresh wait does not.
+func TestLongWaitBlinksInTheTitle(t *testing.T) {
+	a := snapshotData(t)
+	a.previewImage = -1
+	a.surfaces = []protocol.Surface{{ConversationID: 5, SurfaceID: "s5", Title: "chat"}}
+	a.current = 5
+	a.approvals = nil
+	if got := a.titleText(); got != "Pitta · chat" {
+		t.Fatalf("idle title %q", got)
+	}
+	a.approvals = []protocol.PendingApproval{{CallID: "c1", CreatedAt: time.Now().UnixMilli() - 12_000}}
+	if got := a.titleText(); got != "⚠ 12s · Pitta · chat" {
+		t.Fatalf("short wait title %q", got)
+	}
+	a.approvals = []protocol.PendingApproval{{CallID: "c1", CreatedAt: time.Now().UnixMilli() - 420_000}}
+	a.titleTick = 0
+	on := a.titleText()
+	a.titleTick = 1
+	off := a.titleText()
+	if on == off {
+		t.Fatalf("a seven-minute wait does not blink: %q", on)
+	}
+	if !strings.Contains(on, "420s") || !strings.Contains(off, "420s") {
+		t.Fatalf("the age is missing: %q / %q", on, off)
+	}
+}
+
+// TestClickingASharedChatRaisesItsWindow checks the rail does not load a chat a
+// second time: a chat that has a window of its own comes forward instead.
+func TestClickingASharedChatRaisesItsWindow(t *testing.T) {
+	main, second := snapshotData(t), snapshotData(t)
+	main.previewImage, second.previewImage = -1, -1
+	second.secondary = true
+	raised := 0
+	noteOwnWindow(second, 13, func() { raised++ })
+	t.Cleanup(func() { forgetOwnWindow(13) })
+
+	if !focusOwnWindow(main, 13) || raised != 1 {
+		t.Fatalf("the window of chat 13 was not raised (%d)", raised)
+	}
+	// The owner's own click must load the chat, not raise itself forever.
+	if focusOwnWindow(second, 13) {
+		t.Fatal("the window raised itself")
+	}
+	forgetOwnWindow(13)
+	if focusOwnWindow(main, 13) {
+		t.Fatal("a closed window is still remembered")
 	}
 }
