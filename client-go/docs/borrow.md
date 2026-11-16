@@ -44,9 +44,9 @@
 | --- | --- | --- | --- |
 | 1 | `internal/app/palette.go`：`⌘K` 里 `>` 走命令（16 条），否则搜会话 | 无 | `TestPaletteRunsCommands`、`TestPaletteStillJumpsToChats` |
 | 2 | `internal/side/highlight.go`：按扩展名套 `editor` 的 tokenizer 给文件预览上色，带缓存 | 只上色，不做折叠/大纲 | `internal/side/highlight_test.go`（四种：多色、未知扩展名回退、2000 行 <50ms、缓存命中） |
-| 3 | `internal/app/railnav.go`：rail 内 `⌥↑`/`⌥↓` 行走、`⌘⇧P` 置顶、`⌘⇧⌫` 归档 | **`j`/`k` 没有做**：`OnWindowShortcut` 只收带修饰键的组合，纯字母键要在每个焦点元素上让路，而 composer 是常驻焦点——用无修饰字母会让"在输入框里打 j"有歧义 | `TestRailWalksWithAltArrows`、`TestPinAndArchiveShortcuts` |
-| 4 | `internal/app/history.go`：`↑`/`↓` 召回上一条发送（上限 100，落 prefs） | 只在 composer 无双修饰键时拦，输入法组词中不拦 | `TestComposerRecallsHistoryWithTheArrows` |
-| 5 | `internal/notify` + `main.go` 的 `OnNotificationClick`：通知带 `chat-<id>`，点开落到那条会话（`?window=new` 时另开窗） | 无 | `internal/notify/notify_test.go`、`TestNotificationCarriesItsChat` |
+| 3 | `internal/app/railnav.go`：rail 内 `⌥↑`/`⌥↓` 行走、`⌘⇧P` 置顶、`⌘⇧⌫` 归档 | **`j`/`k` 没有做**：`OnWindowShortcut` 只收带修饰键的组合，纯字母键要在每个焦点元素上让路，而 composer 是常驻焦点——用无修饰字母会让"在输入框里打 j"有歧义 | `TestAltArrowsWalkTheRail`、`TestPinAndArchiveFromTheKeyboard`（置顶、取消置顶与归档各按一次） |
+| 4 | `internal/app/history.go`：`↑`/`↓` 召回上一条发送（上限 50，只在内存里，不进 `ui.json`——昨天的草稿不是今天的草稿） | 只在 composer 无双修饰键时拦，输入法组词中不拦 | `TestComposerRecallsSentMessages`、`TestRecallLeavesArrowsAloneInAMultilineDraft` |
+| 5 | `internal/notify` + `main.go` 的 `OnNotificationClick`：通知带 `chat-<id>`，点开落到那条会话（`?window=new` 时另开窗） | 无 | `internal/notify/notify_test.go`、`TestNotificationCarriesItsChat`（client-go/internal/app/notify_test.go） |
 | 6 | `internal/app/deeplink.go` + `mygo.config.ts` 的 `urlSchemes`：`pitta://chat/123`、`?window=new` | 只认 `chat`，`project/*` 明确拒绝（没有对应视图，认了就是撒谎） | `internal/app/deeplink_test.go`、真机 `open "pitta://chat/9753"` → 日志 `client attached {"conversationId":9753}` |
 
 ## 5. 本轮取舍（t-pick）
