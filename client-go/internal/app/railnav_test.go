@@ -1,9 +1,12 @@
 package app
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -48,7 +51,8 @@ func TestAltArrowsWalkTheRail(t *testing.T) {
 func TestPinAndArchiveFromTheKeyboard(t *testing.T) {
 	a := snapshotData(t)
 	a.previewImage = -1
-	a.api = quietAPI(t)
+	client, archived := archiveAPI(t)
+	a.api = client
 	tt := ui.NewTester(a.View, 1180, 760)
 	tt.Frame()
 	chat := a.current
@@ -61,6 +65,58 @@ func TestPinAndArchiveFromTheKeyboard(t *testing.T) {
 	if a.menu.open && a.menu.id == chat {
 		t.Fatal("⌘⇧P opened the chat menu")
 	}
+	// ⌘⇧⌫ archives the same chat: it leaves the default list, and the order
+	// the user arranged is untouched, so unarchiving puts it back where it was.
+	tt.Key(ui.Cmd|ui.Shift, ui.KeyP) // unpin, so the archive step looks at a plain chat
+	tt.Frame()
+	if a.isPinned(chat) {
+		t.Fatal("⌘⇧P did not unpin the chat")
+	}
+	tt.Key(ui.Cmd|ui.Shift, ui.KeyBackspace)
+	tt.Frame()
+	// The archive call is a round trip; give it the time it takes, then read
+	// the body the client actually sent rather than trusting the local flag.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && archived.Load() == nil {
+		time.Sleep(5 * time.Millisecond)
+	}
+	got := archived.Load()
+	if got == nil {
+		t.Fatal("⌘⇧⌫ sent no archive request")
+	}
+	if value, ok := got.(bool); !ok || !value {
+		t.Fatalf("⌘⇧⌫ sent archived=%v, want true", got)
+	}
+}
+
+// archiveAPI answers the reads a rail interaction makes and records the
+// archived flag of the /api/surface-meta call, so the keyboard shortcut can be
+// checked by what it sent instead of by a flag it set locally.
+func archiveAPI(t *testing.T) (*api.Client, *atomic.Value) {
+	t.Helper()
+	var archived atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		switch r.URL.Path {
+		case "/api/surface-meta":
+			var body struct {
+				Archived *bool `json:"archived"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body.Archived != nil {
+				archived.Store(*body.Archived)
+			}
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+		case "/api/conversation":
+			_, _ = w.Write([]byte(`{"entries":[],"model":{"provider":"p","modelId":"m"}}`))
+		case "/api/changes":
+			_, _ = w.Write([]byte(`{"repo":false}`))
+		default:
+			_, _ = w.Write([]byte(`{}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return api.New(srv.URL, ""), &archived
 }
 
 // quietAPI answers the calls selectConversation makes, so the walk's moves do
