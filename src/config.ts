@@ -154,6 +154,30 @@ export const config = {
   },
 } as const;
 
+/**
+ * Removes the named variables from an environment object and returns the ones it removed.
+ * Kept separate from the call below so a test can prove what is dropped without loading .env.
+ */
+export function dropSecrets(env: Record<string, string | undefined>, names: readonly string[]): string[] {
+  const dropped: string[] = [];
+  for (const name of names) {
+    if (env[name] === undefined) continue;
+    delete env[name];
+    dropped.push(name);
+  }
+  return dropped;
+}
+
+/**
+ * The values above are captured into `config`; the environment copies go away. Everything this
+ * process starts inherits the environment — bash, MCP servers, the aliyun CLI — so a secret that
+ * stays in it is one `env` away from a transcript, and one prompt injection away from leaving.
+ * Scrubbing here keeps the credentials working (config already holds them) while making the
+ * process unable to print them back.
+ */
+const CAPTURED_SECRETS = ["FEISHU_APP_SECRET", "MAGPIE_API_KEY", "AGENT_HTTP_TOKEN"] as const;
+dropSecrets(process.env, CAPTURED_SECRETS);
+
 export function requireFeishuCredentials(): { appId: string; appSecret: string } {
   const { appId, appSecret } = config.feishu;
   if (!appId || !appSecret) {
