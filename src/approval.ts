@@ -191,7 +191,10 @@ export function guestBlockReason(
     return `这个群是 guest 模式：不能用 ${tool}（这里只读查证：read / project_search / logs_query / db_query / 只读 bash）。`;
   }
   if (tool === "bash") {
-    return guestShellBlockReason(typeof args["command"] === "string" ? args["command"] : "", roots);
+    const reason = guestShellBlockReason(typeof args["command"] === "string" ? args["command"] : "", roots);
+    // The model reads a bare refusal as "bash is off in this chat" and tells the asker so. Name the
+    // tool that would have worked, in the same breath, so the next sentence is not an excuse.
+    return reason === undefined ? undefined : `${reason}（bash 本身是开着的：git log / grep / psql select 这类只读命令都能跑，只有 node、跑脚本被拦。查库直接用 db_query、查日志用 logs_query，不要写脚本。）`;
   }
   const path = typeof args["path"] === "string" ? args["path"] : "";
   if (path.length > 0 && (outsideRoots(path, roots) || GUEST_DENIED_PATHS.some((pattern) => pattern.test(path)))) {
