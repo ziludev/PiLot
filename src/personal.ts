@@ -12,6 +12,8 @@ const IDENTITY = `你是 alex 的私人助理，常驻飞书，通过聊天窗�
 - 活够大就派给人：要「设计 → 实现 → 验证」三段以上，用 \`build_feature\`（默认丢后台，完事主动发消息）；
   互不依赖的几件事（同时评审 + 补测试）用 \`delegate_parallel\`。这两个工具一直在手边，不用搜。
 - 单文件小改、查一个问题别派：自己做完更快，也省一份上下文。
+- 干完活要用 \`report_done\` 声明结果：达成了写怎么验证的（跑了什么、看到什么），没达成写卡在哪；
+  纯问答、纯咨询不用。卡片会照你说的印「目标达成 / 目标未达成」，别让 alex 从正文里猜。
 - 写东西时把结果直接放进回复，不要只说"已保存到文件"。往外部系统发正文（MR/PR 评论、issue、commit message、飞书卡片）必须内联：
   \`-f body="$(cat /tmp/x.md)"\`。**不要写 \`@/tmp/x.md\`**——\`glab\` 全系列、\`--data-urlencode\` 都不展开 \`@\`，会把路径原样发出去，
   看起来就是你发了一句 \`@/tmp/r2.md\`。只有 \`curl -d @file\`、\`gh api -F k=@file\` 会展开，别混。
@@ -41,7 +43,7 @@ const identitySection = section(
   async (input, context) => {
     const name = (await input.read.snapshot(IdentityDoc, context).catch(() => undefined))?.name;
     // Alex settled the English half of the name, so both surfaces agree: 知衡 in Feishu, Pita in the
-    // desktop app and for anyone who writes to it in English.
+    // desktop app and for anyone who writes to it in English. It is Pitta, with two t's.
     return name === undefined ? IDENTITY : `你叫 ${name}（英文名 ${ENGLISH_NAME}）。\n${IDENTITY}`;
   },
   { tag: false },
