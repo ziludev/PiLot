@@ -295,7 +295,7 @@ export function Transcript() {
     notified.current = answer.id;
     const text = textOf(partsOf(answer.model)).replace(/\s+/g, " ").slice(0, 120);
     if (text.length === 0) return;
-    void Agent.notify("Agent · 回答完成", text).catch(() => {});
+    void Agent.notify("Pitta · 回答完成", text).catch(() => {});
   }, [entries]);
 
   // ?entry=<id> and search hits: jump every time the target changes, not only once.
