@@ -146,7 +146,16 @@
 | 流式 | 同一会话由真实模型逐段产出，耗时条显示 `1 tool · $0.00 · 3.0s`（`internal/app/live_test.go` 也断言过 `streamed=true`） |
 | 审批拒绝在客户端可见 | 拒绝响应后，回答里出现「未获批准（提权执行）」，后端日志 `[approval] resolved {approved:false, by:"client"}` + `[guard] bash denied`（`internal/app/approval_live_test.go`） |
 
-**尚未取得手工记录、仅有 tester 级证据的三项**（合成事件到不了该窗口：`AXIsProcessTrusted`/`CGPreflightPostEventAccess` 均为 true、鼠标移动事件生效，但点击 rail 行或 Search 图标、`keyboardSetUnicodeString` 打字都不引起 UI 变化；`internal/app/input_test.go` 覆盖同样的逻辑）：
+**尚未取得手工记录、仅有 tester 级证据的三项**。合成输入到这个窗口只成功了一半，实测记录如下，所以这四项必须由人在窗口里做一次：
+
+- 键盘到得了：合成的 `Cmd+F` 真的打开了查找条（`/tmp/pitta-manual/16-cmdf.png`）。
+- 鼠标点击到不了：rail 行有 hover 高亮，但 `mouseDown/mouseUp`（含 `clickState=1`、带 `mouseEventWindowUnderMousePointer` 两种写法、`cghidEventTap` 与 `postToPid` 两条通道）都不触发 `OnClick`——点会话行不切换、点主题开关不变色、点 Search 图标不开查找条。
+- 没有点击就没有焦点，于是 `keyboardSetUnicodeString` 打的字符不上屏；`osascript keystroke` 同样无效（连 TextEdit 存盘都超时）。
+- `AXIsProcessTrusted`、`CGPreflightPostEventAccess`、`CGPreflightScreenCaptureAccess` 均为 true，`ioreg` 里无 SecureInput，光标能被事件移动，所以不是权限或坐标问题。
+
+`internal/app/input_test.go` 覆盖同样的逻辑（粘贴、全选、Shift+←、IME）；人工核对脚本见 `scripts/manual-check.sh`。
+
+下列各项需要人工确认：
 
 - Shift+Enter 在真窗口里换行（测试 `TestEnterKeepsNewline`）
 - Shift+← 选区后输入替换（测试 `TestSelectAllAndBackspaceClears`）
