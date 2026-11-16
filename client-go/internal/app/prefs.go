@@ -96,5 +96,7 @@ func (a *App) savePrefsLater() {
 	p.SideWidth = a.sideWidth
 	p.Favorites = a.modelsFav
 	p.Recents = a.modelsRecent
+	p.Unread = a.unreadIDs()
+	p.LastChat = a.currentValue()
 	go savePrefs(p)
 }

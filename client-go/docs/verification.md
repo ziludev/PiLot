@@ -135,4 +135,4 @@ $ go test ./internal/i18n -run TestEveryLiteralKeyExists -v
 | `TestUnreadClearsWhenOpened` | 打开/清空未读，且未读点能写入并从 prefs 恢复 |
 | `TestAnswerWhileHiddenDots` | 隐藏时收到回答算新消息，同一帧不重复计数 |
 | `TestCmdSlashListsTheKeys` | `⌘/` 打开快捷键面板并列出 ⌘K/⌘⇧N/⌘⇧Space |
-| `TestStartupReopensTheLastChat` | 启动回到上次会话；已归档/不存在的会话不恢复 |
+| `TestStartupReopensTheLastChat` | 启动回到上次会话；已归档/不存在的会话不恢复（真机：重启后 `logs/agent.log` 仍 attach `conversationId=37035`） |

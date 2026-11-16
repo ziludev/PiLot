@@ -475,6 +475,7 @@ func (a *App) openDefaultConversation() {
 		}
 	})
 	a.reloadConversation(picked)
+	a.savePrefsLater()
 }
 
 // defaultConversationID is the newest conversation that is not archived, which
@@ -631,7 +632,6 @@ func (a *App) watch(conversationID int) {
 
 // selectConversation opens a chat from the rail.
 func (a *App) selectConversation(conversationID int) {
-	a.savePrefsLater()
 	a.applyWait(func() {
 		a.clearUnread(conversationID)
 		if a.current == conversationID {
@@ -644,6 +644,9 @@ func (a *App) selectConversation(conversationID int) {
 		a.invalidate()
 	})
 	a.reloadConversation(a.currentValue())
+	// Remembering the chat after the switch, not before it, is what makes the
+	// next launch land here.
+	a.savePrefsLater()
 	a.syncTitle()
 }
 
