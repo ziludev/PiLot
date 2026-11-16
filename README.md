@@ -31,6 +31,11 @@ open "$HOME/Applications/Pitta.app"
 
 界面偏好（语言、深浅色、置顶、会话宽度、模型收藏）存在 `~/.pitta/ui.json`。
 
+## 图标
+
+`resources/icon.png`（1024×1024）是 `scripts/make-icon.py` 画出来的：rail 里那张琥珀色笑脸的同款。
+改配色后重跑 `python3 scripts/make-icon.py`，再由 `go tool mygo build` 打成 `AppIcon.icns`。
+
 ## 目录
 
 ```

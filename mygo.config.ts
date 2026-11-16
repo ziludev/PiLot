@@ -8,4 +8,6 @@ export default defineConfig({
   identifier: "com.example.agent",
   version: "0.1.0",
   out: "build",
+  // The mark scripts/make-icon.py draws (the same amber face the rail shows).
+  icon: "resources/icon.png",
 });
