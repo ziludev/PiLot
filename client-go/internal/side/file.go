@@ -72,6 +72,9 @@ func fileHeader(c *ui.Context, t theme.Tokens, p FileProps) {
 func fileBody(c *ui.Context, t theme.Tokens, p FileProps) {
 	lines := strings.Split(p.File.Content, "\n")
 	st := stateFor(c)
+	// Coloring the file is what an editor does with it; a type the highlighter
+	// does not know comes back nil and the lines stay plain.
+	spans := codeSpans(c, &st.code, p.Path, p.File.Content, lines)
 	ui.List(c, &st.file, len(lines), func(i int) {
 		line := lines[i]
 		shown := line
@@ -85,7 +88,12 @@ func fileBody(c *ui.Context, t theme.Tokens, p FileProps) {
 		row.Children(func() {
 			ui.Text(c, strconv.Itoa(i+1)).Font("monospace").FontSize(10).
 				TextColor(t.MutedFg).Width(44).TextAlign(ui.End)
-			ui.Text(c, shown).Font("monospace").FontSize(11).TextColor(t.Foreground).NoWrap()
+			line := shown
+			if spans != nil && i < len(spans) && len(spans[i]) > 0 {
+				ui.RichText(c, spans[i]...).Font("monospace").FontSize(11).NoWrap()
+				return
+			}
+			ui.Text(c, line).Font("monospace").FontSize(11).TextColor(t.Foreground).NoWrap()
 		})
 		if row.RowClicked() && p.OnComment != nil {
 			p.OnComment(line)
