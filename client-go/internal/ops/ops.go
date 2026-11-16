@@ -36,7 +36,7 @@ const (
 	readingLabel  = "Reading…"
 )
 
-// card is the panels' surface: shadcn's rounded card at the client's radius.
+// card is the panels' surface: a rounded card at the client's radius.
 func card(c *ui.Context, t theme.Tokens) ui.Element {
 	return ui.Column(c).FillWidth().Padding(10).Gap(6).Radius(theme.Radius).
 		Background(t.Card).Border(1, t.Border)
@@ -60,7 +60,7 @@ func heading(c *ui.Context, t theme.Tokens, icon *ui.SVG, title, hint string, ac
 	})
 }
 
-// button is a shadcn pill; filled for the panel's one main action, outlined for
+// button is a pill; filled for the panel's one main action, outlined for
 // the rest. Its label is also its accessible name, so the tester can click it.
 func button(c *ui.Context, t theme.Tokens, icon *ui.SVG, label string, filled, disabled bool, onClick func()) ui.Element {
 	b := ui.ButtonBase(c).Height(24).PaddingX(8).Gap(4).Radius(6).

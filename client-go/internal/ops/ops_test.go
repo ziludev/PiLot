@@ -343,7 +343,7 @@ func TestTaskDialogShowsTaskAndCloses(t *testing.T) {
 }
 
 // TestPanelsPaint puts all four panels in one frame so a human can check the
-// shadcn look at a glance.
+// token-set look at a glance.
 func TestPanelsPaint(t *testing.T) {
 	memory, access, usage, task := memoryFixture(), accessFixture(), usageFixture(), taskFixture()
 	tt := frame(t, 1240, 820, func(c *ui.Context) {

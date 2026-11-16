@@ -206,7 +206,7 @@ go tool mygo build -skip-dmg     # 产出 build/darwin-arm64/Pitta.app
 ```
 
 窗口由 mygo/ui 在 Metal 上直绘：没有 webview，也没有前端构建步骤。功能对照、快捷键与
-与旧 React 客户端（本次删除）的差异记录见 `client-go/README.md` 与 `client-go/docs`。
+与旧 webview 客户端（本次删除）的差异记录见 `client-go/README.md` 与 `client-go/docs`。
 
 ---
 

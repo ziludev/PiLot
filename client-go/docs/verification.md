@@ -156,3 +156,85 @@ $ go test ./internal/i18n -run TestEveryLiteralKeyExists -v
 | `TestCmdCommaOpensSettings` | ⌘, 打开设置、列快捷键、主题三选落到 prefs |
 | `TestLongWaitBlinksInTheTitle` | 12s 不闪、420s 闪，且秒数仍在标题里 |
 | `TestClickingASharedChatRaisesItsWindow` | 专属窗口被抬起、自己不抬自己、关窗后忘记 |
+
+## 2026-11-17 删除 React 客户端前的验证
+
+这一轮结束时仓库只剩一个桌面客户端（`client-go/`）。下面是执行过的命令与结果，顺序与上下文
+（`docs/history.md` 记了每一步做了什么）。
+
+### 1. Go 客户端
+
+```
+$ cd client-go && go build ./...     # BUILD OK
+$ go vet ./...                       # VET OK
+$ go test ./internal/... -count=1
+ok  pitta/internal/api     1.539s
+ok  pitta/internal/app     1.241s
+ok  pitta/internal/avatar  0.333s
+?   pitta/internal/bridge  [no test files]
+ok  pitta/internal/diff    0.336s
+ok  pitta/internal/i18n    0.138s
+ok  pitta/internal/icons   0.300s
+ok  pitta/internal/motion  0.108s
+ok  pitta/internal/notify  0.331s
+ok  pitta/internal/ops     0.263s
+?   pitta/internal/protocol [no test files]
+ok  pitta/internal/side    0.199s
+ok  pitta/internal/theme   0.423s
+ok  pitta/internal/turns   0.344s
+```
+
+### 2. 真实后端（不是 mock）
+
+```
+$ PITTA_LIVE=1 go test ./internal/app -run TestLive -count=1
+ok  pitta/internal/app  4.122s                     # 长会话 200 条、patch 渲染、markdown、字体
+
+$ PITTA_E2E=1 go test ./internal/app -run TestLiveStreamingFrames -count=1
+long_test.go:213: conversation=38466 surface=client:mwjipuj1
+--- PASS: TestLiveStreamingFrames (2.05s)
+
+$ PITTA_APPROVAL=1 go test ./internal/app -run TestLiveApprovalDecision -count=1
+approval_live_test.go:43: conversation=38478 surface=client:mwjipwl5
+approval_live_test.go:77: pending callId=call_00_cRXve2dF5pq2GP3Fj54i8513 tool=bash reason="提权执行：sudo -n true; echo \"exit=$?\""
+approval_live_test.go:96: denied callId=… via the client; 0 approvals left
+--- PASS: TestLiveApprovalDecision (2.13s)
+```
+
+### 3. 服务端（未改动，仅确认没被这次删除波及）
+
+```
+$ npm test    → 137 pass, 0 fail
+$ npm run eval → 160 pass, 1 warn (quiet-catch 预算 118/140), 0 fail
+```
+
+`tests/turn-state.test.ts` 已删除：它只测被删掉的客户端逻辑，同样的判定在
+`client-go/internal/turns` 里有 Go 版测试。`evals/suites/contract.ts` 不再扫描 `client/src`。
+
+### 4. 残留引用
+
+```
+$ grep -rIl -iE "react|vite|tailwind|shadcn|\.tsx" . \
+    --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=workspace \
+    --exclude-dir=backups --exclude-dir=tmp --exclude-dir=logs --exclude-dir=build
+```
+
+命中只剩三类，都是有意保留的：
+
+| 位置 | 为什么留着 |
+| --- | --- |
+| `client-go/internal/i18n/origin/i18n.ts` | 字典基线被 vendored 进来，`TestOriginDictionaryStillMatches` 用它保证键集不漂移；这是数据文件，不是可构建的前端 |
+| `client-go/docs/{history,parity,ui-motion-todo,mygo-version,manual-checks/results}.md` | 迁移与取舍的记录，写了「基线已删除」 |
+| `package-lock.json` 的 `react` | 上游 `@earendil-works/*` 的 **optional peerDependency**，不是本仓库依赖 |
+
+`client/` 目录（连同被 gitignore 的 `dist/`、`node_modules/`）已从磁盘删除。
+
+### 5. 深链
+
+```
+$ open "pitta://chat/9753"
+$ tail -1 ~/learn/pi-durable-agent/logs/agent.log
+[http] client attached {"conversationId":9753}
+```
+
+`CFBundleURLTypes` 里有 `pitta`（`PlistBuddy -c "Print :CFBundleURLTypes" build/darwin-arm64/Pitta.app/Contents/Info.plist`）。

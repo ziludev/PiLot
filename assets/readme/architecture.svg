@@ -31,7 +31,7 @@
     <rect class="card" x="44" y="232" width="250" height="104" rx="10" />
     <circle class="accent" cx="68" cy="260" r="4" />
     <text class="t" x="82" y="265">Desktop app</text>
-    <text class="s" x="68" y="290">MyGo window · React</text>
+    <text class="s" x="68" y="290">Go + mygo/ui · Metal</text>
     <text class="f" x="68" y="308">timeline, diff, commits, memory</text>
   </g>
   <g>
