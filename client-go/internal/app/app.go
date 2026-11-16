@@ -226,6 +226,12 @@ type App struct {
 	taskOpen  *protocol.TaskDetail
 
 	errs []AppError
+
+	// switcher is the Cmd+K jump list's own state.
+	switcher switcher
+
+	// badge counts what the Dock icon shows; main.go wires it to mygo.
+	badge int
 }
 
 // New builds the app; the window is attached once mygo creates it.
@@ -557,6 +563,23 @@ func (a *App) selectConversation(conversationID int) {
 		a.invalidate()
 	})
 	a.reloadConversation(a.currentValue())
+	a.syncTitle()
+}
+
+// syncTitle puts the chat's name on the window, as a native document window
+// does, so the Dock and the window menu say which chat is open.
+func (a *App) syncTitle() {
+	if a.win == nil {
+		return
+	}
+	title := "Pitta"
+	for _, surface := range a.surfaces {
+		if surface.ConversationID == a.currentValue() {
+			title = "Pitta · " + surfaceTitle(surface)
+			break
+		}
+	}
+	a.win.SetTitle(title)
 }
 
 // submit sends what the composer holds, as the Send button does.
@@ -655,7 +678,25 @@ func (a *App) View(c *ui.Context) {
 	c.OnWindowShortcut(ui.Cmd, ui.KeyF, func() {
 		a.apply(func() { a.findOpen = true; a.invalidate() })
 	})
-	ui.Split(c, &a.railWidth, func() { a.rail(c) }, func() { a.pane(c) }).Fill()
+	// Cmd+K is the quick switcher, the one shortcut a native client can offer
+	// that a web page cannot: it jumps to any chat without touching the rail.
+	c.OnWindowShortcut(ui.Cmd, ui.KeyK, func() {
+		a.apply(func() { a.openSwitcher() })
+	})
+	c.OnWindowShortcut(ui.Cmd, ui.KeyN, func() {
+		a.apply(func() { a.newConversation() })
+	})
+	c.OnWindowShortcut(ui.Cmd, ui.KeyB, func() {
+		a.apply(func() { a.toggleSide(); a.invalidate() })
+	})
+	root := ui.Split(c, &a.railWidth, func() { a.rail(c) }, func() { a.pane(c) }).Fill()
+	// Files dragged from Finder land on the whole window: images become
+	// attachments, anything else opens in the viewer, which is more than the
+	// React client could do with a drop.
+	if paths := root.DroppedFiles(); len(paths) > 0 {
+		a.dropPaths(paths)
+	}
+	a.switcherDialog(c, t)
 	a.chatMenuDialog(c, t)
 	a.taskDialog(c)
 	a.imageDialog(c, t)

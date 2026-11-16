@@ -112,3 +112,12 @@ $ go test ./internal/i18n -run TestEveryLiteralKeyExists -v
 ## 7. 已知差异
 
 `docs/parity.md` §4 逐条列出（⌘F 的定位方式、附件靠路径而非粘贴、Toast 无动效、access 表头分组、memory 勾选排版、BotAvatar 无景深/眨眼、日志入口是图标按钮等）；跨会话 `/api/search` 与飞书横幅已接，见 §2 表与 `railFeishu`/`api.Search`。mygo 版本选择见 `docs/mygo-version.md`。
+
+## 原生能力
+
+| 用例 | 覆盖 |
+| --- | --- |
+| `TestCmdKOpensTheSwitcher` | ⌘K 打开切换器、列出全部会话、查询过滤 |
+| `TestDropImageAttachesIt` | 拖入 PNG 变成附件 |
+| `TestPasteImageFromClipboard` | 剪贴板图片 → 附件（字节一致） |
+| `TestRightClickCopiesAMessage` | 右键菜单不误改剪贴板 |

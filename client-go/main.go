@@ -30,14 +30,22 @@ func main() {
 		}
 		a := app.New(cfg)
 		win := mygo.NewWindow(mygo.WindowOptions{
-			Title:           "Pitta",
-			Width:           1180,
-			Height:          820,
-			MinWidth:        720,
-			MinHeight:       480,
-			BackgroundColor: "light-dark(#ffffff, #0a0a0a)",
-			StateKey:        "main",
-			Content:         ui.View(a.View),
+			Title: "Pitta",
+			// The client draws its own header instead of a title bar, so the
+			// traffic lights sit over the rail's top row, as in the native apps
+			// this replaces (see App.View's c.TitleBar() padding).
+			TitleBarStyle:        mygo.TitleBarHidden,
+			TrafficLightPosition: &mygo.Point{X: 14, Y: 14},
+			Width:                1180,
+			Height:               820,
+			MinWidth:             720,
+			MinHeight:            480,
+			BackgroundColor:      "light-dark(#ffffff, #0a0a0a)",
+			StateKey:             "main",
+			Content:              ui.View(a.View),
+		})
+		app.SetBadgeHook(func(n int) {
+			mygo.App.SetBadgeCount(n)
 		})
 		a.Attach(win)
 	})

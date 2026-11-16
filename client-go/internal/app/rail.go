@@ -53,8 +53,12 @@ func (a *App) rail(c *ui.Context) {
 func (a *App) railHeader(c *ui.Context, t theme.Tokens) {
 	// px-3 py-2: avatar, name over status, then the theme toggle and the
 	// language button that shows the language it switches to.
-	ui.Row(c).FillWidth().Padding(8, 12).Gap(8).AlignItems(ui.Center).
-		BorderWidth(0, 0, 1, 0).BorderColor(t.SidebarBorder).Children(func() {
+	// The window draws its own title bar (mygo.WindowOptions.TitleBarStyle), so
+	// this row starts below the traffic lights and to their right, and drags the
+	// window like a title bar does.
+	bar := c.TitleBar()
+	ui.Row(c).FillWidth().Padding(8+bar.Bottom, 12+bar.Left).Gap(8).AlignItems(ui.Center).
+		BorderWidth(0, 0, 1, 0).BorderColor(t.SidebarBorder).DragWindow().Children(func() {
 		mood, tone := a.avatarLook()
 		avatar.View(c, 24, mood, tone)
 		ui.Column(c).Grow(1).Gap(1).Children(func() {
@@ -346,6 +350,35 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 		line.Translate(0, lift)
 	}
 	line.OnClick(func() { a.selectConversation(s.ConversationID) })
+	// A right-click gives the row what the hover cluster offers, plus the
+	// destructive actions that a native menu can carry without a dialog.
+	line.ContextMenu(func(m *ui.Menu) {
+		if m.Item(i18n.T("pinned")).Checked(a.isPinned(s.ConversationID)).Chosen() {
+			a.apply(func() { a.togglePin(s.ConversationID) })
+		}
+		if m.Item(i18n.T("rename")).Chosen() {
+			a.apply(func() { a.openChatMenuFor(s.ConversationID) })
+		}
+		m.Separator()
+		if m.Item(i18n.T("archive")).Chosen() {
+			a.apply(func() {
+				a.menu.id = s.ConversationID
+				a.archiveChat(true)
+			})
+		}
+		if s.Archived && m.Item(i18n.T("unarchive")).Chosen() {
+			a.apply(func() {
+				a.menu.id = s.ConversationID
+				a.archiveChat(false)
+			})
+		}
+		if m.Item(i18n.T("cleanupWorktree")).Danger().Chosen() {
+			a.apply(func() {
+				a.menu.id = s.ConversationID
+				a.removeWorktree()
+			})
+		}
+	})
 	line.Children(func() {
 		// The bar is drawn for every row so the names stay in one column.
 		bar := ui.Box(c).Width(2).Height(14).Radius(1).AlignSelf(ui.Center)
