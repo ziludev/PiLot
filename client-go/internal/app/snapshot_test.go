@@ -254,3 +254,64 @@ func TestSnapshotRail(t *testing.T) {
 		writePNG(t, filepath.Join(snapshotDir(), "rail-"+c.name+".png"), tt.Image())
 	}
 }
+
+// TestSnapshotStepExpanded opens a tool step holding a patch so the accordion
+// can be looked at mid-way: it writes the frame before the click, one 175 ms
+// into the 350 ms growth, and the resting one.
+func TestSnapshotStepExpanded(t *testing.T) {
+	patch := "diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n@@ -1 +1 @@\n-old line\n+new line"
+	entries := []protocol.Entry{
+		{ID: 1, Kind: "pi.user", Model: rawModel(map[string]any{"role": "user", "content": "fix it"})},
+		{ID: 2, Kind: "pi.assistant", Model: rawModel(map[string]any{
+			"role": "assistant", "content": []any{map[string]any{
+				"type": "toolCall", "id": "call_1", "name": "edit", "arguments": map[string]any{"path": "a.go"},
+			}},
+		})},
+		{ID: 3, Kind: "pi.tool-result", Model: rawModel(map[string]any{
+			"role": "toolResult", "toolCallId": "call_1", "toolName": "edit",
+			"content": []any{map[string]any{"type": "text", "text": patch}},
+		})},
+	}
+	a := transcriptApp(entries...)
+	tt := ui.NewTester(func(c *ui.Context) { theme.Apply(c, theme.Light()); a.transcript(c) }, 800, 400)
+	tt.Frame()
+	row, ok := tt.Find("edit · a.go")
+	if !ok {
+		t.Fatalf("no step line; texts=%q", tt.Texts())
+	}
+	writePNG(t, filepath.Join(os.TempDir(), "pitta-step-folded.png"), tt.Image())
+	tt.ClickAt(row.X+2, row.Y+2)
+	tt.Frame()
+	tt.Advance(175 * time.Millisecond)
+	tt.Frame()
+	writePNG(t, filepath.Join(os.TempDir(), "pitta-step-midway.png"), tt.Image())
+	tt.Advance(300 * time.Millisecond)
+	tt.Frame()
+	writePNG(t, filepath.Join(os.TempDir(), "pitta-step-open.png"), tt.Image())
+}
+
+// TestRailRowLiftsUnderThePointer is the hover lift: a row under the pointer
+// rises, and the rows around it stay where they are. Bounds are read a frame
+// after the pointer moves, since the lift is animated over 300 ms.
+func TestRailRowLiftsUnderThePointer(t *testing.T) {
+	a := snapshotData(t)
+	tt := ui.NewTester(func(c *ui.Context) { theme.Apply(c, theme.Light()); a.rail(c) }, 260, 560)
+	tt.Frame()
+	row, ok := tt.Find("New chat #13")
+	if !ok {
+		t.Fatalf("no row to hover; texts=%q", tt.Texts())
+	}
+	rest := row.Y
+	tt.Move(row.X+40, row.Y+10)
+	for i := 0; i < 12; i++ {
+		tt.Frame()
+		tt.Advance(40 * time.Millisecond)
+	}
+	hovered, ok := tt.Find("New chat #13")
+	if !ok {
+		t.Fatalf("the row went away; texts=%q", tt.Texts())
+	}
+	if hovered.Y >= rest {
+		t.Fatalf("hovered row y = %v, at rest %v: it did not lift", hovered.Y, rest)
+	}
+}

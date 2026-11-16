@@ -12,6 +12,7 @@ import (
 	"pitta/internal/bridge"
 	"pitta/internal/i18n"
 	"pitta/internal/icons"
+	"pitta/internal/motion"
 	"pitta/internal/protocol"
 	"pitta/internal/theme"
 )
@@ -261,7 +262,7 @@ func (a *App) railEmpty(c *ui.Context, t theme.Tokens) {
 			hint = i18n.T("bridgeRetrying") + " " + itoa(a.retry)
 		}
 	}
-	ui.Column(c).Grow(1).FillWidth().Padding(16, 12).Gap(3).Children(func() {
+	ui.Column(c).Grow(1).FillWidth().Padding(16, 12).Gap(3).Transition(motion.FadeIn()).Children(func() {
 		ui.Text(c, title).FontSize(11).TextColor(t.MutedFg).Wrap()
 		if hint != "" {
 			ui.Text(c, hint).FontSize(10).TextColor(t.MutedFg).Wrap()
@@ -292,6 +293,16 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 		line.Background(t.SidebarAccent)
 	case hovered:
 		line.Background(c.Theme().SurfaceHover)
+	}
+	// The hover lift of Rail.tsx: the row rises 2 px and casts a soft shadow,
+	// both over 300 ms, so a row under the pointer reads as picked up.
+	target := float32(0)
+	if hovered {
+		target = -motion.HoverRise
+		line.Shadow(0, 6, 14, -6, ui.RGBA(0, 0, 0, 0.45))
+	}
+	if lift := line.AnimateTo("lift", target, motion.Lift); lift != 0 {
+		line.Translate(0, lift)
 	}
 	line.OnClick(func() { a.selectConversation(s.ConversationID) })
 	line.Children(func() {
