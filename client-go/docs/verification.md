@@ -259,3 +259,28 @@ $ tail -1 ~/learn/pi-durable-agent/logs/agent.log
 
 `go run .` 可以正常起窗并连桥；裸二进制下 `notify` 报 `not supported on this platform`（点通知
 需要 .app bundle 的 UserNotifications 授权），这是降级而不是崩溃：通知不可用时其余流程照常。
+
+### 7. 装好的那一份（t-ship）
+
+```
+$ du -sh ~/Applications/Pitta.app                             → 15M
+$ /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" …    → com.example.agent
+$ /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:0:CFBundleURLSchemes:0" … → pitta
+$ ls Contents/Resources                                        → AppIcon.icns  icon.png  pitta-logo-dark.svg
+$ pgrep -f "~/Applications/Pitta.app/Contents/MacOS/Pitta"     → 62937
+$ ls ~/Library/Logs/DiagnosticReports/*Pitta* | wc -l          → 0
+```
+
+主流程在真实后端的证据分两层，因为屏幕锁着，第二层拿不到"人点窗口"那种证据：
+
+1. **应用本身**：进程 62937 存活、无崩溃报告、`logs/agent.log` 有
+   `[http] client attached {"conversationId":9753}`；向同一会话 `POST /api/submit`
+   （`{"submissionId":38506}`）后服务端正常接单。窗口在窗口服务器里存在（1180×820，
+   位置 732,241），只是 `onscreen=0`（锁屏）。
+2. **同一套代码路径的自动化**：`PITTA_LIVE` / `PITTA_E2E` / `PITTA_APPROVAL` 三组用例直接驱动
+   `App.watch`、`sendText`、`approvalBar`，对着真桥跑通发送、流式、审批（见 §2）。这两层加起来
+   覆盖了"装好的二进制能连真后端"和"主流程在真后端可用"，缺的只有"手指点到窗口上"这一环。
+
+真窗口的界面证据来自更早的会话（当时屏幕是醒的、窗口在前台）：`docs/manual-checks/` 里的
+`58-click-switches-chat.png`、`59-typing.png`、`60-shift-enter.png`、`63-follow-newest.png`
+等，配合本轮修掉的死锁（`applyWait` 主线程自锁）之后重拍过一轮。
