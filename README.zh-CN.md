@@ -37,6 +37,7 @@
 | 完成提醒 | 答案只是**原地更新卡片**，飞书不会为"更新"推送通知。所以一轮超过 45 秒时，收尾会额外发一条短消息（`✅ 答完了 · 53s` + 结论前 60 字），这样锁屏也能收到；话题里的提问，这条也发在同一个话题里。`FEISHU_DONE_PING_SECONDS` 可调，设 0 关闭 |
 | 卡片状态 | 卡片顶部一直写着这轮处在哪：蓝 `⏳ 处理中` → 绿 `✅ 答完了`（续跑过一次写「续跑一次」）/ 绿 `✅ 目标达成`、橙 `⚠️ 目标未达成`（模型用 `report_done` 声明了结果）/ 橙 `⏸️ 到了 80 步上限` / 灰 `⚠️ 这次没答出来 · 原因` / 红 `❌ 出错了`。飞书的 patch 是**整张重建**，所以每次刷新都重新带上 header，否则状态条会在第一次流式刷新后消失 |
 | 没答完能接着跑 | 橙卡和灰卡带一个「继续」按钮，点它在**同一张卡片**里续跑；连点只跑一次（注册表里先认领再提交）。卡片上的「继续」和 `durable chat` 里的 `/continue` 走同一条路径 |
+| 目标达成 / 未达成 | 色条上用哪个词由模型自己声明：干了活的一轮在回答前调 `report_done({ met, why })`，`why` 写怎么验证的（跑了什么、看到什么）或卡在哪。没声明就还是普通「答完了」——不声明不等于失败。这份声明卡片读一次、`app.turn-verdicts` 存一次，决策轨迹和早报里都能看到 |
 | 执行详情 | 步骤时间线默认折叠在卡片里（`本轮执行详情 · 5 步 · 62s · $0.0031`），不再单发一条「查看详情」消息；同一面板先列出**决策轨迹**：问了你什么、等了多久、你允许还是拒绝、为什么结束 |
 
 ### 运行时间线（参考 Detent UI / ThinkRail 的表达）
@@ -292,6 +293,11 @@ src/
   asr.ts           本地 whisper 转写（ffmpeg + whisper）
   access.ts        一个 chat 一个级别（closed/owner/group）+ guest 策略 + 主人私聊；guest.ts / allowed.ts 已合并进来
   diagnostics.ts   给 guest 用的两个只读工具：project_search（rg 限项目）、logs_query（SLS，prod 需主人本人）
+  decisions.ts     一轮的决策轨迹（问了什么、你答了什么、为什么结束）
+  done.ts          report_done 工具 + 卡片照抄的那个结论
+  verdicts.ts      结论环形缓冲，早报读它
+  digest.ts        每天一条的早报（结论 + 审计拼成），以及那个 sleep 的任务
+  ketchup.ts       `/ketchup` 的按需读取
   audit.ts         权限决定的环形审计（app.audit）：拒绝/级别变更/审批/查询
   surface-meta.ts / threads.ts / cards.ts / details.ts
   live.ts / log.ts / similar.ts / channel.ts / runtime-ref.ts / storage-lock.ts / models.ts
@@ -312,16 +318,13 @@ client/            MyGo 桌面 app
 | 场景 | 结果 |
 |---|---|
 | 崩溃续跑 | `sleep 10` 跑到一半 `kill -9`，新进程把工具调用标为中断，模型改后台重跑并答完 |
-| 跨进程提醒 | A 进程设 45s 提醒后退出，B 进程打开同一 storage，到点照样触发 |
-| 重启保持 | conversation id、记忆、会话↔项目映射、会话↔卡片登记都不变 |
-| 重启不重投 | 重启后一张「本轮还在跑」的卡片不会把上一轮的答案再发一遍：认领（`live→delivering`）在 transaction 里，两个进程只有一个能拿到 |
+| 重启保持 | conversation id、记忆、会话↔项目映射、会话↔卡片登记都不变；不重投，因为认领（`live→delivering`）在 transaction 里，两个进程只有一个能拿到 |
 | pid 被复用 | `.data/agent.owner` 里的 pid 已被别的进程占用时照常启动（`ps` 校验命令行为 `node … main.ts` 才拦） |
 | 工具审批 | `rm -rf` 被拦 → 飞书卡片点「允许」/ 客户端 API 允许 → 工具真实执行；等待时长计入时间线 |
 | worktree 隔离 | 会话 A 写文件，主树与其他会话看不到；合并 `--no-ff` 后出现在主树 |
-| 未合并保护 | 清理 worktree 时分支有未合并提交 → `unmerged, commits:1` 拒绝 |
-| 图片 | 飞书 `post` 图文消息 → 下载 60KB JPEG → 模型准确描述截图内容 |
-| 子 agent | designer → implementer → tester 全跑通，`33 passed`；子会话独立计费、崩了续跑 |
-| 存储写者锁 | 第二个进程 `openRuntime()` 直接报 `storage … is owned by pid N` |
+| 子 agent | designer → implementer → tester 全跑通；子会话独立计费、崩了续跑 |
+
+其余的证词 —— 图片识别、未合并保护、存储写者锁、58 条守卫用例 —— 在 `evals/` 和 `tests/` 里，是跑出来的，不是写出来的。
 
 ---
 
