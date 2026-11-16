@@ -146,3 +146,4 @@ $ go test ./internal/i18n -run TestEveryLiteralKeyExists -v
 | `TestPreviewZoomStepsAndClamps` | 图片查看器 +/1:1 与 0.5×–4× 夹取 |
 | `TestStepsHangOffARoundedRail` | 步骤时间轴是 2px 圆角轨（1px 边框会红） |
 | `TestAttentionSoundsOncePerWait` | 审批提醒只响一次，结束时通知取消 |
+真窗口这一轮拍不到（显示器休眠，`CGWindowList` 里窗口 `onscreen=false`），时间轴与图片缩放的证据改用仓库内的快照：`docs/snapshots/turn-{light,dark}.png`（`TestSnapshotTurn`，`PITTA_SNAPSHOT_DIR=../../docs/snapshots`）。
