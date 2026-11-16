@@ -39,7 +39,7 @@ A patch in Feishu rebuilds the whole card, so the status band has to be sent wit
 | grey `No answer this time · reason` | ended without an answer |
 | red `Failed` | the turn threw |
 
-The orange and grey cards carry a **Continue** button: it runs the same turn again inside the *same card*, and a double tap still starts only one turn. The card's Continue and `/continue` in `durable chat` are the same path. A turn's steps fold into the card as `Turn details · 5 steps · 62s · $0.0031`, so there is no second "view details" message.
+The orange and grey cards carry a **Continue** button: it runs the same turn again inside the *same card*, and a double tap still starts only one turn. The card's Continue and `/continue` in `durable chat` are the same path. A turn's steps fold into the card as `Turn details · 5 steps · 62s · $0.0031`, so there is no second "view details" message. The same panel opens with the turn's **decision trail** — what had to be asked, how long it waited, whether you allowed it, why it ended — because "what ran" does not explain a two-minute pause.
 
 ### The run timeline
 
