@@ -284,3 +284,22 @@ $ ls ~/Library/Logs/DiagnosticReports/*Pitta* | wc -l          → 0
 真窗口的界面证据来自更早的会话（当时屏幕是醒的、窗口在前台）：`docs/manual-checks/` 里的
 `58-click-switches-chat.png`、`59-typing.png`、`60-shift-enter.png`、`63-follow-newest.png`
 等，配合本轮修掉的死锁（`applyWait` 主线程自锁）之后重拍过一轮。
+
+### 8. 历史整理（2026-11-17）
+
+审计指出两个提交把两件事混在了一起（`eec197c` = composer 输入历史 + rail 键盘导航，
+`eb5f64a` = 文件高亮 + 其他项目折叠），回滚任一提交会同时撤掉两个功能。已重排为
+`8cfe713`（输入历史）、`72d9426`（rail 导航与置顶/归档快捷键）、`51b1c5f`（文件高亮）、
+`b2bdcb1`（折叠记忆）四个提交，各自只碰自己的文件：
+
+```
+$ git show --stat --format=%s 72d9426
+  client-go/internal/app/app.go          |  8 ++
+  client-go/internal/app/railnav.go      | 59 +++
+  client-go/internal/app/railnav_test.go | 83 +++
+  client-go/internal/app/shortcuts.go    |  4 ++
+```
+
+重排后逐个看过：四个提交各自 `go build ./...` 通过（`8cfe713`/`72d9426`/`51b1c5f`/`b2bdcb1`
+各在独立 worktree 里跑过 `go build`，后两个还跑了 `go vet`），重排后的树与重排前
+（`dd7d055`）逐字节相同（`git diff dd7d055 --stat` 为空），`go test ./internal/...` 仍 12 包全绿。
