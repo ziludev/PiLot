@@ -288,3 +288,9 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 - **⌘W 关窗**：`OnWindowShortcut(ui.Cmd, ui.KeyW)` → `win.Close()`，与红点同一条路径；关闭时 `savePrefsNow()` 同步落盘（最后会话、左右栏宽度、收藏、未读），不依赖「下一帧再写」的惰性写盘。
 - **多窗口同步会话列表**：`internal/app/hub.go` 的 `surfaceHub` 让每个窗口在 `loadState` 后 `broadcastSurfaces`，其他窗口收到后替换 `surfaces` 并刷新标题；窗口关闭时 `unsubscribeSurfaces`。归档/新会话再不会只在一个窗口里生效。
 - 快捷键面板增到 12 条（加 ⌘W）。
+### 2026-11 窗口位置、⌘Q 确认、审批跨窗口同步（第 38 轮）
+
+- **窗口 frame 记忆**：`prefs` 增 `windowX/Y/W/H`，关闭时 `rememberFrame` 写入、启动时 `restoreFrame` 还原；坐标 (0,0) 视为「从未放置」，交给窗口管理器决定。
+- **⌘Q 有回合在跑时先确认**：`askQuit` 检查 `busy`/`live.Run`/任务状态（running/queued/pending/waiting），有活就弹 Modal（`A turn is still running`），确认后 `savePrefsNow()` + `mygo.App.Quit()`。文案是常量而非 i18n 键，因为字典要与 `client/src/i18n.ts` 保持同键。
+- **审批在两个窗口间同步**：`broadcastApprovals` 与 `broadcastSurfaces` 同一个 hub，审批列表变化立即推到其他窗口（含角标与标题刷新），不必等各自的 5 秒轮询。
+- 快捷键面板 13 条（加 ⌘Q）。

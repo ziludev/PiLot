@@ -26,6 +26,12 @@ type prefs struct {
 	// LastChat is the chat that was open when the app last quit, so a restart
 	// lands where the reader left off instead of at the newest chat.
 	LastChat int `json:"lastChat,omitempty"`
+	// The window's frame, so a restart lands on the same screen at the same
+	// size instead of wherever the window manager puts it.
+	WindowX float32 `json:"windowX,omitempty"`
+	WindowY float32 `json:"windowY,omitempty"`
+	WindowW float32 `json:"windowW,omitempty"`
+	WindowH float32 `json:"windowH,omitempty"`
 }
 
 // prefsPath is ~/.pitta/ui.json, next to the app's own state.
@@ -98,6 +104,7 @@ func (a *App) savePrefsLater() {
 	p.Recents = a.modelsRecent
 	p.Unread = a.unreadIDs()
 	p.LastChat = a.currentValue()
+	a.rememberFrame(&p)
 	go savePrefs(p)
 }
 
@@ -117,5 +124,6 @@ func (a *App) savePrefsNow() {
 	p.Recents = a.modelsRecent
 	p.Unread = a.unreadIDs()
 	p.LastChat = a.currentValue()
+	a.rememberFrame(&p)
 	savePrefs(p)
 }

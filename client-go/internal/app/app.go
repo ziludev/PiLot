@@ -144,8 +144,10 @@ type App struct {
 	previewScale     float32
 	// seenApprovals remembers which waits have already sounded the alert, and
 	// waitingAlert remembers that one is still running.
-	seenApprovals  map[string]bool
-	waitingAlert   bool
+	seenApprovals map[string]bool
+	waitingAlert  bool
+	// quitAsk holds the ⌘Q confirmation open while a turn is still running.
+	quitAsk        bool
 	atBottom       bool
 	stickToBottom  bool
 	scrollY        float32
@@ -340,6 +342,7 @@ func (a *App) Attach(win *mygo.Window) {
 		unsubscribeSurfaces(a)
 	})
 	subscribeSurfaces(a)
+	a.restoreFrame()
 	go a.tickTitle()
 	win.OnFocus(func() {
 		a.apply(func() {
@@ -807,6 +810,7 @@ func (a *App) View(c *ui.Context) {
 	}
 	// ⌘W closes the window the way the red button does, which is what a
 	// desktop app's owner expects from the key.
+	c.OnWindowShortcut(ui.Cmd, ui.KeyQ, func() { a.askQuit() })
 	c.OnWindowShortcut(ui.Cmd, ui.KeyW, func() {
 		if a.win != nil {
 			a.win.Close()
@@ -831,6 +835,7 @@ func (a *App) View(c *ui.Context) {
 	a.switcherDialog(c, t)
 	a.chatMenuDialog(c, t)
 	a.taskDialog(c)
+	a.quitDialog(c, t)
 	a.shortcutsDialog(c, t)
 	a.imageDialog(c, t)
 	a.previewDialog(c, t)
