@@ -15,6 +15,11 @@ a round crimped pie seen from above, two pill eyes on it.
 | `pie-thinking.gif` | Same loop length, eyes shifted — use while a job runs. |
 | `pie-happy.gif` | Same loop length, happy arcs — use when it finished. |
 | `pie-states.gif` | All three in one loop (3 s, 48 frames), for a single place that has only one slot. |
+| `pie-state-idle.gif` | The run-state set, drawn here rather than exported from the renderer: idle — breathing, one blink per loop. |
+| `pie-state-working.gif` | **A flame on the crust**: a turn is running. Two out-of-step waves drive the flicker, so it never looks like a metronome. |
+| `pie-state-done.gif` | Happy arcs and one warm beat — the turn settled. |
+| `pie-state-stalled.gif` | The flame dies into smoke and the eyes go flat — nothing is coming. |
+| `pie-states-all.gif` | The four in one loop (6.5 s, 104 frames, 192 px). |
 
 The crimped rim is what makes it a pie rather than a cookie or a blob, and it is the one cue worth
 keeping: the outline carries the recognition, since the renderer paints a single flat colour.
@@ -26,6 +31,13 @@ alike, and a filled square just becomes a second frame.
 The GIFs render the renderer's three moods frame by frame with `time` and `motion`; the combined one
 blends over the first 0.4 s of each switch. Frames share one palette so a loop does not shimmer. GIF transparency is a single bit,
 so the frames are composited on white: an anti-aliased edge would fringe against any other colour.
+
+The `pie-state-*.gif` set answers a different question than the renderer's three moods: what is the
+agent *doing*, at a glance, from a corner of a screen. Fire is the whole vocabulary — lit means a turn
+is live, out means it is not — so the pie itself never has to change shape. `states.html` is the
+source (one page, the state and frame in the URL hash) and `scripts/render-avatar-states` renders it
+frame by frame with headless Chrome; the animation is computed from the frame number, so 26 separate
+launches still make one seamless loop.
 
 The desktop client renders the same definition live: `client/src/lib/avatar.ts` holds a copy of
 `pie.json`, and `client/src/components/BotAvatar.tsx` mounts the renderer's canvas — thinking while a

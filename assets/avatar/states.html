@@ -1,0 +1,202 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; background: #fff; }
+  svg { display: block; }
+</style>
+</head>
+<body>
+<svg id="stage" width="256" height="256" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FFB347" stop-opacity="0.55"/>
+      <stop offset="0.55" stop-color="#F97316" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#F97316" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="flame" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#F97316"/>
+      <stop offset="0.55" stop-color="#FB923C"/>
+      <stop offset="1" stop-color="#FDE68A"/>
+    </linearGradient>
+    <linearGradient id="flameCore" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#FDE68A"/>
+      <stop offset="1" stop-color="#FFFBEB"/>
+    </linearGradient>
+  </defs>
+
+  <circle id="halo" cx="50" cy="59" r="34" fill="url(#glow)" opacity="0"/>
+
+  <!-- flame, drawn behind the pie so its base looks lit from inside -->
+  <g id="fire" opacity="0">
+    <path id="flameOuter" fill="url(#flame)"/>
+    <path id="flameInner" fill="url(#flameCore)"/>
+    <circle id="ember1" r="1.5" fill="#FDBA74"/>
+    <circle id="ember2" r="1.1" fill="#FCD34D"/>
+    <circle id="ember3" r="0.9" fill="#FDBA74"/>
+  </g>
+
+  <g id="smoke" opacity="0">
+    <circle id="puff1" fill="#9CA3AF"/>
+    <circle id="puff2" fill="#B6BCC6"/>
+    <circle id="puff3" fill="#C9CED6"/>
+  </g>
+
+  <g id="body">
+    <ellipse id="rimLight" cx="50" cy="26" rx="16" ry="7" fill="#FFC46B" opacity="0"/>
+    <path id="pie" fill="#E8A33D"/>
+    <g id="eyes" fill="#2A1A0C">
+      <rect id="eyeL" rx="2.2"/>
+      <rect id="eyeR" rx="2.2"/>
+    </g>
+    <g id="happyEyes" fill="none" stroke="#2A1A0C" stroke-width="2.1" stroke-linecap="round" opacity="0">
+      <path id="arcL"/>
+      <path id="arcR"/>
+    </g>
+    <g id="flatEyes" stroke="#2A1A0C" stroke-width="2.1" stroke-linecap="round" opacity="0">
+      <line id="lineL"/>
+      <line id="lineR"/>
+    </g>
+  </g>
+</svg>
+<script>
+const BODY = "M50 11 C55 11 57 15 60 16 C64 17 66 13 70 16 C75 19 74 24 78 27 C82 30 87 28 89 33 C91 38 86 42 86 46 C86 51 91 54 88 59 C85 64 80 63 78 68 C76 73 81 77 77 82 C73 87 68 83 63 84 C58 85 57 90 51 90 C45 90 43 85 38 84 C33 83 29 88 24 84 C19 80 23 75 19 71 C15 67 10 68 9 62 C8 56 14 53 14 48 C14 43 9 39 12 34 C15 29 20 31 23 27 C26 23 22 18 27 14 C32 10 37 16 42 15 C46 14 46 11 50 11 Z";
+const EYE_W = 5.2, EYE_H = 11.4, EYE_Y = 43.6, EYE_DX = 8.4;
+
+const [$] = [id => document.getElementById(id)];
+const el = id => document.getElementById(id);
+el("pie").setAttribute("d", BODY);
+
+function setEyes(gap, h, y) {
+  for (const [id, sign] of [["eyeL", -1], ["eyeR", 1]]) {
+    const eye = el(id);
+    eye.setAttribute("x", 50 + sign * gap - EYE_W / 2);
+    eye.setAttribute("y", y);
+    eye.setAttribute("width", EYE_W);
+    eye.setAttribute("height", h);
+  }
+}
+
+// A flame silhouette: wide base, one curl to the side, a narrow tip.
+function flamePath(cx, baseY, w, h, lean) {
+  const halfW = w / 2;
+  return `M${cx} ${baseY - h}
+    C${cx + lean * 0.6} ${baseY - h * 0.62} ${cx + halfW} ${baseY - h * 0.5} ${cx + halfW} ${baseY - h * 0.28}
+    C${cx + halfW} ${baseY - h * 0.06} ${cx + halfW * 0.55} ${baseY} ${cx} ${baseY}
+    C${cx - halfW * 0.55} ${baseY} ${cx - halfW} ${baseY - h * 0.06} ${cx - halfW} ${baseY - h * 0.24}
+    C${cx - halfW} ${baseY - h * 0.46} ${cx - lean * 0.5} ${baseY - h * 0.58} ${cx} ${baseY - h} Z`;
+}
+
+const state = (location.hash.slice(1) || "working/0").split("/")[0];
+const frame = Number((location.hash.split("/")[1] || "0"));
+const TOTAL = 26;
+// The pie keeps the lower two thirds; the flame needs the top third, and content
+// outside the 0..100 viewBox is clipped by the svg root.
+const PIE_SHIFT = 9, PIE_SCALE = 0.86;
+const phase = (frame % TOTAL) / TOTAL * Math.PI * 2;
+
+function showEyes(mode) {
+  el("eyes").setAttribute("opacity", mode === "pills" ? 1 : 0);
+  el("happyEyes").setAttribute("opacity", mode === "happy" ? 1 : 0);
+  el("flatEyes").setAttribute("opacity", mode === "flat" ? 1 : 0);
+  for (const [id, sign] of [["arcL", -1], ["arcR", 1]]) {
+    const x = 50 + sign * EYE_DX;
+    el(id).setAttribute("d", `M${x - 3.4} ${EYE_Y + 6} Q${x} ${EYE_Y - 1} ${x + 3.4} ${EYE_Y + 6}`);
+  }
+  for (const [id, sign] of [["lineL", -1], ["lineR", 1]]) {
+    const x = 50 + sign * EYE_DX;
+    el(id).setAttribute("x1", x - 2.8);
+    el(id).setAttribute("x2", x + 2.8);
+    el(id).setAttribute("y1", EYE_Y + 5);
+    el(id).setAttribute("y2", EYE_Y + 5);
+  }
+}
+
+function blink(rate) {
+  // one blink per loop; scaleY collapses over three frames
+  const at = Math.abs(((frame / TOTAL) - rate + 0.5) % 1 - 0.5);
+  return at < 0.06 ? 0.12 : 1;
+}
+
+function render() {
+  const breath = 1 + Math.sin(phase) * 0.015;
+  let bodyScaleY = breath, bodyScaleX = 1 + Math.sin(phase) * 0.008;
+  let dy = 0;
+
+  if (state === "idle") {
+    showEyes("pills");
+    setEyes(EYE_DX, EYE_H * blink(0.55), EYE_Y + (EYE_H - EYE_H * blink(0.55)) / 2);
+    el("halo").setAttribute("opacity", 0);
+    el("fire").setAttribute("opacity", 0);
+    el("smoke").setAttribute("opacity", 0);
+  }
+
+  if (state === "working") {
+    showEyes("pills");
+    setEyes(EYE_DX, EYE_H * blink(0.8), EYE_Y + (EYE_H - EYE_H * blink(0.8)) / 2);
+    // two out-of-step waves keep the fire from looking like a metronome
+    const f1 = Math.sin(phase * 2), f2 = Math.sin(phase * 3 + 1.1);
+    const h = 25 + f1 * 2.8 + f2 * 1.4;
+    const w = 18 + f2 * 1.8;
+    const lean = f1 * 1.8;
+    el("flameOuter").setAttribute("d", flamePath(50, 26, w, h, lean));
+    el("flameInner").setAttribute("d", flamePath(50, 25.4, w * 0.52, h * 0.58, lean * 0.6));
+    el("fire").setAttribute("opacity", 1);
+    el("halo").setAttribute("opacity", 0.55 + f1 * 0.18);
+    el("halo").setAttribute("r", 30 + f1 * 1.4);
+    el("rimLight").setAttribute("opacity", 0.5 + f1 * 0.22);
+    el("rimLight").setAttribute("rx", 15 + f2 * 1.2);
+    const embers = [["ember1", 0], ["ember2", 0.34], ["ember3", 0.67]];
+    for (const [id, offset] of embers) {
+      const t = ((frame / TOTAL) + offset) % 1;
+      const node = el(id);
+      node.setAttribute("cx", 50 + Math.sin(t * 7 + offset * 9) * (3 + t * 5));
+      node.setAttribute("cy", 21 - t * 16);
+      node.setAttribute("opacity", t < 0.15 ? t / 0.15 * 0.9 : 0.9 * (1 - (t - 0.15) / 0.85));
+    }
+    el("smoke").setAttribute("opacity", 0);
+  }
+
+  if (state === "done") {
+    showEyes("happy");
+    const beat = Math.sin(phase) * 0.5 + 0.5;
+    bodyScaleY = 1 + beat * 0.06;
+    bodyScaleX = 1 + beat * 0.03;
+    dy = -beat * 2.2;
+    el("fire").setAttribute("opacity", 0);
+    el("smoke").setAttribute("opacity", 0);
+    el("halo").setAttribute("opacity", 0.35 + beat * 0.3);
+    el("halo").setAttribute("r", 30 + beat * 3);
+  }
+
+  if (state === "stalled") {
+    showEyes("flat");
+    const t = (frame % TOTAL) / TOTAL;
+    // the fire dies over the loop and leaves smoke: the agent is not doing anything
+    const fade = Math.max(0, 1 - t / 0.45);
+    el("flameOuter").setAttribute("d", flamePath(50, 26, 15 - t * 7, Math.max(0.1, 13 * fade), 1));
+    el("flameInner").setAttribute("d", flamePath(50, 25.4, 7, Math.max(0.1, 6 * fade), 0));
+    el("fire").setAttribute("opacity", fade);
+    el("halo").setAttribute("opacity", 0);
+    el("smoke").setAttribute("opacity", 1);
+    const puffs = [["puff1", 0, 2.6], ["puff2", 0.3, 3.4], ["puff3", 0.6, 2.2]];
+    for (const [id, offset, r] of puffs) {
+      const st = (t + offset) % 1;
+      const node = el(id);
+      node.setAttribute("cx", 50 + Math.sin(st * 6 + offset * 5) * (2 + st * 6));
+      node.setAttribute("cy", 25 - st * 20);
+      node.setAttribute("r", r * (0.5 + st));
+      node.setAttribute("opacity", st < 0.2 ? st / 0.2 * 0.5 : 0.5 * (1 - (st - 0.2) / 0.8));
+    }
+  }
+
+  const g = el("body");
+  g.setAttribute("transform",
+    `translate(50 ${52 + dy + PIE_SHIFT}) scale(${PIE_SCALE * bodyScaleX} ${PIE_SCALE * bodyScaleY}) translate(-50 -52)`);
+}
+
+render();
+</script>
+</body>
+</html>

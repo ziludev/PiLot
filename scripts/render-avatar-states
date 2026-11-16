@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Renders assets/avatar/pie-state-*.gif from assets/avatar/states.html.
+#
+# The page reads the state and the frame number from its URL hash (#working/7), so every frame is
+# one deterministic screenshot: no screen capture, no timing jitter, and the loop is exact. The
+# animation itself is computed from the frame number, never from wall-clock time, which is what
+# lets 26 separate Chrome launches produce a single seamless GIF.
+#
+# Usage: scripts/render-avatar-states        # needs Google Chrome + ffmpeg
+set -euo pipefail
+
+CHROME=${CHROME:-"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"}
+root=$(cd "$(dirname "$0")/.." && pwd)
+page="file://$root/assets/avatar/states.html"
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+FRAMES=26
+SIZE=256
+STATES=(idle working done stalled)
+
+for state in "${STATES[@]}"; do
+  for frame in $(seq 0 $((FRAMES - 1))); do
+    "$CHROME" --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=2 \
+      --window-size="$SIZE,$SIZE" --virtual-time-budget=400 \
+      --screenshot="$work/$state-$(printf %02d "$frame").png" "$page#$state/$frame" >/dev/null 2>&1
+  done
+  ffmpeg -y -v error -framerate 16 -i "$work/$state-%02d.png" \
+    -vf "scale=$SIZE:$SIZE:flags=lanczos,split[a][b];[a]palettegen=max_colors=160:stats_mode=diff[p];[b][p]paletteuse=dither=none" \
+    -loop 0 "$root/assets/avatar/pie-state-$state.gif"
+  echo "assets/avatar/pie-state-$state.gif"
+done
+
+# One loop with all four states, for a place that has a single slot.
+i=0
+for state in "${STATES[@]}"; do
+  for frame in $(seq 0 $((FRAMES - 1))); do
+    cp "$work/$state-$(printf %02d "$frame").png" "$work/all-$(printf %03d "$i").png"
+    i=$((i + 1))
+  done
+done
+ffmpeg -y -v error -framerate 16 -i "$work/all-%03d.png" \
+  -vf "scale=192:192:flags=lanczos,split[a][b];[a]palettegen=max_colors=160:stats_mode=diff[p];[b][p]paletteuse=dither=none" \
+  -loop 0 "$root/assets/avatar/pie-states-all.gif"
+echo "assets/avatar/pie-states-all.gif"
