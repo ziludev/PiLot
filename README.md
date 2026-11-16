@@ -11,7 +11,7 @@ A personal assistant that runs on [Pi Durable](https://earendil.com/posts/pi-dur
 - **Engine** — `@earendil-works/pi-durable` 1.5.2. Every model request, tool call and compaction is a durable task that checkpoints before it runs. `kill -9` mid-turn, restart, and it continues from where it stopped.
 - **Models** — `@earendil-works/pi-ai`. Any built-in provider; model and thinking level are switchable per conversation.
 - **Storage** — one SQLite file (`.data/agent.sqlite`), one writer process, restored as-is on restart.
-- **Three surfaces** — a Feishu app (long connection: no public IP, domain or certificate), a MyGo desktop app (Go window + React), and the `durable` CLI.
+- **Three surfaces** — a Feishu app (long connection: no public IP, domain or certificate), a MyGo desktop app (Go window + React, with a native Go twin under `client-go/`), and the `durable` CLI.
 
 ![Three surfaces, one process, one SQLite file](assets/readme/architecture.svg)
 
@@ -257,6 +257,7 @@ src/
 evals/             the offline bench: guard (approval decisions) and contract (config ↔ .env.example ↔ README)
 docs/              the one page with edges: the Feishu console, by menu, with the failures each row causes
 client/            MyGo app: main.go (window and bindings) + src/ (Transcript, TurnRail, Composer, SidePanel, store)
+client-go/         the same client drawn in Go: mygo/ui on Metal, no webview (README there)
 ```
 
 ## Behaviours that have been observed
