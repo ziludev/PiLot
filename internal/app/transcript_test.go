@@ -179,3 +179,38 @@ func TestFindBarStepsThroughMatches(t *testing.T) {
 		t.Fatalf("stepping before the start did not wrap: %d", got)
 	}
 }
+
+// TestFindBarJumpsToAnOldTurn checks the window follows the selected match, so
+// a hit 200 turns back is drawn instead of staying outside the window.
+func TestFindBarJumpsToAnOldTurn(t *testing.T) {
+	a := New(Config{})
+	a.previewImage = -1
+	for i := 0; i < 200; i++ {
+		question, answer := "question "+itoa(i), "answer "+itoa(i)
+		if i == 3 {
+			answer = "the needle sits here"
+		}
+		a.entries = append(a.entries, turnEntries(i*2+1, question, answer)...)
+	}
+	a.convQuery = "needle"
+	a.convMatches = a.searchTurns()
+	if len(a.convMatches) != 1 {
+		t.Fatalf("matches = %v, want 1", a.convMatches)
+	}
+
+	tt := ui.NewTester(func(c *ui.Context) { a.transcript(c) }, 900, 700)
+	tt.Frame()
+	if !tt.HasText("the needle sits here") {
+		t.Fatal("matched turn not drawn")
+	}
+	if tt.HasText("answer 199") {
+		t.Fatal("window did not move to the match")
+	}
+
+	// Clicking the earlier-turns button grows the window and keeps the match.
+	tt.Click("earlier turns")
+	tt.Frame()
+	if !tt.HasText("the needle sits here") {
+		t.Fatal("match lost after widening the window")
+	}
+}

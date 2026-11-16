@@ -26,8 +26,22 @@ func (a *App) transcript(c *ui.Context) {
 	if window <= 0 || window > len(built) {
 		window = len(built)
 	}
-	hidden := len(built) - window
-	start := hidden
+	start := len(built) - window
+	// A find hit moves the window instead of the scroll offset: turn heights
+	// vary, so the only reliable way to land on a turn is to draw it.
+	if index := a.focusedTurn(); index >= 0 {
+		if start = index - window/2; start < 0 {
+			start = 0
+		}
+		if start+window > len(built) {
+			start = len(built) - window
+		}
+	}
+	hidden := start
+	end := start + window
+	if end > len(built) {
+		end = len(built)
+	}
 	ui.Scroll(c).Fill().Children(func() {
 		ui.Column(c).Fill().Padding(16, 20).Gap(14).Children(func() {
 			if len(built) == 0 {
@@ -45,7 +59,7 @@ func (a *App) transcript(c *ui.Context) {
 						})
 					})
 			}
-			for i := start; i < len(built); i++ {
+			for i := start; i < end; i++ {
 				turn := &built[i]
 				live := i == len(built)-1 && a.live != nil && turn.Status(a.live) == turns.StatusRunning
 				a.turnBlock(c, t, turn, live, i == a.focusedTurn())
