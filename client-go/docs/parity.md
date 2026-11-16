@@ -269,3 +269,10 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 - **`⌘↑`/`⌘↓` 翻页**：按视口高度的 85% 滚动；注意跟随末尾时 `transcriptScroll.Y` 停在 `MaxFloat32`，必须以 `scrollMaxY` 为起点计算，且要把 `stickToBottom` 一并关掉，否则下一帧会弹回底部。
 - 快捷键面板同步（10 条）。
 - §3 的两行过时描述已修：`motion.ts` 早已由 `internal/motion` 承接（不再是「未实现」），i18n 键数 183 → 186。
+
+### 2026-11 光标、滑页、⌘1…⌘9（第 35 轮）
+
+- **流式光标**：`StateStreaming` 时流式卡片末尾有 6×13 的方光标，按 1060ms 周期明灭（`Element.Loop`），比单转 Spinner 更能说明"还在写"。
+- **`⌘↑`/`⌘↓` 平滑翻页**：180ms `EaseOut` 滑行；`pageGliding` 期间 `followScroll` 让位，落地后恢复判断。
+- **`⌘1`…`⌘9`**：按 rail 里会话的顺序直达前九个（`chatForQuickKey`），不足九个时按到空号不做任何事。
+- 快捷键面板同步为 11 条。

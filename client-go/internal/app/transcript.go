@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
@@ -408,8 +409,19 @@ func (a *App) liveLine(c *ui.Context, t theme.Tokens, turn *turns.Turn) {
 		if strings.TrimSpace(state.Text) != "" {
 			// Stream, not View: half-written Markdown must not flicker between
 			// frames as the parser re-reads it.
-			ui.Column(c).Fill().Padding(8, 12).Radius(12).Border(1, t.Border).Background(t.Card).Children(func() {
+			body := ui.Column(c).Fill().Padding(8, 12).Radius(12).Border(1, t.Border).Background(t.Card)
+			body.Children(func() {
 				markdown.Stream(c, state.Text, &a.md)
+				// A caret at the end of the streaming text says the agent is
+				// still writing, where a spinner alone only says "busy". It
+				// blinks at the speed of a text cursor, and Loop keeps the
+				// frames coming while it is built.
+				if state.Kind == turns.StateStreaming {
+					if blink := body.Loop("caret", 1060*time.Millisecond, ui.Linear); blink < 0.5 {
+						ui.Box(c).Width(6).Height(13).Radius(1).Background(t.Primary).
+							AlignSelf(ui.Start)
+					}
+				}
 			})
 		}
 	})
@@ -536,6 +548,15 @@ func (a *App) jumpBar(c *ui.Context) {
 // :286 jumps to the end whenever entries grow.
 func (a *App) followScroll() {
 	state := &a.transcriptScroll
+	if a.pageGliding {
+		// A page is on its way: let the glide land before deciding whether the
+		// transcript follows its end again.
+		if state.Scrolling() {
+			a.invalidate()
+			return
+		}
+		a.pageGliding = false
+	}
 	if state.MaxY <= 0 {
 		// Content that fits the pane cannot be scrolled away from.
 		a.atBottom, a.stickToBottom, a.newMessages = true, true, 0

@@ -26,6 +26,12 @@ mygo 版本：v0.9.1（`go.mod`）。结论先行：**动效本身 mygo 完全�
 - 图标按钮 / 消息操作按钮 / 命中回合边框用 `motion.Hover()` 做颜色过渡。
 - 不做的：查找条不加过渡（进入动画移动输入框时首帧按键会丢）。
 
+### 第 35 轮
+
+- **流式光标**：`turn.State` 为 `StateStreaming` 时，在流式卡片末尾画 6×13 的方光标，`Loop("caret", 1060ms, ui.Linear) < 0.5` 决定明灭（`Loop` 会持续请求帧，所以不需要额外定时器）。测试 `TestStreamingCaretBlinks` 只数光标所在窄带里的主色像素，避开上方 Spinner 的干扰。
+- **`⌘↑`/`⌘↓` 改滑动**：`ScrollTo(180ms, EaseOut)` + `pageGliding` 标志；`followScroll` 在 glide 期间直接 return（否则会在下一帧把位置弹回底部），落地后再决定是否继续跟随。`ScrollState.Scrolling()` 是判据。
+- **会话行的退出动画仍不做**：`ui.List` 复用行元素，`Transition` 挂在行上会出现重复行与白块（第 25 轮踩过），归档消失保持硬切。
+
 ## 2. 可以复刻，尚未做（TODO）
 
 | 项 | React | mygo 手法 | 优先级 |

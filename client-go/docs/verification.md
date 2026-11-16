@@ -141,3 +141,5 @@ $ go test ./internal/i18n -run TestEveryLiteralKeyExists -v
 | `TestModelPaletteAnimatesIn` | 模型面板 280ms 滑入（同一行文字在动画中途位置更低） |
 | `TestSidePanelTabRises` | 右栏切标签时内容上浮进入 |
 | `TestApprovalBarSlidesIn` | 审批条滑入而非两帧之间出现 |
+| `TestStreamingCaretBlinks` | 流式回答末尾的光标明灭（只统计光标窄带的主色像素） |
+| `TestQuickKeysSwitchTheFirstChats` | ⌘2 切到 rail 第二个会话；不足九个时 ⌘9 无动作 |
