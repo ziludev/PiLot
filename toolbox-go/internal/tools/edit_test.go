@@ -219,7 +219,7 @@ func TestReadOffsetAndLimit(t *testing.T) {
 	dir := t.TempDir()
 	path := writeFixture(t, dir, "lines.txt", "1\n2\n3\n4\n5\n")
 	srv := newTestServer(t)
-	offset, limit := 2, 2
+	offset, limit := 2.0, 2.0
 	out, err := callTool(t, srv, "read", ReadArgs{Path: path, Offset: &offset, Limit: &limit}, dir)
 	if err != nil {
 		t.Fatalf("read: %v", err)
@@ -273,7 +273,7 @@ func TestReadOffsetBeyondEnd(t *testing.T) {
 	dir := t.TempDir()
 	path := writeFixture(t, dir, "short.txt", "a\nb\n")
 	srv := newTestServer(t)
-	offset := 9
+	offset := 9.0
 	_, err := callTool(t, srv, "read", ReadArgs{Path: path, Offset: &offset}, dir)
 	if err == nil || err.Error() != "Offset 9 is beyond end of file (3 lines total)" {
 		t.Fatalf("err = %v", err)

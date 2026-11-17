@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -27,13 +28,13 @@ const (
 // ReadArgs mirrors the `read` tool's parameters plus the model facts the agent knows and the
 // file does not: whether the model takes images and the size limits it accepts.
 type ReadArgs struct {
-	Path           string `json:"path"`
-	Offset         *int   `json:"offset,omitempty"`
-	Limit          *int   `json:"limit,omitempty"`
-	Vision         *bool  `json:"vision,omitempty"`
-	MaxImageBytes  *int   `json:"maxImageBytes,omitempty"`
-	MaxImageWidth  *int   `json:"maxImageWidth,omitempty"`
-	MaxImageHeight *int   `json:"maxImageHeight,omitempty"`
+	Path           string   `json:"path"`
+	Offset         *float64 `json:"offset,omitempty"`
+	Limit          *float64 `json:"limit,omitempty"`
+	Vision         *bool    `json:"vision,omitempty"`
+	MaxImageBytes  *int     `json:"maxImageBytes,omitempty"`
+	MaxImageWidth  *int     `json:"maxImageWidth,omitempty"`
+	MaxImageHeight *int     `json:"maxImageHeight,omitempty"`
 }
 
 // ReadDiagnostic is one note about the result, in the agent's own vocabulary.
@@ -98,6 +99,7 @@ func RegisterRead(srv *server.Server) {
 	})
 }
 
+// readFileTool keeps the path as given in its messages; only the file system call is resolved.
 func readFileTool(absolutePath string, args ReadArgs) (ReadResult, error) {
 	raw, err := os.ReadFile(absolutePath)
 	if err != nil {
@@ -110,44 +112,45 @@ func readFileTool(absolutePath string, args ReadArgs) (ReadResult, error) {
 	return readText(args.Path, decodeFileUTF8(raw), args)
 }
 
+// readText mirrors pi-durable's readText, including the way it treats a fractional or zero offset:
+// the schema only promises numbers, so the arithmetic and the messages have to follow JavaScript.
 func readText(displayPath, text string, args ReadArgs) (ReadResult, error) {
-	offset := 0
+	offset := 0.0
 	if args.Offset != nil {
 		offset = *args.Offset
 	}
-	startLine := 0
+	startLine := 0.0
 	if offset != 0 {
-		startLine = offset - 1
-		if startLine < 0 {
-			startLine = 0
-		}
+		startLine = math.Max(0, offset-1)
 	}
+	startLineDisplay := startLine + 1
+	sliceStart := sliceIndex(startLine)
 	lines := splitFileLines(text)
 	totalFileLines := len(lines)
-	if startLine >= totalFileLines {
-		return ReadResult{}, fmt.Errorf("Offset %d is beyond end of file (%d lines total)", offset, totalFileLines)
+	if startLine >= float64(totalFileLines) {
+		return ReadResult{}, fmt.Errorf("Offset %s is beyond end of file (%d lines total)", jsNumber(offset), totalFileLines)
 	}
-	selectedLineCount := totalFileLines - startLine
-	var userLimitedLines *int
+	selectedLineCount := totalFileLines - sliceStart
+	var userLimitedLines *float64
 	if args.Limit != nil {
-		endLine := startLine + *args.Limit
-		if endLine > totalFileLines {
-			endLine = totalFileLines
-		}
-		if endLine < startLine {
-			endLine = startLine
-		}
+		endLine := math.Min(startLine+*args.Limit, float64(totalFileLines))
 		limited := endLine - startLine
 		userLimitedLines = &limited
-		selectedLineCount = limited
+		relativeEnd := sliceIndex(endLine)
+		sliceEnd := relativeEnd
+		if relativeEnd < 0 {
+			sliceEnd = maxInt(0, totalFileLines+relativeEnd)
+		}
+		selectedLineCount = maxInt(0, sliceEnd-sliceStart)
 	}
 	empty := selectedLineCount == 0
 	selected := []string(nil)
 	if !empty {
-		selected = lines[startLine : startLine+selectedLineCount]
+		from := minInt(maxInt(sliceStart, 0), len(lines))
+		to := minInt(from+selectedLineCount, len(lines))
+		selected = lines[from:to]
 	}
-	// scan.end is the end of the last selected line without its terminator, so the joined text is
-	// exactly the scanned range and its byte length is what the tool reports.
+	// The selected text is the lines joined with "\n", and its byte length is what the tool reports.
 	head := ""
 	if !empty {
 		head = strings.Join(selected, "\n")
@@ -175,29 +178,29 @@ func readText(displayPath, text string, args ReadArgs) (ReadResult, error) {
 	var details *ReadDetails
 	switch {
 	case truncation.FirstLineExceedsLimit:
-		integral := args.Offset == nil || *args.Offset != 0
-		lineBytes := ""
-		if integral {
-			lineBytes = strings.SplitN(head, "\n", 2)[0]
-		}
+		// A fractional start line names no line, so nothing of it is shown.
+		integral := startLine == math.Trunc(startLine)
+		lineText := ""
 		lineSize := 0
 		if integral {
+			lineText = strings.SplitN(head, "\n", 2)[0]
 			lineSize = firstLineBytes
 		}
-		end := characterEnd(lineBytes, defaultMaxBytes)
-		outputText = lineBytes[:end]
+		end := characterEnd(lineText, defaultMaxBytes)
+		outputText = lineText[:end]
 		diagnostics = append(diagnostics, ReadDiagnostic{
 			Severity: "warn",
 			Code:     "truncated",
-			Message: fmt.Sprintf("Line %d is %s, exceeds the %s limit; showing its first %s. Use bash: sed -n '%dp' %s | tail -c +%d",
-				startLine+1, formatSize(lineSize), formatSize(defaultMaxBytes), formatSize(end), startLine+1, displayPath, end+1),
+			Message: fmt.Sprintf("Line %s is %s, exceeds the %s limit; showing its first %s. Use bash: sed -n '%dp' %s | tail -c +%d",
+				jsNumber(startLineDisplay), formatSize(lineSize), formatSize(defaultMaxBytes), formatSize(end),
+				int(startLineDisplay), displayPath, end+1),
 		})
 		copied := truncation
 		copied.OutputBytes = end
 		copied.OutputLines = 1
 		details = &ReadDetails{Truncation: copied}
 	case truncation.Truncated:
-		endLineDisplay := startLine + 1 + truncation.OutputLines - 1
+		endLineDisplay := startLineDisplay + float64(truncation.OutputLines) - 1
 		nextOffset := endLineDisplay + 1
 		limitText := ""
 		if truncation.TruncatedBy != "lines" {
@@ -206,19 +209,35 @@ func readText(displayPath, text string, args ReadArgs) (ReadResult, error) {
 		diagnostics = append(diagnostics, ReadDiagnostic{
 			Severity: "info",
 			Code:     "truncated",
-			Message: fmt.Sprintf("Showing lines %d-%d of %d%s. Use offset=%d to continue.",
-				startLine+1, endLineDisplay, totalFileLines, limitText, nextOffset),
+			Message: fmt.Sprintf("Showing lines %s-%s of %d%s. Use offset=%s to continue.",
+				jsNumber(startLineDisplay), jsNumber(endLineDisplay), totalFileLines, limitText, jsNumber(nextOffset)),
 		})
 		details = &ReadDetails{Truncation: truncation}
-	case userLimitedLines != nil && startLine+*userLimitedLines < totalFileLines:
-		remaining := totalFileLines - (startLine + *userLimitedLines)
+	case userLimitedLines != nil && startLine+*userLimitedLines < float64(totalFileLines):
+		remaining := float64(totalFileLines) - (startLine + *userLimitedLines)
 		nextOffset := startLine + *userLimitedLines + 1
 		diagnostics = append(diagnostics, ReadDiagnostic{
 			Severity: "info",
-			Message:  fmt.Sprintf("%d more lines in file. Use offset=%d to continue.", remaining, nextOffset),
+			Message:  fmt.Sprintf("%s more lines in file. Use offset=%s to continue.", jsNumber(remaining), jsNumber(nextOffset)),
 		})
 	}
 	return ReadResult{Text: outputText, Diagnostics: diagnostics, Details: details}, nil
+}
+
+// sliceIndex is Array.prototype.slice's index conversion: NaN is 0, everything else truncates toward zero.
+func sliceIndex(value float64) int {
+	if math.IsNaN(value) {
+		return 0
+	}
+	return int(math.Trunc(value))
+}
+
+// jsNumber formats a number the way a JavaScript template literal would.
+func jsNumber(value float64) string {
+	if value == math.Trunc(value) && math.Abs(value) < 1e21 {
+		return strconv.FormatInt(int64(value), 10)
+	}
+	return strconv.FormatFloat(value, 'g', -1, 64)
 }
 
 // splitFileLines splits like the tool does: on "\n" only, so a CRLF file keeps its "\r" in the
@@ -319,18 +338,107 @@ func formatSize(bytes int) string {
 	}
 }
 
+// detectImageMimeType is pi-durable's detectSupportedImageMimeType: a signature alone is not enough
+// for PNG (it must be a still, well-formed one) or BMP (its header must parse), and an APNG or a
+// malformed header reads as text instead of an image.
 func detectImageMimeType(data []byte) string {
 	switch {
-	case len(data) > 8 && data[0] == 0x89 && string(data[1:4]) == "PNG":
-		return "image/png"
-	case len(data) > 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF:
+	case len(data) >= 4 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF:
+		// A fourth byte of 0xF7 marks a JPEG this tool cannot describe; Node reads it as text.
+		if data[3] == 0xF7 {
+			return ""
+		}
 		return "image/jpeg"
-	case len(data) > 6 && (string(data[:6]) == "GIF87a" || string(data[:6]) == "GIF89a"):
+	case hasPrefix(data, pngSignature):
+		if isPng(data) && !isAnimatedPng(data) {
+			return "image/png"
+		}
+		return ""
+	case hasPrefix(data, []byte("GIF87a")) || hasPrefix(data, []byte("GIF89a")):
 		return "image/gif"
-	case len(data) > 12 && string(data[:4]) == "RIFF" && string(data[8:12]) == "WEBP":
+	case hasPrefix(data, []byte("RIFF")) && len(data) >= 12 && string(data[8:12]) == "WEBP":
 		return "image/webp"
+	case hasPrefix(data, []byte("BM")) && isBmp(data):
+		// Detected, but not a format this tool can send inline; readImage explains that.
+		return "image/bmp"
 	}
 	return ""
+}
+
+var pngSignature = []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}
+
+func hasPrefix(data, prefix []byte) bool {
+	return len(data) >= len(prefix) && string(data[:len(prefix)]) == string(prefix)
+}
+
+// isPng requires the signature, the 13-byte IHDR as the first chunk, and the 16 header bytes.
+func isPng(data []byte) bool {
+	return len(data) >= 16 &&
+		hasPrefix(data, pngSignature) &&
+		binary.BigEndian.Uint32(data[8:12]) == 13 &&
+		string(data[12:16]) == "IHDR"
+}
+
+// isAnimatedPng walks the chunks until acTL (animated) or IDAT (the still image starts).
+func isAnimatedPng(data []byte) bool {
+	offset := len(pngSignature)
+	for offset+8 <= len(data) {
+		chunkLength := int64(binary.BigEndian.Uint32(data[offset : offset+4]))
+		chunkType := string(data[offset+4 : offset+8])
+		if chunkType == "acTL" {
+			return true
+		}
+		if chunkType == "IDAT" {
+			return false
+		}
+		nextOffset := int64(offset) + 8 + chunkLength + 4
+		if nextOffset <= int64(offset) || nextOffset > int64(len(data)) {
+			return false
+		}
+		offset = int(nextOffset)
+	}
+	return false
+}
+
+// isBmp validates the bitmap header fields Node checks before calling a file a BMP.
+func isBmp(data []byte) bool {
+	if len(data) < 26 {
+		return false
+	}
+	declaredFileSize := binary.LittleEndian.Uint32(data[2:6])
+	pixelDataOffset := binary.LittleEndian.Uint32(data[10:14])
+	dibHeaderSize := binary.LittleEndian.Uint32(data[14:18])
+	if declaredFileSize != 0 && declaredFileSize < 26 {
+		return false
+	}
+	if int64(pixelDataOffset) < int64(14+dibHeaderSize) {
+		return false
+	}
+	if declaredFileSize != 0 && pixelDataOffset >= declaredFileSize {
+		return false
+	}
+	var colorPlanes, bitsPerPixel uint16
+	switch {
+	case dibHeaderSize == 12:
+		colorPlanes = binary.LittleEndian.Uint16(data[22:24])
+		bitsPerPixel = binary.LittleEndian.Uint16(data[24:26])
+	case dibHeaderSize >= 40 && dibHeaderSize <= 124:
+		if len(data) < 30 {
+			return false
+		}
+		colorPlanes = binary.LittleEndian.Uint16(data[26:28])
+		bitsPerPixel = binary.LittleEndian.Uint16(data[28:30])
+	default:
+		return false
+	}
+	if colorPlanes != 1 {
+		return false
+	}
+	switch bitsPerPixel {
+	case 1, 4, 8, 16, 24, 32:
+		return true
+	}
+	return false
 }
 
 func readImage(displayPath string, data []byte, mimeType string, args ReadArgs) (ReadResult, error) {
@@ -346,6 +454,10 @@ func readImage(displayPath string, data []byte, mimeType string, args ReadArgs) 
 		maxHeight = *args.MaxImageHeight
 	}
 	vision := args.Vision == nil || *args.Vision
+	if !inlineImageTypes[mimeType] {
+		// No image processor is configured here, so a BMP cannot be converted for the model.
+		return imageError(fmt.Sprintf("%s is an image (%s) that needs converting, and no image processor is configured", displayPath, mimeType)), nil
+	}
 	unshrinkable := "and no image processor is configured to shrink it"
 	if base64Length(len(data)) > maxBytes {
 		return imageError(fmt.Sprintf("%s is an image (%s) of %s, too large to send, %s", displayPath, mimeType, formatSize(len(data)), unshrinkable)), nil
@@ -370,6 +482,14 @@ func readImage(displayPath string, data []byte, mimeType string, args ReadArgs) 
 			Message:  strings.Join(notes, " "),
 		}},
 	}, nil
+}
+
+// inlineImageTypes are the formats pi-durable sends without conversion.
+var inlineImageTypes = map[string]bool{
+	"image/png":  true,
+	"image/jpeg": true,
+	"image/gif":  true,
+	"image/webp": true,
 }
 
 func imageError(message string) ReadResult {
