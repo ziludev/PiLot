@@ -145,7 +145,7 @@ export const config = {
    * so a broken toolbox fails the turn instead of silently running another implementation.
    */
   toolbox: {
-    mode: (process.env.AGENT_TOOLBOX ?? "off") as "off" | "go",
+    mode: (process.env.AGENT_TOOLBOX ?? "go") as "off" | "go",
     bin: process.env.AGENT_TOOLBOX_BIN ?? "toolbox-go/bin/toolbox",
     /** The socket lives beside the database: one data directory per agent. */
     socketPath: join(dirname(path("AGENT_DB", "./.data/agent.sqlite")), "toolbox.sock"),
