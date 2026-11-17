@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"pitta/toolbox/internal/unicodenorm"
 	"strings"
 	"syscall"
 )
@@ -35,16 +36,17 @@ func isUnicodeSpace(r rune) bool {
 
 // resolvePath mirrors NodeExecutionEnv.absolutePath: "~", "~/", "file://" then absolute-or-relative
 // against the working directory.
-// resolveReadPath is pi-durable's resolveReadToolPath suffix: before giving up on a path, `read`
-// tries the spelling macOS and copy-pasted text produce for the same file. The reference also tries
-// NFD and NFKC-normalized variants; without a Unicode normalization table in the standard library
-// those two are the documented limitation, so this covers the narrow no-break space before AM/PM and
-// the typographic apostrophe.
+// resolveReadPath is pi-durable's resolveReadToolPath: before giving up on a path, `read` tries the
+// spellings macOS and copy-pasted text produce for the same file — as given, with a narrow no-break
+// space before AM/PM, NFD, the curly apostrophe, and NFD with the curly apostrophe.
 func resolveReadPath(absolutePath string) string {
+	curly := strings.ReplaceAll(absolutePath, "'", "\u2019")
 	variants := []string{
 		absolutePath,
 		collapseAMPMSpaces(absolutePath),
-		strings.ReplaceAll(absolutePath, "'", "\u2019"),
+		unicodenorm.NFD(absolutePath),
+		curly,
+		unicodenorm.NFD(curly),
 	}
 	seen := map[string]bool{}
 	for _, variant := range variants {

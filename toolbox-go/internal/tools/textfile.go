@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"pitta/toolbox/internal/unicodenorm"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -40,26 +41,14 @@ func restoreLineEndings(text, ending string) string {
 	return text
 }
 
-// nfkcCompat approximates String.prototype.normalize("NFKC"). Go's standard library has no
-// normalization tables, so this covers the width folding that actually shows up in pasted code:
-// full-width ASCII (U+FF01-U+FF5E) and the ideographic space.
-func nfkcCompat(text string) string {
-	if isASCII(text) {
-		return text
+// fuzzySpaces is edit-diff.js's space class, which is narrower than the path one: U+2000 and
+// U+2001 are folded in a path but not in matched text.
+func fuzzySpaces(r rune) bool {
+	switch r {
+	case '\u00a0', '\u202f', '\u205f', '\u3000':
+		return true
 	}
-	var b strings.Builder
-	b.Grow(len(text))
-	for _, r := range text {
-		switch {
-		case r >= '\uFF01' && r <= '\uFF5E':
-			b.WriteRune(r - 0xFEE0)
-		case r == '\u3000':
-			b.WriteRune(' ')
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
+	return r >= '\u2002' && r <= '\u200a'
 }
 
 func isASCII(text string) bool {
@@ -74,7 +63,7 @@ func isASCII(text string) bool {
 // normalizeForFuzzyMatch mirrors edit-diff.js: NFKC, trailing whitespace per line removed, smart
 // quotes/dashes/spaces folded to ASCII.
 func normalizeForFuzzyMatch(text string) string {
-	normalized := nfkcCompat(text)
+	normalized := unicodenorm.NFKC(text)
 	lines := strings.Split(normalized, "\n")
 	for i, line := range lines {
 		lines[i] = strings.TrimRightFunc(line, unicode.IsSpace)
@@ -90,7 +79,7 @@ func normalizeForFuzzyMatch(text string) string {
 			b.WriteRune('"')
 		case (r >= '\u2010' && r <= '\u2015') || r == '\u2212':
 			b.WriteRune('-')
-		case isUnicodeSpace(r) && r != '\u3000':
+		case fuzzySpaces(r):
 			b.WriteRune(' ')
 		default:
 			b.WriteRune(r)
