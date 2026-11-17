@@ -50,28 +50,30 @@ function shortfalls(verdicts: readonly Verdict[]): string[] {
 export function formatDigest({ now, hours, verdicts, audit }: DigestInput): string {
   if (verdicts.length === 0 && audit.length === 0) return `近 ${hours} 小时没有动静。`;
   const met = verdicts.filter((verdict) => verdict.met).length;
-  const lines: string[] = [`近 ${hours} 小时`];
+  // Feishu's card markdown has no bullet-list syntax — "- item" renders as a literal hyphen. Emoji
+  // lead each section instead, which survives both the card and the flat text a quote preview gets.
+  const lines: string[] = [`📊 近 ${hours} 小时`];
 
   if (verdicts.length > 0) {
     const undeclared = verdicts.length - met;
-    lines.push(`- 干活 ${verdicts.length} 轮：${met} 轮报了达成，${undeclared} 轮没达成或没声明`);
+    lines.push(`🛠 干活 ${verdicts.length} 轮：${met} 轮报了达成，${undeclared} 轮没达成或没声明`);
     const starts = shortfalls(verdicts);
     if (starts.length > 0) lines.push(...starts);
   }
 
   const approvals = audit.filter((event) => event.kind === "approve");
   if (approvals.length > 0) {
-    lines.push(`- 审批 ${approvals.length} 次：${approvals.map((event) => event.detail ?? event.tool ?? "?").slice(-3).join("、")}`);
+    lines.push(`✅ 审批 ${approvals.length} 次：${approvals.map((event) => event.detail ?? event.tool ?? "?").slice(-3).join("、")}`);
   }
 
   const tail = audit.slice(-4);
   if (tail.length > 0) {
-    lines.push(`- 审计 ${audit.length} 条：`);
+    lines.push(`📋 审计 ${audit.length} 条：`);
     lines.push(...tail.map((event) => `· ${clock(event.at)} ${event.kind}${event.tool === undefined ? "" : ` ${event.tool}`}${event.detail === undefined ? "" : ` — ${event.detail}`}`));
   }
 
   const latest = verdicts.at(-1);
-  if (latest !== undefined) lines.push(`- 最近一轮：${clock(latest.at)} 起，${elapsed(now - latest.at)}前`);
+  if (latest !== undefined) lines.push(`⏱ 最近一轮：${clock(latest.at)} 起，${elapsed(now - latest.at)}前`);
   return lines.join("\n");
 }
 
