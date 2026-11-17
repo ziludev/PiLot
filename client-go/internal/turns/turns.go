@@ -526,6 +526,64 @@ func resultIsError(entry protocol.Entry) bool {
 	return false
 }
 
+// Failed reports whether a step's call failed: the turn recorded an error step,
+// or the tool answered with isError.
+func (s Step) Failed() bool {
+	if s.Kind == StepError {
+		return true
+	}
+	if s.Result == nil {
+		return false
+	}
+	_, isError := ToolResult(*s.Result)
+	return isError
+}
+
+// Elapsed is how long a step has taken. While it is still out there is no end
+// yet, so it counts up to now — the screen redraws every frame, so a running
+// call ticks instead of freezing at 0ms.
+func (s Step) Elapsed(now int64) int64 {
+	if s.Start <= 0 {
+		return 0
+	}
+	end := s.End
+	if end <= 0 {
+		end = now
+	}
+	if end < s.Start {
+		return 0
+	}
+	return end - s.Start
+}
+
+// Failures counts the steps of a run whose call failed.
+func Failures(steps []Step) int {
+	failed := 0
+	for _, step := range steps {
+		if step.Failed() {
+			failed++
+		}
+	}
+	return failed
+}
+
+// RunElapsed is the wall time of a run: from the first call starting to the
+// last one landing, or to now while one is still out. Wall time, not the sum of
+// the steps, since the calls are what the reader waited for.
+func RunElapsed(steps []Step, now int64) int64 {
+	if len(steps) == 0 || steps[0].Start <= 0 {
+		return 0
+	}
+	end := steps[len(steps)-1].End
+	if end <= 0 {
+		end = now
+	}
+	if end < steps[0].Start {
+		return 0
+	}
+	return end - steps[0].Start
+}
+
 // Clock renders a duration as the earlier web client does: 42ms, 3.7s, 42s, 1m30s,
 // 2m.
 func Clock(ms int64) string {
