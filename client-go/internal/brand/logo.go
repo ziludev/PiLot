@@ -138,14 +138,17 @@ func DrawIn(c *ui.Context, size int, ink string, progress float32) ui.Element {
 // stays where it is: it is the floor the flame moves over.
 func frameMarkup(mood Mood, step int, ink string) string {
 	phase := float64(step) / Frames * 2 * math.Pi
-	var sx, sy, roll float64 = 1, 1, 0
+	var sx, sy, roll, lean float64 = 1, 1, 0, 0
 	switch mood {
 	case MoodThinking:
 		// Two out-of-step waves: one cannot make a flicker look like a metronome.
 		f1, f2 := math.Sin(phase*2), math.Sin(phase*3+1.1)
-		sy = 1 + f1*0.045
+		sy = 1 + f1*0.085
 		sx = 1 + f2*0.025
-		roll = f1 * 1.6
+		roll = f1 * 2.2
+		// A shear moves the tip further than the base, which is what a flame does
+		// when air takes it: a scale about the base alone looks like breathing.
+		lean = f2 * 5
 	case MoodHappy:
 		// One beat near the top of the loop, then still.
 		if p := float64(step) / Frames; p < 0.4 {
@@ -154,13 +157,13 @@ func frameMarkup(mood Mood, step int, ink string) string {
 			sx = 1 + beat*0.05
 		}
 	default:
-		sy = 1 + math.Sin(phase)*0.012
+		sy = 1 + math.Sin(phase)*0.022
 	}
 	move := ""
-	if sx != 1 || sy != 1 || roll != 0 {
+	if sx != 1 || sy != 1 || roll != 0 || lean != 0 {
 		move = fmt.Sprintf(
-			` transform="translate(%.1f %.1f) rotate(%.2f) scale(%.4f %.4f) translate(%.1f %.1f)"`,
-			baseX, baseY, roll, sx, sy, -baseX, -baseY)
+			` transform="translate(%.1f %.1f) rotate(%.2f) skewX(%.2f) scale(%.4f %.4f) translate(%.1f %.1f)"`,
+			baseX, baseY, roll, lean, sx, sy, -baseX, -baseY)
 	}
 	return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">` +
 		`<g` + move + `><path fill-rule="evenodd" fill="` + ink + `" d="` + flame + ` ` + hole + `"/></g>` +
