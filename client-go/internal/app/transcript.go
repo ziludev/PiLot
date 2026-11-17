@@ -161,26 +161,25 @@ func (a *App) phaseBar(c *ui.Context, t theme.Tokens, turn *turns.Turn) {
 	if total <= 0 || turn.Stats.MS == nil {
 		return
 	}
-	width := float32(180)
+	// Each stretch takes its own share of the whole bar, so the bar is the
+	// turn's time in four colours rather than a fixed-length stub that looks the
+	// same on every turn.
 	segment := func(name string, ms int64, color ui.Color) {
 		if ms <= 0 {
 			return
 		}
-		// A three-pixel bar says nothing on its own, so each stretch names what
-		// it is and how much of the turn it took where the pointer rests.
-		ui.Row(c).Width(width * float32(ms) / float32(total)).Height(3).Background(color).
+		// The bar says nothing on its own, so each stretch names what it is and
+		// how much of the turn it took where the pointer rests. The stretches are
+		// as tall as the bar so the pointer finds one anywhere on it.
+		ui.Row(c).Grow(float32(ms)).Height(phaseBarHit).Background(color).
 			Label(phaseBarLabel + "-" + name).
 			Tooltip(phaseTooltip(name, ms, total))
 	}
-	// The stretches are three pixels tall, which is a hard thing to rest a
-	// pointer on, so the row that holds them is taller than they are.
-	ui.Row(c).Height(phaseBarHit).AlignItems(ui.Center).Label(phaseBarLabel).Children(func() {
-		ui.Row(c).FillWidth().Height(3).Radius(2).Background(t.Muted).Children(func() {
-			segment("think", phases.Think, t.MutedFg)
-			segment("tool", phases.Tool, t.Primary)
-			segment("wait", phases.Wait, t.Warning)
-			segment("error", phases.Error, t.Destructive)
-		})
+	ui.Row(c).FillWidth().Height(phaseBarHit).Radius(2).Background(t.Muted).Label(phaseBarLabel).Children(func() {
+		segment("think", phases.Think, t.MutedFg)
+		segment("tool", phases.Tool, t.Primary)
+		segment("wait", phases.Wait, t.Warning)
+		segment("error", phases.Error, t.Destructive)
 	})
 	ui.Text(c, phaseLegend(turn)).FontSize(9).TextColor(t.MutedFg).MaxLines(1)
 }
@@ -189,9 +188,9 @@ func (a *App) phaseBar(c *ui.Context, t theme.Tokens, turn *turns.Turn) {
 // one stretch of it find it.
 const phaseBarLabel = "phase-bar"
 
-// phaseBarHit is how tall the row holding the bar is, so the pointer can find a
-// stretch without aiming at three pixels.
-const phaseBarHit = 8
+// phaseBarHit is how tall the bar is: a three-pixel bar is a hard thing to rest
+// a pointer on, and the tooltip each stretch carries is the point of it.
+const phaseBarHit = 6
 
 // phaseTooltip is what one stretch of the phase bar says under the pointer: the
 // phase, how long it took, and the share of the bar it covers.

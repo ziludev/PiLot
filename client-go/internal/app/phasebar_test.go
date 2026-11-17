@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 	"time"
 
@@ -55,6 +56,40 @@ func TestPhaseBarExplainsItsColours(t *testing.T) {
 		if !tt.HasText(phase.want) {
 			t.Fatalf("resting on the %s stretch says nothing; texts=%q", phase.name, tt.Texts())
 		}
+	}
+}
+
+// TestPhaseBarFillsItsWidth checks the bar is the turn's time in four colours
+// and not a fixed-length stub: a stretch covers its share of the whole bar, so a
+// turn that spent all its time in tools is a bar that is nearly all tool.
+func TestPhaseBarFillsItsWidth(t *testing.T) {
+	a := transcriptApp(phaseEntries()...)
+	tt := ui.NewTester(a.transcript, 800, 400)
+	tt.Frame()
+
+	bar, ok := tt.Find(phaseBarLabel)
+	if !ok || bar.W == 0 {
+		t.Fatalf("the phase bar is not drawn")
+	}
+	var filled float32
+	for _, phase := range []struct {
+		name string
+		ms   float32
+	}{{"think", 100}, {"tool", 100}} {
+		segment, ok := tt.Find(phaseBarLabel + "-" + phase.name)
+		if !ok || segment.W == 0 {
+			t.Fatalf("the %s stretch of the bar is not drawn", phase.name)
+		}
+		filled += segment.W
+		if want := bar.W * phase.ms / 200; math.Abs(float64(segment.W-want)) > 1 {
+			t.Fatalf("the %s stretch is %.1f px wide, want %.1f", phase.name, segment.W, want)
+		}
+	}
+	if math.Abs(float64(filled-bar.W)) > 1 {
+		t.Fatalf("the stretches cover %.1f of a %.1f px bar", filled, bar.W)
+	}
+	if bar.H < 6 {
+		t.Fatalf("the bar is %.1f px tall, too short to rest a pointer on", bar.H)
 	}
 }
 
