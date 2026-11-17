@@ -180,13 +180,16 @@ type App struct {
 	ownChat int
 	// titleTick counts the title refreshes, which is what makes a long wait
 	// blink.
-	titleTick      int
-	atBottom       bool
-	stickToBottom  bool
-	scrollY        float32
-	scrollMaxY     float32
-	newMessages    int
-	sideSynced     bool
+	titleTick     int
+	atBottom      bool
+	stickToBottom bool
+	scrollY       float32
+	scrollMaxY    float32
+	newMessages   int
+	sideSynced    bool
+	// sideRoom is the room the two panes shared when the split was last synced:
+	// a different room means the window was resized, not the divider dragged.
+	sideRoom       float32
 	frameRecovered bool
 	mergeBusy      bool
 	merge          *protocol.MergeResult
@@ -1030,15 +1033,35 @@ func (a *App) pane(c *ui.Context) {
 	if bounds.W <= 0 {
 		return
 	}
-	room := float32(bounds.W)
+	a.syncPanes(float32(bounds.W))
+}
+
+// syncPanes shares the room Split laid out between the chat and the panel. The
+// divider is what changes the panel's width: a window that grew or shrank hands
+// the difference to the chat, so resizing does not quietly widen the panel and
+// leave the transcript where it was.
+func (a *App) syncPanes(room float32) {
+	if room <= 0 {
+		return
+	}
 	if !a.sideSynced {
 		// The room Split has is only known once laid out: take the saved panel
 		// width out of it on the first frame that shows the panel.
 		a.sideSynced = true
+		a.sideRoom = room
+		a.mainPane = room - float32(a.sideWidthOf())
+		return
+	}
+	if a.sideRoom != room {
+		// The window changed size under the panel: it keeps the width it has.
+		a.sideRoom = room
 		a.mainPane = room - float32(a.sideWidthOf())
 		return
 	}
 	if side := room - a.mainPane; side > 0 && absf(side-float32(a.sideWidthOf())) > 2 {
+		// The divider moved: that is the width the panel keeps, live and saved,
+		// so the next resize hands the difference to the chat.
+		a.sideWidth = side
 		a.prefs.SideWidth = side
 		a.savePrefsLater()
 	}
