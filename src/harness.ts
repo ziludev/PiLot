@@ -19,7 +19,7 @@ import { assertModelAvailable, createAgentModels, warnIfRoutingGroup } from "./m
 import { deferredExtension } from "./deferred.ts";
 import { codemodeExtension } from "./codemode.ts";
 import { openTelemetry } from "./telemetry.ts";
-import { agentName, chooseName } from "./identity.ts";
+import { chooseName } from "./identity.ts";
 import { titleExtension } from "./title.ts";
 import { contextGuardExtension } from "./context-guard.ts";
 import { ChatMemory, GlobalMemory, memoryExtension, type Note } from "./memory.ts";
@@ -46,7 +46,7 @@ import { log, logError } from "./log.ts";
 import { acquireStorageLock } from "./storage-lock.ts";
 import { startToolbox, codingToolsFromToolbox, type Toolbox } from "./toolbox/index.ts";
 import { ensureRepo } from "./changes.ts";
-import { ensureWorktree, worktreePaths } from "./worktree.ts";
+import { ensureWorktree } from "./worktree.ts";
 import { gitBranchOf } from "./git-info.ts";
 import {
   addProject,

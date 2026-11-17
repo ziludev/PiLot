@@ -27,8 +27,8 @@ export async function startToolbox(): Promise<Toolbox> {
 export { Toolbox };
 
 /**
- * The four coding tools served by the toolbox, under the name pi-durable's own extension uses, so
- * installing this replaces `CodingTools` instead of adding a second `bash` next to it.
+ * The four coding tools served by the toolbox, under the extension name pi-durable's own coding
+ * tools use: installing this replaces that extension rather than adding a second `bash`.
  */
 export function codingToolsFromToolbox(toolbox: Toolbox) {
   return {
