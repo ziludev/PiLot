@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 
 /**
  * Loads `.env` with precedence over the ambient environment.
@@ -139,6 +139,17 @@ export const config = {
   },
   /** auto = one git worktree per conversation; off = everyone shares the workspace. */
   worktree: (process.env.AGENT_WORKTREE ?? "auto") as "auto" | "off",
+  /**
+   * Where `bash`, `read`, `write` and `edit` run. `off` keeps pi-durable's in-process tools,
+   * `go` serves them from `toolbox-go/`. Switching needs a restart: there is no runtime fallback,
+   * so a broken toolbox fails the turn instead of silently running another implementation.
+   */
+  toolbox: {
+    mode: (process.env.AGENT_TOOLBOX ?? "off") as "off" | "go",
+    bin: process.env.AGENT_TOOLBOX_BIN ?? "toolbox-go/bin/toolbox",
+    /** The socket lives beside the database: one data directory per agent. */
+    socketPath: join(dirname(path("AGENT_DB", "./.data/agent.sqlite")), "toolbox.sock"),
+  },
   asr: {
     mode: (process.env.AGENT_ASR ?? "auto") as "auto" | "off",
     whisper: process.env.AGENT_ASR_WHISPER ?? "whisper",
