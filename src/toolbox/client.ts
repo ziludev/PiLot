@@ -89,8 +89,8 @@ function newestSource(dir: string): number {
  * when a source file is newer: a stale binary would silently answer with old
  * behaviour, which is exactly what the parity tests exist to catch.
  *
- * A missing `go` is fatal on purpose: with `AGENT_TOOLBOX=go` there is no other
- * implementation of these tools to run.
+ * A missing `go` is fatal on purpose: these tools have no in-process implementation
+ * to fall back to, so a machine without a toolchain needs a prebuilt binary.
  */
 async function ensureBinary(bin: string): Promise<void> {
   const built = existsSync(bin) ? statSync(bin).mtimeMs : 0;
@@ -99,6 +99,16 @@ async function ensureBinary(bin: string): Promise<void> {
   await new Promise<void>((done, fail) => {
     execFile("go", ["build", "-o", bin, "."], { cwd: moduleDir }, (error, _stdout, stderr) => {
       if (error) {
+        // A missing toolchain is the one failure the person reading the log can fix.
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          fail(
+            new Error(
+              `toolbox: no Go toolchain to build ${bin}, and no prebuilt binary there. ` +
+                "Install Go, or put a built toolbox at that path.",
+            ),
+          );
+          return;
+        }
         fail(new Error(`toolbox: go build failed: ${stderr || error.message}`));
         return;
       }

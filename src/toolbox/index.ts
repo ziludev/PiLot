@@ -6,7 +6,7 @@ import { createEditToolProxy, createWriteToolProxy } from "./tools/files.ts";
 import { createReadToolProxy } from "./tools/read.ts";
 
 /**
- * Starts the Go service that serves the coding tools when `AGENT_TOOLBOX=go`.
+ * Starts the Go service that serves the coding tools.
  *
  * Called once at boot, before the harness opens: a toolbox that cannot answer is
  * fatal there, because with no in-process fallback every turn would fail instead.

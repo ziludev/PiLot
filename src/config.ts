@@ -140,12 +140,10 @@ export const config = {
   /** auto = one git worktree per conversation; off = everyone shares the workspace. */
   worktree: (process.env.AGENT_WORKTREE ?? "auto") as "auto" | "off",
   /**
-   * Where `bash`, `read`, `write` and `edit` run. `off` keeps pi-durable's in-process tools,
-   * `go` serves them from `toolbox-go/`. Switching needs a restart: there is no runtime fallback,
-   * so a broken toolbox fails the turn instead of silently running another implementation.
+   * Where the toolbox binary lives; `bash`, `read`, `write` and `edit` all run in that process.
+   * A missing or unbuildable binary fails the boot, since there is nothing to fall back to.
    */
   toolbox: {
-    mode: (process.env.AGENT_TOOLBOX ?? "go") as "off" | "go",
     bin: process.env.AGENT_TOOLBOX_BIN ?? "toolbox-go/bin/toolbox",
     /** The socket lives beside the database: one data directory per agent. */
     socketPath: join(dirname(path("AGENT_DB", "./.data/agent.sqlite")), "toolbox.sock"),
