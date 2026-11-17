@@ -161,6 +161,18 @@ func (a *App) phaseBar(c *ui.Context, t theme.Tokens, turn *turns.Turn) {
 	if total <= 0 || turn.Stats.MS == nil {
 		return
 	}
+	// The bar thickens under the pointer, which is what makes it read as
+	// something to inspect rather than a rule across the card. It grows for real
+	// instead of scaling: a scaled bar keeps its three-pixel hit box, so the
+	// edges of the grown one would flicker in and out under the pointer.
+	bar := ui.Row(c).FillWidth().Radius(phaseBarRadius).Background(t.Muted).Label(phaseBarLabel)
+	height := float32(phaseBarHit)
+	if bar.Hovered() {
+		height = phaseBarHover
+	}
+	grown := bar.Animate(phaseBarGrowKey, height, phaseBarGrowTime)
+	bar.Height(grown)
+
 	// Each stretch takes its own share of the whole bar, so the bar is the
 	// turn's time in four colours rather than a fixed-length stub that looks the
 	// same on every turn.
@@ -171,11 +183,11 @@ func (a *App) phaseBar(c *ui.Context, t theme.Tokens, turn *turns.Turn) {
 		// The bar says nothing on its own, so each stretch names what it is and
 		// how much of the turn it took where the pointer rests. The stretches are
 		// as tall as the bar so the pointer finds one anywhere on it.
-		ui.Row(c).Grow(float32(ms)).Height(phaseBarHit).Background(color).
+		ui.Row(c).Grow(float32(ms)).Height(grown).Background(color).
 			Label(phaseBarLabel + "-" + name).
 			Tooltip(phaseTooltip(name, ms, total))
 	}
-	ui.Row(c).FillWidth().Height(phaseBarHit).Radius(2).Background(t.Muted).Label(phaseBarLabel).Children(func() {
+	bar.Children(func() {
 		segment("think", phases.Think, t.MutedFg)
 		segment("tool", phases.Tool, t.Primary)
 		segment("wait", phases.Wait, t.Warning)
@@ -188,9 +200,19 @@ func (a *App) phaseBar(c *ui.Context, t theme.Tokens, turn *turns.Turn) {
 // one stretch of it find it.
 const phaseBarLabel = "phase-bar"
 
-// phaseBarHit is how tall the bar is: a three-pixel bar is a hard thing to rest
-// a pointer on, and the tooltip each stretch carries is the point of it.
-const phaseBarHit = 6
+// phaseBarHit is how tall the bar rests, and phaseBarHover how tall it grows
+// under the pointer: a three-pixel bar is a hard thing to rest a pointer on, and
+// the tooltip each stretch carries is the point of it.
+const (
+	phaseBarHit     = 6
+	phaseBarHover   = 11.0
+	phaseBarRadius  = 2
+	phaseBarGrowKey = "phase-bar-height"
+)
+
+// phaseBarGrowTime is how long the bar takes to thicken, short enough to feel
+// like a response to the pointer and not like an animation of its own.
+const phaseBarGrowTime = 120 * time.Millisecond
 
 // phaseTooltip is what one stretch of the phase bar says under the pointer: the
 // phase, how long it took, and the share of the bar it covers.

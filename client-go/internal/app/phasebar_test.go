@@ -93,6 +93,53 @@ func TestPhaseBarFillsItsWidth(t *testing.T) {
 	}
 }
 
+// TestPhaseBarThickensUnderThePointer checks the bar answers the pointer: it
+// grows while the pointer rests on it and goes back when it leaves, and the
+// stretches grow with it so the pointer keeps its target.
+func TestPhaseBarThickensUnderThePointer(t *testing.T) {
+	a := transcriptApp(phaseEntries()...)
+	tt := ui.NewTester(a.transcript, 800, 400)
+	tt.Frame()
+
+	rest, ok := tt.Find(phaseBarLabel)
+	if !ok || rest.H == 0 {
+		t.Fatalf("the phase bar is not drawn")
+	}
+	if rest.H != phaseBarHit {
+		t.Fatalf("the bar rests at %.1f px, want %.1f", rest.H, float32(phaseBarHit))
+	}
+
+	tt.Move(rest.X+rest.W/2, rest.Y+rest.H/2)
+	tt.Frame()
+	// Part way through, it is between the two heights: a bar that jumped would
+	// be at the grown height already.
+	tt.Advance(40 * time.Millisecond)
+	tt.Frame()
+	partial, _ := tt.Find(phaseBarLabel)
+	if partial.H <= rest.H || partial.H >= phaseBarHover {
+		t.Fatalf("the bar is %.1f px part way through the growth, want between %.1f and %.1f", partial.H, rest.H, phaseBarHover)
+	}
+
+	tt.Advance(300 * time.Millisecond)
+	tt.Frame()
+	grown, _ := tt.Find(phaseBarLabel)
+	if grown.H < phaseBarHover-0.5 {
+		t.Fatalf("the bar is %.1f px under the pointer, want %.1f", grown.H, phaseBarHover)
+	}
+	segment, ok := tt.Find(phaseBarLabel + "-tool")
+	if !ok || math.Abs(float64(segment.H-grown.H)) > 0.5 {
+		t.Fatalf("the %s stretch is %.1f px tall in a %.1f px bar", "tool", segment.H, grown.H)
+	}
+
+	tt.Move(0, 0)
+	tt.Frame()
+	tt.Advance(300 * time.Millisecond)
+	tt.Frame()
+	if back, _ := tt.Find(phaseBarLabel); back.H > rest.H+0.5 {
+		t.Fatalf("the bar stays at %.1f px once the pointer leaves, want %.1f", back.H, rest.H)
+	}
+}
+
 // TestPhaseBarSkipsPhasesTheTurnNeverHad checks a stretch is only drawn — and so
 // only explained — where there is time to draw.
 func TestPhaseBarSkipsPhasesTheTurnNeverHad(t *testing.T) {
