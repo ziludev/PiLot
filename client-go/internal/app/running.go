@@ -55,6 +55,13 @@ func taskNeedsYou(state string) bool {
 	return false
 }
 
+// taskSleeping is a task that will run at a time of its own: a reminder, a digest,
+// a scheduled follow-up. Nothing is being worked on, and nothing is waiting for
+// the reader, so it is neither in flight nor unfinished.
+func taskSleeping(state string) bool {
+	return state == "sleeping"
+}
+
 // taskUnfinished is a task that has not finished: the model is working on it,
 // or it stopped for its owner. Either way the chat is not a finished one.
 func taskUnfinished(state string) bool {
@@ -71,6 +78,19 @@ func (a *App) isRunning(conversationID int) bool {
 			continue
 		}
 		if taskUnfinished(task.State) {
+			return true
+		}
+	}
+	return false
+}
+
+// chatSleeping reports whether the chat has work parked until a time of its own.
+func (a *App) chatSleeping(conversationID int) bool {
+	for _, task := range a.tasks {
+		if task.ConversationID != conversationID {
+			continue
+		}
+		if taskSleeping(task.State) {
 			return true
 		}
 	}
