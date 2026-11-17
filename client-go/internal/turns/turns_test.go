@@ -545,3 +545,45 @@ func checkInt64Ptr(t *testing.T, what string, got *int64, want int64) {
 		t.Errorf("%s = %d, want %d", what, *got, want)
 	}
 }
+
+func TestStepElapsedCountsUpWhileRunning(t *testing.T) {
+	running := Step{Kind: StepTool, Start: 1_000, End: 0}
+	if got := running.Elapsed(4_200); got != 3_200 {
+		t.Errorf("running step elapsed = %d, want 3200 (counting up to now)", got)
+	}
+	done := Step{Kind: StepTool, Start: 1_000, End: 4_200}
+	if got := done.Elapsed(999_999); got != 3_200 {
+		t.Errorf("finished step elapsed = %d, want 3200 (frozen at its end)", got)
+	}
+}
+
+func TestRunElapsedIsWallTimeNotTheSum(t *testing.T) {
+	steps := []Step{
+		{Kind: StepTool, Start: 1_000, End: 2_000},
+		{Kind: StepTool, Start: 1_500, End: 4_000},
+	}
+	if got := RunElapsed(steps, 0); got != 3_000 {
+		t.Errorf("run elapsed = %d, want 3000 (first start to last end)", got)
+	}
+	running := []Step{{Kind: StepTool, Start: 1_000, End: 2_000}, {Kind: StepTool, Start: 2_000}}
+	if got := RunElapsed(running, 5_000); got != 4_000 {
+		t.Errorf("running run elapsed = %d, want 4000 (counting up)", got)
+	}
+}
+
+func TestFailuresCountsErrorStepsAndErrorResults(t *testing.T) {
+	steps := []Step{
+		{Kind: StepTool, Result: ptr(entry(1, "pi.tool-result", []map[string]any{{"role": "toolResult",
+			"content": []any{map[string]any{"type": "text", "text": "ok"}}}}))},
+		{Kind: StepTool, Result: ptr(entry(2, "pi.tool-result", []map[string]any{{"role": "toolResult", "isError": true,
+			"content": []any{map[string]any{"type": "text", "text": "boom"}}}}))},
+		{Kind: StepError, Result: ptr(entry(3, "pi.tool-result", []map[string]any{{"role": "toolResult", "isError": true,
+			"content": []any{map[string]any{"type": "text", "text": "boom again"}}}}))},
+		{Kind: StepThink},
+	}
+	if got := Failures(steps); got != 2 {
+		t.Errorf("failures = %d, want 2", got)
+	}
+}
+
+func ptr(entry protocol.Entry) *protocol.Entry { return &entry }

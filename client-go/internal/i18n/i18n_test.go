@@ -17,7 +17,7 @@ import (
 // logsEmpty are ours, for the log viewer that reads the file in the window;
 // toolCallsCount is ours, for the line a run of tool calls folds into.
 // TestOriginDictionaryStillMatches keeps that line.
-const wantKeys = 193
+const wantKeys = 197
 
 // useLang switches the package language for one test and restores it after.
 func useLang(t *testing.T, l Lang) {
@@ -73,7 +73,7 @@ func TestPlaceholdersMatchSource(t *testing.T) {
 		}
 	}
 	sort.Strings(withPlaceholder)
-	if want := []string{"baseChangedHint", "toolCallsCount"}; !slices.Equal(withPlaceholder, want) {
+	if want := []string{"baseChangedHint", "hiddenLines", "toolCallsCount", "toolRunFailed"}; !slices.Equal(withPlaceholder, want) {
 		t.Fatalf("interpolated keys = %v, want %v", withPlaceholder, want)
 	}
 }

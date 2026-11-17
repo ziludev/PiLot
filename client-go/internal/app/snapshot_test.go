@@ -5,6 +5,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -439,4 +440,47 @@ func TestSnapshotLogViewer(t *testing.T) {
 	tt.Frame()
 	assertHasText(t, tt, "bash: tool=bash exit=0")
 	writePNG(t, filepath.Join(snapshotDir(), "pitta-logs.png"), tt.Image())
+}
+
+// TestSnapshotToolRunSummary draws a run of three calls with one failure, and a
+// fourth call whose answer is longer than a screenful. The folded line has to say
+// how many failed and how long the run took, the run has to open by itself, and the
+// answer has to say how many lines it is holding back.
+func TestSnapshotToolRunSummary(t *testing.T) {
+	lines := make([]string, 40)
+	for i := range lines {
+		lines[i] = "log line " + strconv.Itoa(i+1)
+	}
+	call := func(entryID int, at int64, name, callID string) protocol.Entry {
+		return protocol.Entry{ID: entryID, Kind: "pi.assistant", Model: rawModel(map[string]any{
+			"role": "assistant", "timestamp": float64(at),
+			"content": []any{map[string]any{"type": "toolCall", "id": callID, "name": name, "arguments": map[string]any{"command": "go test ./..."}}},
+		})}
+	}
+	result := func(entryID int, at int64, callID, text string, isError bool) protocol.Entry {
+		message := map[string]any{
+			"role": "toolResult", "toolCallId": callID, "toolName": "bash", "timestamp": float64(at),
+			"content": []any{map[string]any{"type": "text", "text": text}},
+		}
+		if isError {
+			message["isError"] = true
+		}
+		return protocol.Entry{ID: entryID, Kind: "pi.tool-result", Model: rawModel(message)}
+	}
+	entries := []protocol.Entry{
+		{ID: 1, Kind: "pi.user", Model: rawModel(map[string]any{"role": "user", "content": "跑一下测试"})},
+		call(2, 1_000, "bash", "c1"), result(3, 4_200, "c1", "ok", false),
+		call(4, 4_200, "bash", "c2"), result(5, 4_600, "c2", "FAIL: TestThing", true),
+		call(6, 4_600, "bash", "c3"), result(7, 13_400, "c3", strings.Join(lines, "\n"), false),
+	}
+	a := transcriptApp(entries...)
+	a.stepOpen[6] = true
+	tt := ui.NewTester(func(c *ui.Context) { theme.Apply(c, theme.Light()); a.transcript(c) }, 820, 700)
+	tt.Frame()
+	for _, want := range []string{"3 tool calls", "1 failed", "12s", "28 more lines", "Show all"} {
+		if !tt.HasText(want) {
+			t.Errorf("missing %q; texts=%q", want, strings.Join(tt.Texts(), " | "))
+		}
+	}
+	writePNG(t, "/tmp/pitta-tool-run.png", tt.Image())
 }

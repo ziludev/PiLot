@@ -133,7 +133,7 @@ func (a *App) turnBlock(c *ui.Context, t theme.Tokens, turn *turns.Turn, live, f
 			ui.Row(c).Gap(7).Children(func() {
 				ui.Column(c).Width(2).Radius(1).Background(t.Border).FillHeight()
 				ui.Column(c).Gap(4).Grow(1).Children(func() {
-					a.stepList(c, t, turn)
+					a.stepList(c, t, turn, live)
 				})
 			})
 		}
@@ -390,14 +390,19 @@ func (a *App) noteLine(c *ui.Context, t theme.Tokens, text string) {
 
 // stepRow is one tool call or answer on the turn's timeline: a line that opens
 // into what the tool returned, a patch when it changed files.
-func (a *App) stepRow(c *ui.Context, t theme.Tokens, step turns.Step) {
+func (a *App) stepRow(c *ui.Context, t theme.Tokens, step turns.Step, live bool) {
 	if name, _ := turns.ToolCall(step.Entry); name == turns.ReportDoneTool {
 		if met, ok, why := turns.Verdict(step.Entry); ok {
 			a.verdictBand(c, t, met, why)
 			return
 		}
 	}
-	open := a.stepOpen[step.Entry.ID]
+	// A failed call opens itself: the reason is the part worth reading, and a row
+	// that hides it behind a click is a row that hides the failure.
+	open, decided := a.stepOpen[step.Entry.ID]
+	if !decided && step.Failed() {
+		open = true
+	}
 	label := step.Label
 	if label == "" {
 		label = "tool"
@@ -413,6 +418,11 @@ func (a *App) stepRow(c *ui.Context, t theme.Tokens, step turns.Step) {
 			}
 			ui.Icon(c, chevron).Size(10, 10).TextColor(t.MutedFg)
 			ui.Text(c, label).FontSize(10.5).TextColor(t.MutedFg)
+			// How long the call is taking: the running one counts up on every frame,
+			// a finished one keeps its time if it was slow enough to notice.
+			if ms := step.Elapsed(time.Now().UnixMilli()); live || ms >= slowStepMS {
+				ui.Text(c, "· "+turns.Clock(ms)).FontSize(10.5).TextColor(t.MutedFg)
+			}
 		}).OnClick(func() {
 			a.apply(func() {
 				a.stepOpen[step.Entry.ID] = !open
@@ -423,23 +433,28 @@ func (a *App) stepRow(c *ui.Context, t theme.Tokens, step turns.Step) {
 			return
 		}
 		text, failed := turns.ToolResult(*step.Result)
+		// The row already said it: a failed call's label is its error text, and
+		// printing the same line again under it reads like two failures.
+		if strings.TrimSpace(text) == strings.TrimSpace(label) {
+			return
+		}
 		if strings.TrimSpace(text) == "" {
 			return
 		}
 		// TurnRail's accordion: the output grows into place over 350 ms
 		// instead of appearing at its full height.
 		ui.Column(c).Key(step.Entry.ID).Transition(motion.AccordionTransition()).
-			Children(func() { a.stepOutput(c, t, text, failed) })
+			Children(func() { a.stepOutput(c, t, step.Entry.ID, text, failed) })
 	})
 }
 
 // stepList draws a turn's steps, folding each run of neighbouring tool calls into
 // one line. A turn that runs a dozen commands used to put a dozen lines between
 // the question and the answer.
-func (a *App) stepList(c *ui.Context, t theme.Tokens, turn *turns.Turn) {
+func (a *App) stepList(c *ui.Context, t theme.Tokens, turn *turns.Turn, live bool) {
 	for i := 0; i < len(turn.Steps); {
 		if !foldsIntoRun(turn.Steps[i]) {
-			a.stepRow(c, t, turn.Steps[i])
+			a.stepRow(c, t, turn.Steps[i], live)
 			i++
 			continue
 		}
@@ -449,9 +464,9 @@ func (a *App) stepList(c *ui.Context, t theme.Tokens, turn *turns.Turn) {
 		}
 		if j-i == 1 {
 			// A lone call says more as itself than as "1 次工具调用".
-			a.stepRow(c, t, turn.Steps[i])
+			a.stepRow(c, t, turn.Steps[i], live)
 		} else {
-			a.toolRun(c, t, turn, turn.Steps[i:j])
+			a.toolRun(c, t, turn, turn.Steps[i:j], live)
 		}
 		i = j
 	}
@@ -460,19 +475,30 @@ func (a *App) stepList(c *ui.Context, t theme.Tokens, turn *turns.Turn) {
 // foldsIntoRun says whether a step joins the run of tool calls a turn folds. The
 // verdict does not: it is the turn's answer, and it is read, not unfolded.
 func foldsIntoRun(step turns.Step) bool {
-	if step.Kind != turns.StepTool {
+	if step.Kind != turns.StepTool && step.Kind != turns.StepError {
 		return false
 	}
 	name, _ := turns.ToolCall(step.Entry)
+	// A step that is not a call at all (a protocol error, say) is its own line; a
+	// failed call belongs to its run, which counts it and opens itself to show it.
+	if name == "" {
+		return false
+	}
 	return name != turns.ReportDoneTool
 }
 
 // toolRun is the one line a run of tool calls folds into. It opens into the calls
 // themselves, each row the same as a single call's, so nothing is lost — only put
 // away until it is wanted.
-func (a *App) toolRun(c *ui.Context, t theme.Tokens, turn *turns.Turn, steps []turns.Step) {
+func (a *App) toolRun(c *ui.Context, t theme.Tokens, turn *turns.Turn, steps []turns.Step, live bool) {
 	key := itoa(turn.ID) + ":" + itoa(steps[0].Entry.ID)
-	open := a.stepGroups[key]
+	// A run that failed is not one the reader should have to click to find out:
+	// it starts open, and only their own click closes it.
+	open, decided := a.stepGroups[key]
+	failures := turns.Failures(steps)
+	if !decided && failures > 0 {
+		open = true
+	}
 	label := i18n.TF("toolCallsCount", map[string]any{"count": len(steps)})
 	ui.Column(c).Gap(4).Children(func() {
 		ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).PaddingY(1).Children(func() {
@@ -483,6 +509,16 @@ func (a *App) toolRun(c *ui.Context, t theme.Tokens, turn *turns.Turn, steps []t
 			}
 			ui.Icon(c, chevron).Size(10, 10).TextColor(t.MutedFg)
 			ui.Text(c, label).FontSize(10.5).TextColor(t.MutedFg)
+			// What the run cost and what came back broken, before it is opened.
+			if failures > 0 {
+				ui.Text(c, "·").FontSize(10.5).TextColor(t.MutedFg)
+				ui.Text(c, i18n.TF("toolRunFailed", map[string]any{"count": failures})).
+					FontSize(10.5).TextColor(t.Destructive)
+			}
+			if ms := turns.RunElapsed(steps, time.Now().UnixMilli()); ms >= slowStepMS {
+				ui.Text(c, "·").FontSize(10.5).TextColor(t.MutedFg)
+				ui.Text(c, turns.Clock(ms)).FontSize(10.5).TextColor(t.MutedFg)
+			}
 			// What the run came to, so a folded run still says what it did.
 			if last := steps[len(steps)-1].Label; last != "" && !open {
 				ui.Text(c, "·").FontSize(10.5).TextColor(t.MutedFg)
@@ -500,7 +536,7 @@ func (a *App) toolRun(c *ui.Context, t theme.Tokens, turn *turns.Turn, steps []t
 		ui.Column(c).Key("run-" + key).Transition(motion.AccordionTransition()).Children(func() {
 			ui.Column(c).Gap(4).PaddingY(2).Children(func() {
 				for _, step := range steps {
-					a.stepRow(c, t, step)
+					a.stepRow(c, t, step, live)
 				}
 			})
 		})
@@ -542,7 +578,7 @@ func stepColor(step turns.Step, t theme.Tokens) ui.Color {
 // stepOutput shows what a tool answered: a patch rendered as a diff when it
 // changed files, the text otherwise, both capped so a pasted log cannot push
 // the chat away.
-func (a *App) stepOutput(c *ui.Context, t theme.Tokens, text string, failed bool) {
+func (a *App) stepOutput(c *ui.Context, t theme.Tokens, entryID int, text string, failed bool) {
 	files := diff.Parse(text)
 	if added, removed, paths := diff.Stats(files); paths > 0 && added+removed > 0 {
 		colors := diff.Light()
@@ -556,8 +592,48 @@ func (a *App) stepOutput(c *ui.Context, t theme.Tokens, text string, failed bool
 	if failed {
 		color = t.Destructive
 	}
-	ui.Column(c).Fill().Padding(6, 8).Radius(6).Background(t.Muted).Children(func() {
-		ui.Text(c, truncateLines(text, 40, 4000)).FontSize(10).TextColor(color)
+	// A long answer is capped, never cut in silence: the row under it says how many
+	// lines are held back and opens them. Silence is what makes "the output was
+	// short" and "the output was cut" look the same.
+	all := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	open := a.outputOpen[entryID]
+	limit := cappedOutputLines
+	if open {
+		limit = expandedOutputLines
+	}
+	shown, hidden := all, 0
+	if len(all) > limit {
+		shown, hidden = all[:limit], len(all)-limit
+	}
+	for i, line := range shown {
+		shown[i] = truncate(line, maxOutputLineRunes)
+	}
+	ui.Column(c).Fill().Gap(4).Padding(6, 8).Radius(6).Background(t.Muted).Children(func() {
+		ui.Text(c, strings.Join(shown, "\n")).FontSize(10).TextColor(color)
+		switch {
+		case open:
+			ui.Text(c, i18n.T("collapseOutput")).FontSize(10).TextColor(t.MutedFg).
+				OnClick(func() {
+					a.apply(func() {
+						delete(a.outputOpen, entryID)
+						a.invalidate()
+					})
+				})
+		case len(all) > cappedOutputLines:
+			ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, i18n.TF("hiddenLines", map[string]any{"count": hidden})).FontSize(10).TextColor(t.MutedFg)
+				ui.Text(c, "·").FontSize(10).TextColor(t.MutedFg)
+				ui.Text(c, i18n.T("showAllLines")).FontSize(10).TextColor(t.Primary)
+			}).OnClick(func() {
+				a.apply(func() {
+					a.outputOpen[entryID] = true
+					a.invalidate()
+				})
+			})
+		}
+		if open && hidden > 0 {
+			ui.Text(c, i18n.TF("hiddenLines", map[string]any{"count": hidden})).FontSize(10).TextColor(t.MutedFg)
+		}
 	})
 }
 
@@ -569,6 +645,18 @@ func truncateLines(text string, maxLines, maxRunes int) string {
 	}
 	return truncate(text, maxRunes)
 }
+
+// How much of a tool's answer is worth showing before it is meant to be opened:
+// twelve lines read at a glance, and the whole thing capped again at four hundred
+// so a pasted log cannot cost a frame per line.
+const (
+	cappedOutputLines   = 12
+	expandedOutputLines = 400
+	maxOutputLineRunes  = 400
+	// slowStepMS is when a finished call earns its duration on the line: below a
+	// second the number is noise.
+	slowStepMS = 1000
+)
 
 // caretLabel names the streaming caret, which is how the test that it blinks
 // finds it among the marks that animate around it.
