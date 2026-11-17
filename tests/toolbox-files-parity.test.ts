@@ -66,7 +66,12 @@ function fakeApi(cwd: string): ToolExecutionApi {
   } as unknown as ToolExecutionApi;
 }
 
-async function run(tool: ToolRegistration, args: Record<string, unknown>, cwd: string): Promise<Seen> {
+async function run(
+  tool: ToolRegistration,
+  args: Record<string, unknown>,
+  cwd: string,
+  context: { abortSignal?: AbortSignal } = {},
+): Promise<Seen> {
   const seen: Seen = {
     text: "",
     diagnostics: [],
@@ -77,7 +82,7 @@ async function run(tool: ToolRegistration, args: Record<string, unknown>, cwd: s
     outputTypes: [],
   };
   try {
-    const result = (await tool.execute(args, fakeApi(cwd), {})) as ToolExecutionResult;
+    const result = (await tool.execute(args, fakeApi(cwd), context)) as ToolExecutionResult;
     const parts = (result.output ?? []) as Array<{ type: string; text?: string }>;
     seen.outputTypes = parts.map((part) => part.type);
     seen.text = parts
@@ -594,4 +599,29 @@ test("parity: edit agrees over generated files, spans, and line endings", { skip
     );
   }
   assert.ok(multiEdit > 20, `the run should exercise multiple edits, saw ${multiEdit}`);
+});
+
+test("parity: an already-aborted call is refused the way the reference refuses it", { skip }, async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const context = { abortSignal: controller.signal };
+  for (const base of [join(writing, "ref"), join(writing, "go")]) writeFileSync(join(base, "aborted.txt"), "one\n");
+
+  for (const [reference, candidate, args] of [
+    [createInProcessWrite(), createWriteToolProxy(toolbox), { path: "aborted.txt", content: "two\n" }],
+    [createInProcessEdit(), createEditToolProxy(toolbox), { path: "aborted.txt", edits: [{ oldText: "one", newText: "two" }] }],
+  ] as const) {
+    const want = await run(reference as ToolRegistration, args as Record<string, unknown>, join(writing, "ref"), context);
+    const got = await run(candidate as ToolRegistration, args as Record<string, unknown>, join(writing, "go"), context);
+    assert.equal(want.error, "aborted");
+    assert.equal(got.error, want.error);
+  }
+
+  // read refuses too: the reference resolves the path through the environment,
+  // which is where an aborted signal stops it.
+  for (const base of [join(readings, "ref"), join(readings, "go")]) writeFileSync(join(base, "aborted.txt"), "kept\n");
+  const want = await run(createInProcessRead(), { path: "aborted.txt" }, join(readings, "ref"), context);
+  const got = await run(createReadToolProxy(toolbox), { path: "aborted.txt" }, join(readings, "go"), context);
+  assert.equal(want.error, "aborted");
+  assert.equal(got.error, want.error);
 });

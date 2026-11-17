@@ -93,7 +93,12 @@ function fakeApi(cwd: string, seen: Seen): ToolExecutionApi {
   } as unknown as ToolExecutionApi;
 }
 
-async function run(tool: { execute: Function }, command: string, timeout?: number): Promise<Seen> {
+async function run(
+  tool: { execute: Function },
+  command: string,
+  timeout?: number,
+  context: { abortSignal?: AbortSignal } = {},
+): Promise<Seen> {
   const seen: Seen = {
     text: "",
     truncated: false,
@@ -109,7 +114,7 @@ async function run(tool: { execute: Function }, command: string, timeout?: numbe
     const result = (await tool.execute(
       { command, ...(timeout === undefined ? {} : { timeout }) },
       api,
-      {},
+      context,
     )) as ToolExecutionResult;
     const structured = result.structuredOutput as {
       output: string;
@@ -130,6 +135,16 @@ async function run(tool: { execute: Function }, command: string, timeout?: numbe
   }
   return seen;
 }
+
+test("parity: a signal that is already aborted fails the same way", { skip }, async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const context = { abortSignal: controller.signal };
+  const want = await run(createInProcessBash(), "echo hi", undefined, context);
+  const got = await run(createBashToolProxy(toolbox), "echo hi", undefined, context);
+  assert.equal(want.error, "aborted");
+  assert.equal(got.error, want.error);
+});
 
 /** Diagnostics name the spill file, whose random name differs by design. */
 function redact(seen: Seen): Seen {

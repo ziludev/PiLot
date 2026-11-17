@@ -4,6 +4,11 @@
 Keeping the tables in the repository is what lets the Go side normalize text without a dependency.
 Run this after a Python upgrade changes `unicodedata.unidata_version`; the tests compare a sample of
 the tables against expectations, and `go test` fails if a table cannot be parsed.
+
+The generator refuses to run when its Unicode version differs from node's, and gofmt owns the
+alignment of the literal, so the whole regeneration is:
+
+    python3 generate.py > tables_gen.go && gofmt -w tables_gen.go
 """
 
 import sys

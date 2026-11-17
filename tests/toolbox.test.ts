@@ -71,7 +71,8 @@ test("an abort closes the call", { skip }, async () => {
   const controller = new AbortController();
   const call = toolbox.call("ping", {}, { cwd: root, signal: controller.signal });
   controller.abort();
-  await assert.rejects(() => call, /aborted/);
+  // Same word the reference uses for a call interrupted in flight.
+  await assert.rejects(() => call, { message: "aborted", code: "aborted" });
 });
 
 test("close stops the service and its socket", { skip }, async () => {

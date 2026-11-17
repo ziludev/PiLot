@@ -1,7 +1,7 @@
 import { DEFAULT_IMAGE_LIMITS, createReadTool } from "@earendil-works/pi-durable/tools";
 import { defineTool, type ToolExecutionApi, type ToolExecutionResult, type ToolRegistration } from "@earendil-works/pi-durable";
 import { requireCwd, toolboxError } from "./shared.ts";
-import type { Toolbox } from "../client.ts";
+import { abortedCall, type Toolbox } from "../client.ts";
 
 /** The in-process tool: its schema, description, and image limits are the contract. */
 const reference: ToolRegistration = createReadTool();
@@ -47,6 +47,9 @@ export function createReadToolProxy(toolbox: Toolbox) {
     async execute(rawArgs, api, context): Promise<ToolExecutionResult> {
       const args = rawArgs as { path: string; offset?: number; limit?: number };
       const cwd = requireCwd(api);
+      // The reference resolves the path through the environment first, and that is
+      // where an already-aborted signal stops the call.
+      if (context.abortSignal?.aborted) throw abortedCall();
       const facts = await imageFacts(api, context);
       const call = await toolbox.call(
         "read",
