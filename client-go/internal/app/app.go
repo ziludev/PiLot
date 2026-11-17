@@ -326,6 +326,9 @@ func New(cfg Config) *App {
 		sideWidth = p.SideWidth
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	// Every window draws at the saved transparency, which the settings panel
+	// then changes for all of them at once.
+	windowOpacity = p.opacity()
 	return &App{
 		ctx:           ctx,
 		cancel:        cancel,
@@ -381,6 +384,7 @@ func (a *App) openInNewWindow(conversationID int) {
 // Attach takes the window and starts the first load.
 func (a *App) Attach(win *mygo.Window) {
 	a.win = win
+	applyOpacity(win)
 	// A finished answer should reach the owner when the window is behind
 	// another one, as the earlier web client notifies only while hidden.
 	a.focused = win.IsFocused()

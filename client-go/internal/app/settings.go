@@ -12,6 +12,8 @@ import (
 const (
 	settingsTitle    = "Settings"
 	settingsTheme    = "Appearance"
+	settingsWindow   = "Window"
+	settingsOpacity  = "Transparency"
 	settingsKeys     = "Keyboard"
 	themeSystemLabel = "Match the system"
 	themeLightLabel  = "Light"
@@ -36,18 +38,55 @@ func (a *App) settingsDialog(c *ui.Context, t theme.Tokens) {
 			} {
 				choice := choice
 				active := a.prefs.Theme == choice.value || (choice.value == "system" && a.prefs.Theme == "")
-				button := ui.ButtonBase(c).Padding(4, 10).Radius(6).Label(choice.label).FontSize(11)
+				// ButtonBase draws no text: the label is what assistive
+				// technology reads, and the children are what the eye sees.
+				button := ui.ButtonBase(c).Padding(4, 10).Radius(6).Label(choice.label)
+				ink := t.MutedFg
 				if active {
-					button.Background(t.Primary).TextColor(t.PrimaryFg)
+					button.Background(t.Primary)
+					ink = t.PrimaryFg
 				} else {
-					button.Background(t.Muted).TextColor(t.MutedFg)
+					button.Background(t.Muted)
 				}
+				button.Children(func() {
+					ui.Text(c, choice.label).FontSize(11).TextColor(ink)
+				})
 				button.OnClick(func() {
 					a.apply(func() {
 						a.prefs.Theme = choice.value
 						a.savePrefsLater()
 						a.invalidate()
 					})
+				})
+			}
+		})
+		ui.Text(c, settingsWindow).FontSize(10).TextColor(t.MutedFg)
+		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, settingsOpacity).FontSize(11).TextColor(t.Foreground)
+			// The slider writes into prefs through setOpacity, which also
+			// repaints every open window, so the change shows while dragging.
+			opacity := float64(a.prefs.opacity())
+			ui.Slider(c, &opacity, float64(minOpacity), float64(maxOpacity)).Grow(1).
+				OnChange(func() {
+					a.apply(func() {
+						a.setOpacity(float32(opacity))
+						a.savePrefsLater()
+						a.invalidate()
+					})
+				})
+			ui.Text(c, itoa(int(opacity*100))+"%").FontSize(10).Width(34).
+				TextColor(t.MutedFg).MaxLines(1)
+		})
+		// The agent's own controls: they act on the daemon, not on a chat, so
+		// they belong here rather than under the pointer in the rail's footer.
+		ui.Row(c).FillWidth().Gap(6).Children(func() {
+			for _, action := range []struct{ key, control string }{
+				{"restart", "restart"},
+				{"backup", "backup"},
+			} {
+				action := action
+				ui.Button(c, i18n.T(action.key)).FontSize(11).OnClick(func() {
+					go a.control(action.control)
 				})
 			}
 		})

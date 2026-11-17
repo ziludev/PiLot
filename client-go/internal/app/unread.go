@@ -53,15 +53,17 @@ func (a *App) unreadIDs() []int {
 // the transcript socket only carries the open chat, so the task list is how a
 // background chat's completion becomes visible.
 func (a *App) noteTaskFinish(previous, current []protocol.Task) {
+	// The same predicate the rail marks rows with, so a state cannot read as
+	// "finished" here and "running" there.
 	running := map[int]bool{}
 	for _, task := range previous {
-		if task.State == "running" || task.State == "queued" || task.State == "pending" {
+		if taskUnfinished(task.State) {
 			running[task.ConversationID] = true
 		}
 	}
 	still := map[int]bool{}
 	for _, task := range current {
-		if task.State == "running" || task.State == "queued" || task.State == "pending" {
+		if taskUnfinished(task.State) {
 			still[task.ConversationID] = true
 		}
 	}

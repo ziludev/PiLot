@@ -59,6 +59,10 @@ func TestOriginDictionaryStillMatches(t *testing.T) {
 		// handing the file to Finder, so the dialog names its own button and
 		// says what an empty log means.
 		"close": true, "logsEmpty": true,
+		// Ours: the rail filters by what a chat is doing, not only by the
+		// surface it came from, and names the view that holds the chats whose
+		// answers arrived unseen.
+		"unread": true,
 	}
 	for lang, keys := range origin {
 		if len(keys) == 0 {

@@ -68,9 +68,13 @@ func railCost(cost float64) string {
 	return fmt.Sprintf("$%.1f", cost)
 }
 
-// railFilters are the three views of the list, in the order the segmented
-// control shows them; prefs.SurfaceFilter keeps one of these values.
-var railFilters = []string{"all", "client", "feishu"}
+// railFilters are the views of the list: by where a chat came from, then by
+// what it is doing. prefs.SurfaceFilter keeps one of these values.
+var railFilters = []string{"all", "client", "feishu", "running", "unread"}
+
+// railFilterKeys name each view in the dictionary, in the same order as
+// railFilters, so a label cannot end up over another view's count.
+var railFilterKeys = []string{"allChats", "clientChats", "feishuChats", "running", "unread"}
 
 // railFilterIndex is where the saved filter sits in railFilters. An unknown
 // value reads as "all", so a hand-edited prefs file cannot empty the rail.
@@ -128,7 +132,7 @@ func (a *App) railRows() []railRow {
 	scoped := make([]protocol.Surface, 0, len(a.surfaces))
 	others := make([]protocol.Surface, 0, len(a.surfaces))
 	for _, s := range a.sortedSurfaces() {
-		if !railKindShown(s, railFilterIndex(a.prefs.SurfaceFilter)) {
+		if !a.railShown(s, railFilterIndex(a.prefs.SurfaceFilter)) {
 			continue
 		}
 		if railProjectKey(s.ProjectID) == railProjectKey(a.project) {
@@ -148,12 +152,34 @@ func (a *App) railRows() []railRow {
 	return rows
 }
 
-// railKindShown reports whether the list's filter shows the chat.
-func railKindShown(s protocol.Surface, filter int) bool {
+// railShown reports whether the list's filter shows the chat: the kind views by
+// the surface the chat came from, the status views by the work it still has.
+func (a *App) railShown(s protocol.Surface, filter int) bool {
 	if filter <= 0 || filter >= len(railFilters) {
 		return true
 	}
+	switch railFilters[filter] {
+	case "running":
+		return a.isRunning(s.ConversationID)
+	case "unread":
+		return a.isUnread(s.ConversationID)
+	}
 	return surfaceKind(s) == railFilters[filter]
+}
+
+// railFilterCounts is how many chats each view holds, which its label says. It
+// counts through the predicate that filters, so a label cannot promise a view
+// the list will not draw.
+func (a *App) railFilterCounts() []int {
+	counts := make([]int, len(railFilters))
+	for _, s := range a.sortedSurfaces() {
+		for i := range railFilters {
+			if a.railShown(s, i) {
+				counts[i]++
+			}
+		}
+	}
+	return counts
 }
 
 // railChatRows lists chats depth-first: a fork follows the chat it forked from,
@@ -184,17 +210,6 @@ func (a *App) railChatRows(list []protocol.Surface, other bool) []railRow {
 		nested = append(nested, children[row.surface.ConversationID]...)
 	}
 	return nested
-}
-
-// railChatCount is how many chats the list shows, headers aside.
-func railChatCount(rows []railRow) int {
-	count := 0
-	for _, row := range rows {
-		if row.kind == railChatRow {
-			count++
-		}
-	}
-	return count
 }
 
 // railRowMeta is a row's second line: the id and the spend, and the project on
@@ -277,4 +292,46 @@ func railLiveTasks(tasks []protocol.Task) []protocol.Task {
 		live = append(live, task)
 	}
 	return live
+}
+
+// railMark is the one slot a row keeps for what its chat is doing, since a row
+// is a single line: what the reader must act on, what is being worked on, then
+// what arrived unseen.
+type railMark uint8
+
+const (
+	railNoMark railMark = iota
+	railNeedsYouMark
+	railRunningMark
+	railUnreadMark
+)
+
+// railMarkFor is the mark the chat's row shows. A task that waits for its owner
+// outranks one that runs, which outranks an answer nobody has read: the red one
+// is the only one the reader has to do something about.
+func (a *App) railMarkFor(conversationID int, selected bool) railMark {
+	switch {
+	case a.chatNeedsYou(conversationID):
+		return railNeedsYouMark
+	case a.isRunning(conversationID):
+		return railRunningMark
+	case !selected && a.isUnread(conversationID):
+		return railUnreadMark
+	}
+	return railNoMark
+}
+
+// drawRailMark draws that mark: a red dot for a task that waits, a ring for work in
+// flight (its outline keeps it apart from the unread dot's fill), and a dot for
+// an answer that arrived while nobody was looking.
+func drawRailMark(c *ui.Context, t theme.Tokens, mark railMark, rise func(ui.Element) ui.Element) {
+	switch mark {
+	case railNeedsYouMark:
+		rise(ui.Box(c).Width(6).Height(6).Radius(3).AlignSelf(ui.Center).Background(t.Destructive))
+	case railRunningMark:
+		rise(ui.Box(c).Width(8).Height(8).Radius(4).AlignSelf(ui.Center).
+			BorderWidth(1.5).BorderColor(t.Primary))
+	case railUnreadMark:
+		rise(ui.Box(c).Width(5).Height(5).Radius(3).AlignSelf(ui.Center).Background(t.Primary))
+	}
 }

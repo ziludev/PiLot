@@ -17,7 +17,7 @@ import (
 // logsEmpty are ours, for the log viewer that reads the file in the window;
 // toolCallsCount is ours, for the line a run of tool calls folds into.
 // TestOriginDictionaryStillMatches keeps that line.
-const wantKeys = 191
+const wantKeys = 192
 
 // useLang switches the package language for one test and restores it after.
 func useLang(t *testing.T, l Lang) {

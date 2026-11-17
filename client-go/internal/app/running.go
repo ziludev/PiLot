@@ -30,6 +30,63 @@ var trayHook func(TrayState)
 // tray's menu.
 func SetTrayHook(fn func(TrayState)) { trayHook = fn }
 
+// The state words are the scheduler's own, from its inspect() projection
+// (dist/harness/scheduler.js): running, completing, waiting, pending, blocked
+// and sleeping. A terminal task leaves the list instead of lingering as "done".
+
+// taskInFlight is a task the model works on now, or one that runs as soon as its
+// own children finish. Waiting counts: a chat whose generation waits on a tool is
+// still working, and hiding it is what made the rail look idle mid-turn.
+func taskInFlight(state string) bool {
+	switch state {
+	case "running", "completing", "waiting", "pending":
+		return true
+	}
+	return false
+}
+
+// taskNeedsYou is a task the scheduler could not place, which only its owner can
+// move: a blocked fit, a failed migration, an approval the turn stops on.
+func taskNeedsYou(state string) bool {
+	switch state {
+	case "blocked", "faulted":
+		return true
+	}
+	return false
+}
+
+// taskUnfinished is a task that has not finished: the model is working on it,
+// or it stopped for its owner. Either way the chat is not a finished one.
+func taskUnfinished(state string) bool {
+	return taskInFlight(state) || taskNeedsYou(state)
+}
+
+// isRunning reports whether the chat has work that has not finished, which the
+// rail draws as a mark on its row and lists under its running view. A task that
+// waits for an approval is still in progress from the reader's side, so it
+// belongs there rather than among the finished chats.
+func (a *App) isRunning(conversationID int) bool {
+	for _, task := range a.tasks {
+		if task.ConversationID != conversationID {
+			continue
+		}
+		if taskUnfinished(task.State) {
+			return true
+		}
+	}
+	return false
+}
+
+// chatNeedsYou reports whether one of the chat's tasks waits for its owner.
+func (a *App) chatNeedsYou(conversationID int) bool {
+	for _, task := range a.tasks {
+		if task.ConversationID == conversationID && taskNeedsYou(task.State) {
+			return true
+		}
+	}
+	return false
+}
+
 // runningChats is the busy half of the task list, one entry per chat, titled
 // the way the rail titles them.
 func (a *App) runningChats() []RunningChat {
@@ -39,7 +96,7 @@ func (a *App) runningChats() []RunningChat {
 		if task.ConversationID == 0 || seen[task.ConversationID] {
 			continue
 		}
-		if task.State != "running" && task.State != "queued" && task.State != "pending" {
+		if !taskInFlight(task.State) {
 			continue
 		}
 		seen[task.ConversationID] = true

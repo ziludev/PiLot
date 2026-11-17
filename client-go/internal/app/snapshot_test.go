@@ -280,6 +280,37 @@ func TestSnapshotRail(t *testing.T) {
 	}
 }
 
+// TestSnapshotSettings shows the ⌘, panel: appearance, the window's transparency,
+// the daemon's controls and the key list.
+func TestSnapshotSettings(t *testing.T) {
+	a := snapshotData(t)
+	a.settingsOpen = true
+	a.prefs.Theme = "light"
+	a.prefs.Opacity = 0.85
+	tt := ui.NewTester(a.View, 1100, 800)
+	tt.Frame()
+	writePNG(t, filepath.Join(snapshotDir(), "pitta-settings.png"), tt.Image())
+}
+
+// TestSnapshotRailStatus shows the marks a row keeps for the work its chat has,
+// at the width where the five views of the filter have to fit.
+func TestSnapshotRailStatus(t *testing.T) {
+	a := snapshotData(t)
+	// One of each: a task that waits, one that runs, an answer nobody read.
+	a.tasks = []protocol.Task{
+		{ID: 5, ConversationID: 11, State: "blocked"},
+		{ID: 6, ConversationID: 12, State: "running"},
+	}
+	a.unread = map[int]bool{12: true, 13: true}
+	tt := ui.NewTester(func(ctx *ui.Context) {
+		theme.Apply(ctx, theme.Light())
+		a.railWidth = 210
+		a.rail(ctx)
+	}, 210, 420)
+	tt.Frame()
+	writePNG(t, filepath.Join(snapshotDir(), "rail-status.png"), tt.Image())
+}
+
 // TestSnapshotStepExpanded opens a tool step holding a patch so the accordion
 // can be looked at mid-way: it writes the frame before the click, one 175 ms
 // into the 350 ms growth, and the resting one.
