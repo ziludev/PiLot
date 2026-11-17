@@ -19,7 +19,10 @@ import { log, logError } from "./log.ts";
 const ROLE_NAMES = Object.keys(ROLES) as RoleName[];
 const CHILD_MAP = "subagents:children";
 
-type SubagentResult = { ok: true; text: string; conversationId: number } | { ok: false; error: string };
+// 失败也带着子会话号：一轮没答出来的孩子，它的会话恰恰是最该被翻的。
+type SubagentResult =
+  | { ok: true; text: string; conversationId: number }
+  | { ok: false; error: string; conversationId?: number };
 
 function isRole(value: unknown): value is RoleName {
   return typeof value === "string" && (ROLE_NAMES as string[]).includes(value);
@@ -67,10 +70,13 @@ async function runChild(
   role: RoleName,
   task: string,
 ): Promise<SubagentResult> {
+  // 记住孩子是谁：后面每条失败路径都要把它报回去。
+  let spawned: ConversationId | undefined;
   try {
     const conversationId = await ensureChild(api, context, key, role);
+    spawned = conversationId;
     const child = await api.conversation(conversationId, context);
-    if (child === undefined) return { ok: false, error: `子会话 ${conversationId} 丢失` };
+    if (child === undefined) return { ok: false, error: `子会话 ${conversationId} 丢失`, conversationId: conversationId as unknown as number };
 
     api.output(`→ ${role}（${ROLES[role].title}）开始…\n`);
     const submission = await child.submit(
@@ -79,7 +85,7 @@ async function runChild(
     );
     const settled = await submission.wait(context);
     if (settled.status !== "done" || settled.answer === undefined) {
-      return { ok: false, error: `${role} 没答出来：${settled.reason ?? "unanswered"}` };
+      return { ok: false, error: `${role} 没答出来：${settled.reason ?? "unanswered"}`, conversationId: spawned as unknown as number };
     }
     // The stage's own text, not just the last entry: a subagent that finishes with a tool call
     // would otherwise hand back only the line it wrote after that call.
@@ -89,7 +95,7 @@ async function runChild(
     return { ok: true, text, conversationId: conversationId as unknown as number };
   } catch (error) {
     logError("subagent", `${role} failed`, error);
-    return { ok: false, error: `${role}: ${(error as Error).message}` };
+    return { ok: false, error: `${role}: ${(error as Error).message}`, conversationId: spawned as unknown as number };
   }
 }
 
@@ -110,7 +116,10 @@ const delegate = defineTool({
     api.output(`派给 ${args.role}（${ROLES[args.role].title}）…`);
     const result = await runChild(api, context, "delegate", args.role, args.task);
     if (!result.ok) {
-      return { output: [{ type: "text" as const, text: `失败：${result.error}` }], isError: true };
+      // 失败了也把孩子的会话号交出去：没答出来的那一轮，正是要进去看的那一轮。
+      const details: Record<string, string | number | boolean> = { role: args.role, failed: true };
+      if (result.conversationId !== undefined) details.conversationId = result.conversationId;
+      return { output: [{ type: "text" as const, text: `失败：${result.error}` }], isError: true, details };
     }
     await api.details({ conversationId: result.conversationId, role: args.role }, context);
     return {
@@ -155,7 +164,16 @@ const delegateParallel = defineTool({
     return {
       output: [{ type: "text" as const, text }],
       isError: failed === results.length ? true : undefined,
-      details: { roles: jobs.map((job) => job.role), failed } as never,
+      details: {
+        roles: jobs.map((job) => job.role),
+        failed,
+        // 并行批次以前只报角色和失败数，父会话因此进不去任何一个孩子。
+        children: results.map((result, index) => ({
+          role: jobs[index]!.role,
+          conversationId: result.conversationId,
+          failed: !result.ok,
+        })),
+      } as never,
     };
   },
 });
