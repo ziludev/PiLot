@@ -108,10 +108,13 @@ func installTray(a *app.App, win *mygo.Window) *mygo.Tray {
 		return mygo.NewMenu(items)
 	}
 	tray, err := mygo.NewTray(mygo.TrayOptions{
-		ID:      "pitta",
-		Icon:    trayIcon,
-		ToolTip: "Pitta",
-		Menu:    build(app.TrayState{}),
+		ID:   "pitta",
+		Icon: trayIcon,
+		// The bar tints a template icon to its own ink, so the flame is drawn
+		// black on transparent and the menu bar decides the colour.
+		IconIsTemplate: true,
+		ToolTip:        "Pitta",
+		Menu:           build(app.TrayState{}),
 	})
 	if err != nil {
 		log.Printf("menu: tray: %v", err)
