@@ -88,7 +88,12 @@ func Draw(c *ui.Context, size int, mood Mood, ink string) ui.Element {
 		{At: 0, Value: 0},
 		{At: Loop(), Value: 1},
 	}, ui.KeyframeOptions{Repeat: ui.RepeatForever, NonMotion: true})
-	return Frame(c, size, mood, ink, int(float64(value)*Frames))
+	// The frame is the box's child, not a sibling: a row that took both would
+	// lay out the box's width as well, a gap as wide as the mark itself.
+	box.Children(func() {
+		Frame(c, size, mood, ink, int(float64(value)*Frames))
+	})
+	return box
 }
 
 // View draws the mark still, at the first frame of its mood.
@@ -112,8 +117,12 @@ func Frame(c *ui.Context, size int, mood Mood, ink string, frame int) ui.Element
 		frames[key] = svg
 		framesMu.Unlock()
 	}
-	return ui.Image(c, svg).Size(float32(size), float32(size))
+	return ui.Image(c, svg).Size(float32(size), float32(size)).Label(MarkLabel)
 }
+
+// MarkLabel names the mark's image for callers that need its box: an SVG
+// carries no text to find, and the rail header's geometry is what they measure.
+const MarkLabel = "mark"
 
 // DrawIn is the mark drawing itself: a pen runs the flame's outline, then the
 // stand, and the mark settles into its shape. progress runs 0..1 once.
