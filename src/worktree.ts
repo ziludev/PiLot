@@ -7,7 +7,7 @@ import { log, logError } from "./log.ts";
 
 const run = promisify(execFile);
 
-export type Worktree = { dir: string; branch: string };
+type Worktree = { dir: string; branch: string };
 
 /**
  * One git worktree and branch per conversation: parallel sessions stop stepping on
@@ -54,7 +54,7 @@ export async function ensureWorktree(
   }
 }
 
-export type RemoveResult =
+type RemoveResult =
   | { status: "removed"; branch: string }
   | { status: "unmerged"; branch: string; commits: number }
   | { status: "absent"; branch: string }
@@ -89,7 +89,7 @@ export async function removeWorktree(
   }
 }
 
-export type MergeResult =
+type MergeResult =
   | { status: "merged"; branch: string; base: string; commits: number }
   | { status: "up-to-date"; branch: string; base: string }
   | { status: "dirty"; branch: string; files: string[] }

@@ -66,7 +66,7 @@ const LOGSTORE = /^[a-z0-9][a-z0-9-]{1,60}$/;
 const ENVIRONMENTS = ["dev", "prod"] as const;
 type Environment = (typeof ENVIRONMENTS)[number];
 
-export type LogsQuery = {
+type LogsQuery = {
   env: Environment;
   logstore: string;
   query: string;
@@ -197,7 +197,7 @@ const SQL_WRITE =
   /\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|copy|vacuum|merge|refresh|reindex|comment|call|do|set|begin|commit|rollback|lock|analyze|cluster|listen|notify|prepare|execute|deallocate|discard|import|checkpoint|load|handler)\b/i;
 const SQL_READ = /^\s*(select|with|explain|show|table|values)\b/i;
 
-export type DbQuery = {
+type DbQuery = {
   env: DbEnvironment;
   cliEnv: "test" | "prod";
   source: string;

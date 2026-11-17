@@ -23,7 +23,7 @@ const codemodeTool = createCodemodeTool({
 } satisfies CodemodeToolOptions);
 
 /** Named in the deferred list, and loadable on demand. */
-export const CODEMODE_TOOL = { ...codemodeTool, deferred: true } as ToolRegistration;
+const CODEMODE_TOOL = { ...codemodeTool, deferred: true } as ToolRegistration;
 
 const hint = section("codemode_hint", () => {
   return [

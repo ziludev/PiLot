@@ -10,7 +10,7 @@ import { logError } from "./log.ts";
  * restart, a correction or an automatic continuation is — something the owner should see in the
  * client, and nothing the model should pay for on the next request.
  */
-export const NOTE_KIND = "app.note";
+const NOTE_KIND = "app.note";
 
 export async function note(conversation: Conversation, context: Context, text: string): Promise<void> {
   await conversation

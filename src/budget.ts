@@ -2,7 +2,7 @@ import { defineDoc, type Harness } from "@earendil-works/pi-durable";
 import type { Context } from "@earendil-works/chord/context";
 
 /** Spend tracked per local day, with the session total as the baseline. */
-export const DailySpend = defineDoc<{
+const DailySpend = defineDoc<{
   date: string;
   baseline: number;
   spent: number;

@@ -11,14 +11,14 @@ import { recent, type AuditEvent } from "./audit.ts";
  * that says so instead of showing an empty list.
  */
 
-export type KetchupTask = {
+type KetchupTask = {
   title: string;
   /** The harness task state kind: running, sleeping, waiting. */
   state: string;
   until?: number;
 };
 
-export type KetchupApproval = { tool: string; summary: string; waitedMs: number };
+type KetchupApproval = { tool: string; summary: string; waitedMs: number };
 
 export type KetchupInput = {
   now: number;

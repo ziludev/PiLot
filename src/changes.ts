@@ -8,9 +8,9 @@ import { log, logError } from "./log.ts";
 const run = promisify(execFile);
 const MAX_DIFF_BYTES = 240_000;
 
-export type FileChange = { path: string; status: string; added: number; removed: number };
+type FileChange = { path: string; status: string; added: number; removed: number };
 
-export type ChangesSnapshot = {
+type ChangesSnapshot = {
   repo: boolean;
   /** Working tree vs the last commit, as one unified diff. */
   diff: string;

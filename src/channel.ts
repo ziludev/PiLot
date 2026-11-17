@@ -3,7 +3,7 @@
  * (Feishu chat) and asking a human to approve a tool call. The bridge installs both at
  * boot; the CLI installs a stdout/stdin version. Failures fail closed.
  */
-export type Notifier = (surfaceId: string, text: string) => Promise<void>;
+type Notifier = (surfaceId: string, text: string) => Promise<void>;
 
 let notifier: Notifier | undefined;
 
@@ -35,7 +35,7 @@ export type ApprovalRequest = {
   timeoutMs: number;
 };
 
-export type ApprovalDecider = (request: ApprovalRequest) => Promise<boolean>;
+type ApprovalDecider = (request: ApprovalRequest) => Promise<boolean>;
 
 let decider: ApprovalDecider | undefined;
 

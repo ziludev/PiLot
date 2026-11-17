@@ -172,7 +172,7 @@ const delegateParallel = defineTool({
 
 // ---- background pipeline ---------------------------------------------------
 
-export type FeatureInput = {
+type FeatureInput = {
   spec: string;
   /** Where to report when it finishes. */
   surfaceId: string;
@@ -189,7 +189,7 @@ type StageKey = "feature-design" | "feature-implement" | "feature-test";
  * gets one message when it is done. A crash resumes at the first unfinished stage
  * because each stage's output is memoized.
  */
-export const FeatureTask = defineTask<FeatureInput, { phase: "run" }, string>({
+const FeatureTask = defineTask<FeatureInput, { phase: "run" }, string>({
   name: "app.feature",
   version: 1,
   initial: () => ({ phase: "run" }),

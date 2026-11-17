@@ -2,7 +2,7 @@ import { createBashTool, createEditTool, createReadTool, createWriteTool } from 
 
 export type RoleName = "planner" | "designer" | "implementer" | "tester" | "reviewer";
 
-export type Role = {
+type Role = {
   title: string;
   instructions: string;
   /** Which of the coding tools the role may use. */

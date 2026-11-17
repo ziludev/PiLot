@@ -157,7 +157,7 @@ export function detailPanel(details: Omit<TurnDetails, "at">): Record<string, un
 
 /** A markdown table, as a card needs it: Feishu's markdown has no table syntax, so a table in an
  *  answer turns into a wall of pipes unless it becomes a real `table` element. */
-export type TableBlock = { columns: string[]; rows: string[][] };
+type TableBlock = { columns: string[]; rows: string[][] };
 
 // `|---|:---:|---:|` — the row that turns the line above it into a header.
 const TABLE_RULE = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
@@ -420,9 +420,9 @@ export function digestOf(text: string): string {
 }
 
 /** What a card needs to say more than "处理中": whose turn it is, and how long this step has run. */
-export type CardTrace = { digest: string; stepKey?: string; stepSince: number };
+type CardTrace = { digest: string; stepKey?: string; stepSince: number };
 
-export function renderLive(live: LiveSnapshot, trace?: CardTrace): string {
+function renderLive(live: LiveSnapshot, trace?: CardTrace): string {
   const body = live.text.trim();
   let inner: string;
   if (body.length > 0) {
@@ -440,7 +440,7 @@ export function renderLive(live: LiveSnapshot, trace?: CardTrace): string {
 }
 
 type PostElement = { tag?: string; text?: string; image_key?: string };
-export type ParsedContent = { text: string; imageKeys: string[]; audioKey?: string };
+type ParsedContent = { text: string; imageKeys: string[]; audioKey?: string };
 
 /** The bot's own open_id, learned at startup, so an @ of itself can be dropped entirely. */
 let botOpenId: string | undefined;
@@ -472,7 +472,7 @@ function stripMentions(message: NonNullable<IncomingMessage["message"]>, text: s
  * Feishu delivers a picture as `image`, but a picture with any text (or a screenshot
  * pasted on mobile) arrives as `post` rich text. Both must be read.
  */
-export function parseContent(message: NonNullable<IncomingMessage["message"]>): ParsedContent {
+function parseContent(message: NonNullable<IncomingMessage["message"]>): ParsedContent {
   let body: unknown;
   try {
     body = JSON.parse(message.content ?? "{}");
@@ -511,7 +511,7 @@ export function parseContent(message: NonNullable<IncomingMessage["message"]>): 
 }
 
 /** `/model` forms: list, one id, `default <id>`, `thinking <level>`. */
-export type ModelCommand =
+type ModelCommand =
   | { kind: "list" }
   | { kind: "set"; modelId: string }
   | { kind: "default"; modelId: string }
@@ -556,7 +556,7 @@ export function turnMeta(input: {
 }
 
 /** A quoted message, as the model needs it: who wrote it and what it said. */
-export type Quoted = { who: string; text: string };
+type Quoted = { who: string; text: string };
 
 /**
  * Reading a quoted message costs an API round trip, and people quote the same message while
@@ -700,7 +700,7 @@ function larkClient(): Lark.Client {
   return sharedClient;
 }
 
-export async function senderName(openId: string): Promise<string | undefined> {
+async function senderName(openId: string): Promise<string | undefined> {
   if (openId.length === 0) return undefined;
   const known = senderNames.get(openId);
   if (known !== undefined) return known;
@@ -731,7 +731,7 @@ export function looksLikeReadOnlyRefusal(answer: string): boolean {
 }
 
 /** Appended as a fresh user turn after a false read-only refusal; the last word in context. */
-export const READ_ONLY_CORRECTION =
+const READ_ONLY_CORRECTION =
   `（网关）你刚才那条回答作废：本轮提问的是 ${config.feishu.ownerName} 本人（已校验），这个群现在的写权限是开的。` +
   "write/edit/bash 对你都可用，改文件、推分支、触发部署都不会被拦（危险命令照旧弹审批）。" +
   "直接执行他要的修改，不要再解释权限、不要再让他去粘命令或换私聊。";
@@ -820,7 +820,7 @@ function mentionFor(
 }
 
 /** Liveness of the long connection, so a deaf bot is visible instead of silent. */
-export type FeishuStatus = {
+type FeishuStatus = {
   ready: boolean;
   /** Epoch ms of the last successful connect (or of process start). */
   since: number;
@@ -839,7 +839,7 @@ export const getFeishuStatus = (): FeishuStatus & { started: boolean; downMs: nu
   downMs: feishuStatus.ready ? 0 : Date.now() - feishuStatus.since,
 });
 
-export type FeishuBridge = { stop(): void };
+type FeishuBridge = { stop(): void };
 
 export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBridge> {
   const { appId, appSecret } = requireFeishuCredentials();

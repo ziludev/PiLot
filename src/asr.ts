@@ -9,7 +9,7 @@ import { log, logError } from "./log.ts";
 
 const run = promisify(execFile);
 
-export type AsrResult = { ok: true; text: string } | { ok: false; error: string };
+type AsrResult = { ok: true; text: string } | { ok: false; error: string };
 
 async function has(bin: string): Promise<boolean> {
   try {

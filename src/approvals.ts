@@ -1,6 +1,6 @@
 import { log } from "./log.ts";
 
-export type PendingApproval = {
+type PendingApproval = {
   /** Risk class the caller may grant for the whole conversation. */
   grantKey?: string;
   callId: string;

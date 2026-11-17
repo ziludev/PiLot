@@ -30,7 +30,7 @@ function textOfMessage(message: unknown): string {
 }
 
 /** Reads `pi.live` out of a conversation view. */
-export function readLive(view: unknown): LiveSnapshot {
+function readLive(view: unknown): LiveSnapshot {
   const docs = asRecord(asRecord(view)?.["docs"]);
   const live = asRecord(docs?.["pi.live"]);
   if (live === undefined) return { text: "", tools: [], busy: false };
@@ -62,7 +62,7 @@ export function readLive(view: unknown): LiveSnapshot {
   return { text, tools, activity, busy: live["run"] !== undefined };
 }
 
-export type LiveWatcher = { stop(): Promise<void> };
+type LiveWatcher = { stop(): Promise<void> };
 
 /**
  * Follows a conversation and reports the live snapshot on change.

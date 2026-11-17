@@ -37,7 +37,7 @@ export type PendingCard = {
   at: number;
 };
 
-export const PendingCards = defineDoc<{ cards: Record<string, PendingCard> }>({
+const PendingCards = defineDoc<{ cards: Record<string, PendingCard> }>({
   kind: "app.pending-cards",
   version: 1,
   scope: "session",

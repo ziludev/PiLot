@@ -18,7 +18,7 @@ import { record } from "./audit.ts";
  */
 export type ChatLevel = "closed" | "owner" | "group";
 
-export const ChatAccess = defineDoc<{ chats: Record<string, ChatLevel> }>({
+const ChatAccess = defineDoc<{ chats: Record<string, ChatLevel> }>({
   kind: "app.chat-access",
   version: 1,
   scope: "session",

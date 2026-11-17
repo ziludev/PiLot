@@ -44,7 +44,8 @@ import { grantSession, loadGrants } from "./grants.ts";
 import { setRuntimeRef } from "./runtime-ref.ts";
 import { log, logError } from "./log.ts";
 import { acquireStorageLock } from "./storage-lock.ts";
-import { startToolbox, codingToolsFromToolbox, type Toolbox } from "./toolbox/index.ts";
+import { startToolbox, codingToolsFromToolbox } from "./toolbox/index.ts";
+import type { Toolbox } from "./toolbox/client.ts";
 import { ensureRepo } from "./changes.ts";
 import { ensureWorktree } from "./worktree.ts";
 import { gitBranchOf } from "./git-info.ts";
@@ -72,7 +73,7 @@ export const context = BACKGROUND_CONTEXT;
 
 /** chat surface id (Feishu chat_id, "cli", ...) -> conversation id. Session-scoped, so it survives restarts. */
 /** How long each approval made a run wait, so the turn timeline can show it. */
-export const ApprovalWaits = defineDoc<{
+const ApprovalWaits = defineDoc<{
   waits: Array<{ conversationId: number; tool: string; start: number; end: number }>;
 }>({
   kind: "app.approval-waits",
@@ -83,7 +84,7 @@ export const ApprovalWaits = defineDoc<{
 });
 
 /** Host default model, so "设为默认" survives restarts without editing .env. */
-export const DefaultModel = defineDoc<{ provider: string; modelId: string; thinkingLevel?: string }>({
+const DefaultModel = defineDoc<{ provider: string; modelId: string; thinkingLevel?: string }>({
   kind: "app.default-model",
   version: 1,
   scope: "session",

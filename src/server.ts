@@ -133,7 +133,7 @@ function conversationIdOf(value: Json): number | undefined {
   return undefined;
 }
 
-export type AgentServer = { port: number; close(): Promise<void> };
+type AgentServer = { port: number; close(): Promise<void> };
 
 export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServer> {
   const { port, host } = config.http;

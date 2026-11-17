@@ -7,7 +7,7 @@ import { log } from "./log.ts";
  * A chat that is deliberately editing a repo outside the workspace should not raise the
  * same card for every file; the grant is per conversation and per class, never global.
  */
-export const SessionGrants = defineDoc<{ byConversation: Record<string, string[]> }>({
+const SessionGrants = defineDoc<{ byConversation: Record<string, string[]> }>({
   kind: "app.session-grants",
   version: 1,
   scope: "session",
@@ -32,7 +32,7 @@ export function hasGrant(conversationId: number, key: string): boolean {
   return loaded && cache.get(String(conversationId))?.has(key) === true;
 }
 
-export function rememberGrant(conversationId: number, key: string): void {
+function rememberGrant(conversationId: number, key: string): void {
   const set = cache.get(String(conversationId)) ?? new Set<string>();
   set.add(key);
   cache.set(String(conversationId), set);

@@ -17,7 +17,7 @@ import { SUBAGENT_TOOLS } from "./subagents.ts";
  * writes what it loads into the conversation's `modelTools.add`, so a tool stays offered on that
  * branch, also after a compaction.
  */
-export const DEFERRED_TOOLS = [...LARK_TOOLS, ...SUBAGENT_TOOLS, ...PROJECT_TOOLS].filter(
+const DEFERRED_TOOLS = [...LARK_TOOLS, ...SUBAGENT_TOOLS, ...PROJECT_TOOLS].filter(
   (tool) => tool.deferred === true,
 );
 

@@ -4,7 +4,7 @@ import { notify, surfaceForConversation } from "./channel.ts";
 import { logError } from "./log.ts";
 import { settle } from "./settle.ts";
 
-export type ReminderInput = {
+type ReminderInput = {
   /** What to say when it fires. */
   text: string;
   /** Epoch ms. */
@@ -17,7 +17,7 @@ export type ReminderInput = {
  * A reminder is a durable task: it sleeps with a stored deadline, so it survives
  * restarts and process death. Nothing keeps a timer in memory while it waits.
  */
-export const Reminder = defineTask<ReminderInput, { phase: "sleep" } | { phase: "deliver" }, string>({
+const Reminder = defineTask<ReminderInput, { phase: "sleep" } | { phase: "deliver" }, string>({
   name: "app.reminder",
   version: 1,
   initial: () => ({ phase: "sleep" }),
