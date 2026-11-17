@@ -989,12 +989,8 @@ func nextTheme(theme string) string {
 	return ""
 }
 
-// themeLabel is the toggle's tooltip. the earlier client names the button, not the state
-// (the earlier client's view has only the "theme" key), so the icon carries the state.
-func themeLabel(theme string) string { return i18n.T("theme") }
-
-// toggleLang switches between Chinese and English, as the rail's Languages
-// button does.
+// toggleLang switches between Chinese and English, which the settings panel and
+// the ⌘ palette also do.
 func (a *App) toggleLang() {
 	a.apply(func() {
 		if a.prefs.Lang == string(i18n.ZH) {

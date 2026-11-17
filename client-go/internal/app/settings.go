@@ -18,10 +18,13 @@ const (
 	themeSystemLabel = "Match the system"
 	themeLightLabel  = "Light"
 	themeDarkLabel   = "Dark"
+	// A language names itself, so these are not translated either.
+	langZH = "中文"
+	langEN = "English"
 )
 
-// settingsDialog is the ⌘, panel: the two things that were only reachable from
-// the rail's header buttons, plus the key list.
+// settingsDialog is the ⌘, panel: the preferences that used to hide behind the
+// rail's header and footer buttons, plus the key list.
 func (a *App) settingsDialog(c *ui.Context, t theme.Tokens) {
 	if !a.settingsOpen {
 		return
@@ -30,7 +33,7 @@ func (a *App) settingsDialog(c *ui.Context, t theme.Tokens) {
 	ui.Modal(c, &open, func() {
 		ui.Text(c, settingsTitle).FontSize(13).FontWeight(600).TextColor(t.Foreground)
 		ui.Text(c, settingsTheme).FontSize(10).TextColor(t.MutedFg)
-		ui.Row(c).FillWidth().Gap(6).Children(func() {
+		ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
 			for _, choice := range []struct{ value, label string }{
 				{"system", themeSystemLabel},
 				{"light", themeLightLabel},
@@ -38,22 +41,28 @@ func (a *App) settingsDialog(c *ui.Context, t theme.Tokens) {
 			} {
 				choice := choice
 				active := a.prefs.Theme == choice.value || (choice.value == "system" && a.prefs.Theme == "")
-				// ButtonBase draws no text: the label is what assistive
-				// technology reads, and the children are what the eye sees.
-				button := ui.ButtonBase(c).Padding(4, 10).Radius(6).Label(choice.label)
-				ink := t.MutedFg
-				if active {
-					button.Background(t.Primary)
-					ink = t.PrimaryFg
-				} else {
-					button.Background(t.Muted)
-				}
-				button.Children(func() {
-					ui.Text(c, choice.label).FontSize(11).TextColor(ink)
-				})
-				button.OnClick(func() {
+				chip(c, t, choice.label, active, func() {
 					a.apply(func() {
 						a.prefs.Theme = choice.value
+						a.savePrefsLater()
+						a.invalidate()
+					})
+				})
+			}
+		})
+		// The rail's header used to carry these two switches. They belong with
+		// the other preferences, where the panel can name them in full.
+		ui.Row(c).FillWidth().Gap(6).Children(func() {
+			for _, choice := range []struct{ value, label string }{
+				{string(i18n.ZH), langZH},
+				{string(i18n.EN), langEN},
+			} {
+				choice := choice
+				active := string(i18n.Current()) == choice.value
+				chip(c, t, choice.label, active, func() {
+					a.apply(func() {
+						a.prefs.Lang = choice.value
+						i18n.Set(i18n.Lang(choice.value))
 						a.savePrefsLater()
 						a.invalidate()
 					})
