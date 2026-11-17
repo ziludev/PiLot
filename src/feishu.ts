@@ -8,7 +8,7 @@ import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
 import { watchLive, type LiveSnapshot } from "./live.ts";
 import { setApprovalDecider, setNotifier, type ApprovalRequest } from "./channel.ts";
 import { log, logError } from "./log.ts";
-import { recent, record } from "./audit.ts";
+import { record } from "./audit.ts";
 import { collectKetchup, elapsed, formatKetchup } from "./ketchup.ts";
 import { collectDigest } from "./digest.ts";
 import { recordVerdict } from "./verdicts.ts";

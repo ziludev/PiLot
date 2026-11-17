@@ -9,7 +9,10 @@ import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import type { ToolExecutionApi, ToolExecutionResult } from "@earendil-works/pi-durable";
 import { Toolbox } from "../src/toolbox/client.ts";
 import { createBashToolProxy } from "../src/toolbox/tools/bash.ts";
-import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES } from "../src/toolbox/limits.ts";
+// pi-durable keeps its truncation limits in a module the package does not export; the retained
+// output of both paths is compared through these numbers, so they are restated here on purpose.
+const DEFAULT_MAX_LINES = 2000;
+const DEFAULT_MAX_BYTES = 50 * 1024;
 
 /**
  * The parity suite: one command, two implementations, the same model-visible result.
