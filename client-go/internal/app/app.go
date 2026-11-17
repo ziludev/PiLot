@@ -151,9 +151,12 @@ type App struct {
 	mergeOpen        bool
 	mainPane         float32
 	transcriptScroll ui.ScrollState
-	scrollViewH      float32
-	pageGliding      bool
-	previewScale     float32
+	// settingsScroll keeps the panel where the reader left it while a
+	// preference is dragged.
+	settingsScroll ui.ScrollState
+	scrollViewH    float32
+	pageGliding    bool
+	previewScale   float32
 	// seenApprovals remembers which waits have already sounded the alert, and
 	// waitingAlert remembers that one is still running.
 	seenApprovals map[string]bool
