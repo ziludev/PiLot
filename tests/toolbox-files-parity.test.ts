@@ -310,6 +310,27 @@ test("parity: read finds a name written in NFD", { skip }, async () => {
   assert.equal(seen.text, "decomposed name\n");
 });
 
+test("parity: read refuses a directory with the same text", { skip }, async () => {
+  for (const side of ["ref", "go"]) mkdirSync(join(readings, side, "folder"), { recursive: true });
+  const roots = { reference: join(readings, "ref"), candidate: join(readings, "go") };
+  const seen = await parity(readTool(), readProxy(), { path: "folder" }, roots);
+  // Node's read error carries no path, so the message names the operation only.
+  assert.equal(seen.error, "EISDIR: illegal operation on a directory, read");
+});
+
+test("parity: edit matches a compatibility character the newer table knows", { skip }, async () => {
+  // U+1E030 folds to a Cyrillic "а" only in the Unicode 17 tables the runtime uses.
+  const roots = seedBoth(writing, "unicode17.txt", "the \u{1E030} letter\n");
+  const seen = await parity(
+    editTool(),
+    editProxy(),
+    { path: "unicode17.txt", edits: [{ oldText: "the \u0430 letter", newText: "matched" }] },
+    roots,
+  );
+  assert.match(seen.text, /Successfully replaced 1 block/);
+  assert.equal(readFileSync(join(roots.candidate, "unicode17.txt"), "utf8"), "matched\n");
+});
+
 test("parity: write creates parent directories and reports the path", { skip }, async () => {
   const roots = { reference: join(writing, "ref"), candidate: join(writing, "go") };
   const seen = await parity(writeTool(), writeProxy(), { path: "deep/nested/file.txt", content: "hello\n" }, roots);
@@ -324,6 +345,13 @@ test("parity: write refuses an unusable path with the same text", { skip }, asyn
   const roots = { reference: join(writing, "ref"), candidate: join(writing, "go") };
   const seen = await parity(writeTool(), writeProxy(), { path: "folder", content: "x" }, roots);
   assert.match(seen.error ?? "", /^EISDIR: illegal operation on a directory, open '.*folder'$/);
+});
+
+test("parity: write under a file parent reports realpath like the reference", { skip }, async () => {
+  for (const side of ["ref", "go"]) writeFileSync(join(writing, side, "blocker"), "x");
+  const roots = { reference: join(writing, "ref"), candidate: join(writing, "go") };
+  const seen = await parity(writeTool(), writeProxy(), { path: "blocker/deeper/file.txt", content: "hi" }, roots);
+  assert.match(seen.error ?? "", /^ENOTDIR: not a directory, realpath '.*blocker\/deeper\/file\.txt'$/);
 });
 
 test("parity: edit replaces one block and reports the same diff", { skip }, async () => {

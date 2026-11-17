@@ -251,6 +251,25 @@ test("parity: multibyte output survives the stream", { skip }, async () => {
   assert.equal(seen.text, "中文\n");
 });
 
+test("parity: malformed UTF-8 is replaced the way TextDecoder does it", { skip }, async () => {
+  // One replacement per malformed subpart, not per byte: the acceptance contract names this case.
+  const cases: Array<[string, string]> = [
+    [`printf '\\357\\273A'`, "\uFFFDA"],
+    [`printf 'A\\360\\237\\222B'`, "A\uFFFDB"],
+    [`printf 'A\\342\\202'`, "A\uFFFD"],
+    [`printf '\\377\\376'`, "\uFFFD\uFFFD"],
+  ];
+  for (const [command, want] of cases) {
+    const seen = await parity(command);
+    assert.equal(seen.text, want, command);
+  }
+});
+
+test("parity: a leading byte-order mark is dropped and an inner one kept", { skip }, async () => {
+  assert.equal((await parity(`printf '\\357\\273\\277hello'`)).text, "hello");
+  assert.equal((await parity(`printf 'a\\357\\273\\277b'`)).text, "a\uFEFFb");
+});
+
 test("parity: a missing working directory reads the same", { skip }, async () => {
   const missing = join(dir, "gone");
   const reference = await runIn(createInProcessBash(), missing);

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -309,3 +311,66 @@ func TestReadImageRoundTripsBytes(t *testing.T) {
 		t.Fatalf("bytes changed: %v", decoded)
 	}
 }
+
+func TestReadDirectoryAndWriteUnderAFileUseNodeText(t *testing.T) {
+	dir := t.TempDir()
+	srv := server.New(context.Background(), discardLogger())
+	RegisterRead(srv)
+	RegisterWrite(srv)
+	if err := os.Mkdir(filepath.Join(dir, "folder"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "blocker"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write blocker: %v", err)
+	}
+	// Node's read error carries no path, because the open succeeds and the read is what fails.
+	if _, err := callTool(t, srv, "read", map[string]any{"path": "folder"}, dir); err == nil ||
+		err.Error() != "EISDIR: illegal operation on a directory, read" {
+		t.Fatalf("read a directory: %v", err)
+	}
+	// Node's mkdir reports the target through realpath, which names the file it could not create.
+	_, err := callTool(t, srv, "write", map[string]any{"path": "blocker/deeper/file.txt", "content": "hi"}, dir)
+	want := "ENOTDIR: not a directory, realpath '" + filepath.Join(dir, "blocker/deeper/file.txt") + "'"
+	if err == nil || err.Error() != want {
+		t.Fatalf("write under a file: %v, want %s", err, want)
+	}
+}
+
+// A large file must not be loaded to answer a read at its start.
+func TestReadLargeFileStaysBounded(t *testing.T) {
+	dir := t.TempDir()
+	srv := server.New(context.Background(), discardLogger())
+	RegisterRead(srv)
+	line := strings.Repeat("x", 99) + "\n"
+	path := filepath.Join(dir, "big.txt")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	for index := 0; index < 200_000; index++ {
+		if _, err := file.WriteString(line); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	file.Close()
+	result, err := callTool(t, srv, "read", map[string]any{"path": "big.txt"}, dir)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	truncation, ok := result["details"].(map[string]any)["truncation"].(map[string]any)
+	if !ok {
+		t.Fatalf("details = %v, want truncation", result["details"])
+	}
+	// 100-byte lines hit the byte budget first, so the answer is 512 whole lines of the 200000.
+	if truncation["totalLines"] != float64(200_000) || truncation["outputLines"] != float64(512) ||
+		truncation["truncatedBy"] != "bytes" {
+		t.Fatalf("truncation = %v", truncation)
+	}
+	text, _ := result["text"].(string)
+	if len(text) != 51_199 {
+		t.Fatalf("kept %d bytes, want 51199", len(text))
+	}
+}
+
+// discardLogger keeps the per-call log lines out of the test output.
+func discardLogger() *log.Logger { return log.New(io.Discard, "", 0) }

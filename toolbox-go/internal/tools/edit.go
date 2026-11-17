@@ -151,13 +151,13 @@ func writeFile(ctx context.Context, absolutePath, content string) error {
 		return fmt.Errorf("Operation aborted")
 	}
 	if err := os.MkdirAll(filepath.Dir(absolutePath), 0o755); err != nil {
-		return nodeStyleFileError(err, filepath.Dir(absolutePath))
+		return nodeWriteError(err, absolutePath)
 	}
 	if ctx.Err() != nil {
 		return fmt.Errorf("Operation aborted")
 	}
 	if err := os.WriteFile(absolutePath, []byte(content), 0o644); err != nil {
-		return nodeStyleFileError(err, absolutePath)
+		return nodeWriteError(err, absolutePath)
 	}
 	if ctx.Err() != nil {
 		return fmt.Errorf("Operation aborted")
