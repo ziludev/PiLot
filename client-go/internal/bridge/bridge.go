@@ -82,13 +82,3 @@ func Agentctl(action string) string {
 	}
 	return text
 }
-
-// OpenLogs reveals the agent log directory in Finder.
-func OpenLogs() string {
-	logs := filepath.Join(Home(), "logs")
-	out, err := exec.Command("open", logs).CombinedOutput()
-	if err != nil {
-		return "open failed: " + err.Error() + " " + strings.TrimSpace(string(out))
-	}
-	return logs
-}

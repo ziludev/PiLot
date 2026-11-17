@@ -3,7 +3,6 @@ package app
 import (
 	"strings"
 
-	"pitta/internal/bridge"
 	"pitta/internal/i18n"
 )
 
@@ -51,7 +50,7 @@ func (a *App) paletteActions() []paletteAction {
 		{Name: i18n.T("language"), Run: func() { a.toggleLang() }},
 		{Name: paletteNewWindow, Run: func() { a.openInNewWindow(a.currentValue()) }},
 		{Name: paletteSettings, Run: func() { a.apply(func() { a.settingsOpen = true }) }},
-		{Name: paletteLogs, Run: func() { bridge.OpenLogs() }},
+		{Name: paletteLogs, Run: func() { a.apply(func() { a.toggleLogs(); a.invalidate() }) }},
 		{Name: paletteQuit, Run: func() { a.askQuit() }},
 	}
 }

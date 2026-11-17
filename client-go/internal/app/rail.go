@@ -9,7 +9,6 @@ import (
 
 	"pitta/internal/api"
 	"pitta/internal/avatar"
-	"pitta/internal/bridge"
 	"pitta/internal/i18n"
 	"pitta/internal/icons"
 	"pitta/internal/motion"
@@ -541,7 +540,7 @@ func (a *App) railFooter(c *ui.Context, t theme.Tokens) {
 		BorderWidth(1, 0, 0, 0).BorderColor(t.SidebarBorder).Children(func() {
 		railIconAction(c, i18n.T("restart"), icons.RotateCw, func() { go a.control("restart") })
 		railIconAction(c, i18n.T("backup"), icons.Database, func() { go a.control("backup") })
-		railIconAction(c, i18n.T("logs"), icons.Folder, func() { bridge.OpenLogs() })
+		railIconAction(c, i18n.T("logs"), icons.FileIcon, func() { a.apply(func() { a.toggleLogs(); a.invalidate() }) })
 		ui.Row(c).Grow(1).Children(func() {})
 		ui.Text(c, shortPath(a.cfg.Home)).FontSize(9.5).TextColor(t.MutedFg).
 			MaxLines(1).TruncateMiddle()
