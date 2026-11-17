@@ -6,7 +6,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/avatar"
+	"pitta/internal/brand"
 	"pitta/internal/i18n"
 	"pitta/internal/protocol"
 	"pitta/internal/theme"
@@ -29,30 +29,30 @@ func TestRailStatusFollowsTheBridge(t *testing.T) {
 	}
 }
 
-func TestAvatarMoodsFollowTheRun(t *testing.T) {
+func TestMarkMoodsFollowTheRun(t *testing.T) {
 	a := New(Config{})
-	if mood, tone := a.avatarLook(); mood != avatar.MoodIdle || tone != avatar.Tones.Idle {
-		t.Fatalf("idle avatar = %v %v", mood, tone)
+	if mood, delegated := a.markLook(); mood != brand.MoodIdle || delegated {
+		t.Fatalf("idle mark = %v delegated=%t", mood, delegated)
 	}
 	a.live = &protocol.LiveDoc{Run: []byte(`{"x":1}`)}
-	if mood, _ := a.avatarLook(); mood != avatar.MoodThinking {
-		t.Fatalf("running avatar = %v", mood)
+	if mood, _ := a.markLook(); mood != brand.MoodThinking {
+		t.Fatalf("running mark = %v", mood)
 	}
 	a.live = nil
-	if mood, tone := a.avatarLook(); mood != avatar.MoodHappy || tone != avatar.Tones.Done {
-		t.Fatalf("finished avatar = %v %v", mood, tone)
+	if mood, _ := a.markLook(); mood != brand.MoodHappy {
+		t.Fatalf("finished mark = %v", mood)
 	}
 	a.moodUntil = time.Now().Add(-time.Second)
-	if mood, _ := a.avatarLook(); mood != avatar.MoodIdle {
-		t.Fatalf("avatar after the smile = %v", mood)
+	if mood, _ := a.markLook(); mood != brand.MoodIdle {
+		t.Fatalf("mark after the beat = %v", mood)
 	}
 	a.tasks = []protocol.Task{{ID: 1, State: "running"}}
-	if _, tone := a.avatarLook(); tone != avatar.Tones.Delegated {
-		t.Fatalf("delegated tone = %v", tone)
+	if _, delegated := a.markLook(); !delegated {
+		t.Fatal("a background task should tint the mark")
 	}
 }
 
-func TestRailHeaderDrawsAvatarAndStatus(t *testing.T) {
+func TestRailHeaderDrawsTheMarkAndStatus(t *testing.T) {
 	i18n.Set(i18n.EN)
 	a := New(Config{})
 	a.conn = ConnOpen

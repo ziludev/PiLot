@@ -5,7 +5,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/avatar"
+	"pitta/internal/brand"
 )
 
 // drawCycle is how long one drawing takes, and drawHold how long the finished
@@ -16,10 +16,10 @@ const (
 	drawHold  = 600 * time.Millisecond
 )
 
-// drawnLogo is the bot's thinking state: its own logo penning itself, the stroke
-// running around the body while the pen follows the ink, then the face arriving
-// as the line closes. It stands where a spinner said only "busy".
-func drawnLogo(c *ui.Context, size int, tone avatar.Tone) ui.Element {
+// drawnLogo is the thinking state: the app's mark penning itself, the pen running
+// the flame's outline while the ink follows it, then the stand and the filled shape
+// arriving as the line closes. It stands where a spinner said only "busy".
+func drawnLogo(c *ui.Context, size int, ink string) ui.Element {
 	box := ui.Box(c).Size(float32(size), float32(size))
 	progress := box.Keyframes("draw", []ui.Keyframe{
 		{At: 0, Value: 0},
@@ -29,5 +29,5 @@ func drawnLogo(c *ui.Context, size int, tone avatar.Tone) ui.Element {
 		RepeatDelay: drawHold,
 		NonMotion:   true,
 	})
-	return avatar.Draw(c, size, tone, progress)
+	return brand.DrawIn(c, size, ink, progress)
 }
