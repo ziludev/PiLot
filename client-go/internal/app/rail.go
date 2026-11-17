@@ -58,7 +58,12 @@ func (a *App) railHeader(c *ui.Context, t theme.Tokens) {
 	// this row starts below the traffic lights and to their right, and drags the
 	// window like a title bar does.
 	bar := c.TitleBar()
-	ui.Row(c).FillWidth().Padding(8+bar.Bottom, 12+bar.Left).Gap(8).AlignItems(ui.Center).
+	// Padding takes (top, right, bottom, left) here: the title bar's room is
+	// added to the top and the left only, so the row keeps its 12 px right
+	// padding. The two-value form applies the inset to both sides and squeezes
+	// the name column to an ellipsis in a real window (see
+	// TestRailHeaderClearsTheTrafficLights).
+	ui.Row(c).FillWidth().Padding(8+bar.Bottom, 12, 8, 12+bar.Left).Gap(8).AlignItems(ui.Center).
 		BorderWidth(0, 0, 1, 0).BorderColor(t.SidebarBorder).DragWindow().Children(func() {
 		mood, tone := a.avatarLook()
 		avatar.View(c, 24, mood, tone)
