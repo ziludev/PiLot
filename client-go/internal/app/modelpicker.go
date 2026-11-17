@@ -400,6 +400,16 @@ func (a *App) levelBars(c *ui.Context, t theme.Tokens, levels []string, value st
 	})
 }
 
+// modelInitial is the lettered plate in front of a model's name. A Column
+// left-aligns and bottom-aligns by default, which put the letter in the corner
+// of the plate instead of the middle of it.
+func modelInitial(c *ui.Context, t theme.Tokens, initial string) ui.Element {
+	return ui.Column(c).Size(20, 20).Radius(4).Background(t.Muted).
+		AlignItems(ui.Center).Justify(ui.Center).Children(func() {
+		ui.Text(c, initial).FontSize(10).TextColor(t.MutedFg)
+	})
+}
+
 // modelRow is one entry: initial, name, provider, price, context and star.
 func (a *App) modelRow(c *ui.Context, t theme.Tokens, entry protocol.ModelEntry) {
 	a.modelRowAt(c, t, entry, false)
@@ -425,9 +435,9 @@ func (a *App) modelRowAt(c *ui.Context, t theme.Tokens, entry protocol.ModelEntr
 		row = row.Background(t.Accent)
 	}
 	row.Children(func() {
-		ui.Column(c).Width(20).Height(20).Radius(4).Background(t.Muted).Padding(4, 0).Children(func() {
-			ui.Text(c, initial).FontSize(10).TextColor(t.MutedFg)
-		})
+		// The initial sits in the middle of its plate: a Column left-aligns and
+		// bottom-aligns by default, which put the letter in the corner.
+		modelInitial(c, t, initial)
 		ui.Column(c).Grow(1).Gap(1).Children(func() {
 			ui.Row(c).Gap(4).Children(func() {
 				ui.Text(c, entry.Name).FontSize(12).SingleLine()

@@ -11,6 +11,7 @@ import (
 
 	"pitta/internal/i18n"
 	"pitta/internal/protocol"
+	"pitta/internal/theme"
 )
 
 // pickerModels is a small catalogue with the shapes the bridge sends.
@@ -192,5 +193,64 @@ func TestModelPickerWalksWithArrowKeys(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Enter did not pick the highlighted model")
+	}
+}
+
+// TestModelInitialIsCentred checks the lettered plate: a Column aligns its
+// children left and bottom unless told otherwise, which put the initial in the
+// corner of the square instead of the middle of it.
+func TestModelInitialIsCentred(t *testing.T) {
+	tokens := theme.Light()
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, tokens)
+		ui.Column(c).Fill().Padding(10).Background(tokens.Background).Children(func() {
+			modelInitial(c, tokens, "D")
+		})
+	}, 60, 60)
+	img := tt.Image()
+
+	// The plate is the only Muted block here, so its bounds come from the
+	// pixels instead of from a rectangle the test guesses at.
+	left, right, top, bottom := 60, -1, 60, -1
+	for y := 0; y < 60; y++ {
+		for x := 0; x < 60; x++ {
+			p := img.RGBAAt(x, y)
+			if nearColor(p.R, tokens.Muted.R) && nearColor(p.G, tokens.Muted.G) && nearColor(p.B, tokens.Muted.B) {
+				left, right = min(left, x), max(right, x)
+				top, bottom = min(top, y), max(bottom, y)
+			}
+		}
+	}
+	if right < 0 {
+		t.Fatal("no plate drawn")
+	}
+
+	// Ink is anything inside the plate darker than the plate's fill.
+	inkLeft, inkRight, inkTop, inkBottom := right, left, bottom, top
+	for y := top; y <= bottom; y++ {
+		for x := left; x <= right; x++ {
+			p := img.RGBAAt(x, y)
+			// Compare as ints: a byte plus 16 wraps around and makes every
+			// bright pixel count as ink.
+			if int(p.R)+16 < int(tokens.Muted.R) && int(p.G)+16 < int(tokens.Muted.G) && int(p.B)+16 < int(tokens.Muted.B) {
+				inkLeft, inkRight = min(inkLeft, x), max(inkRight, x)
+				inkTop, inkBottom = min(inkTop, y), max(inkBottom, y)
+			}
+		}
+	}
+	if inkRight < inkLeft {
+		t.Fatal("the letter was not drawn inside its plate")
+	}
+	plateMidX := float32(left+right) / 2
+	plateMidY := float32(top+bottom) / 2
+	if diff := float32(inkLeft+inkRight)/2 - plateMidX; diff > 1.5 || diff < -1.5 {
+		t.Fatalf("letter sits %.1fpx off centre horizontally (ink %d..%d, plate %d..%d)",
+			diff, inkLeft, inkRight, left, right)
+	}
+	// A glyph's ink rises above its baseline, so its centre may sit slightly
+	// high; a bottom-aligned letter is off by several pixels.
+	if diff := float32(inkTop+inkBottom)/2 - plateMidY; diff > 1.5 || diff < -3 {
+		t.Fatalf("letter sits %.1fpx off centre vertically (ink %d..%d, plate %d..%d)",
+			diff, inkTop, inkBottom, top, bottom)
 	}
 }
