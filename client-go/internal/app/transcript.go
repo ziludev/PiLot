@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -161,19 +162,45 @@ func (a *App) phaseBar(c *ui.Context, t theme.Tokens, turn *turns.Turn) {
 		return
 	}
 	width := float32(180)
-	segment := func(ms int64, color ui.Color) {
+	segment := func(name string, ms int64, color ui.Color) {
 		if ms <= 0 {
 			return
 		}
-		ui.Row(c).Width(width * float32(ms) / float32(total)).Height(3).Background(color)
+		// A three-pixel bar says nothing on its own, so each stretch names what
+		// it is and how much of the turn it took where the pointer rests.
+		ui.Row(c).Width(width * float32(ms) / float32(total)).Height(3).Background(color).
+			Label(phaseBarLabel + "-" + name).
+			Tooltip(phaseTooltip(name, ms, total))
 	}
-	ui.Row(c).Height(3).Radius(2).Background(t.Muted).Children(func() {
-		segment(phases.Think, t.MutedFg)
-		segment(phases.Tool, t.Primary)
-		segment(phases.Wait, t.Warning)
-		segment(phases.Error, t.Destructive)
+	// The stretches are three pixels tall, which is a hard thing to rest a
+	// pointer on, so the row that holds them is taller than they are.
+	ui.Row(c).Height(phaseBarHit).AlignItems(ui.Center).Label(phaseBarLabel).Children(func() {
+		ui.Row(c).FillWidth().Height(3).Radius(2).Background(t.Muted).Children(func() {
+			segment("think", phases.Think, t.MutedFg)
+			segment("tool", phases.Tool, t.Primary)
+			segment("wait", phases.Wait, t.Warning)
+			segment("error", phases.Error, t.Destructive)
+		})
 	})
 	ui.Text(c, phaseLegend(turn)).FontSize(9).TextColor(t.MutedFg).MaxLines(1)
+}
+
+// phaseBarLabel names the turn's phase bar, which is how the tests that hover
+// one stretch of it find it.
+const phaseBarLabel = "phase-bar"
+
+// phaseBarHit is how tall the row holding the bar is, so the pointer can find a
+// stretch without aiming at three pixels.
+const phaseBarHit = 8
+
+// phaseTooltip is what one stretch of the phase bar says under the pointer: the
+// phase, how long it took, and the share of the bar it covers.
+func phaseTooltip(name string, ms, total int64) string {
+	share := 0
+	if total > 0 {
+		share = int(float64(ms)/float64(total)*100 + 0.5)
+	}
+	return name + " " + turns.Clock(ms) + " · " + strconv.Itoa(share) + "%"
 }
 
 // phaseLegend names what the bar's colours mean, as the phase bar does.

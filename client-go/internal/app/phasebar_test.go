@@ -1,0 +1,101 @@
+package app
+
+import (
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/egoist/mygo/ui"
+
+	"pitta/internal/protocol"
+)
+
+// TestPhaseTooltipNamesThePhaseAndItsShare checks what one stretch of the phase
+// bar says: which phase it is, how long it took, and its share of the bar.
+func TestPhaseTooltipNamesThePhaseAndItsShare(t *testing.T) {
+	if got, want := phaseTooltip("tool", 100, 400), "tool 100ms · 25%"; got != want {
+		t.Fatalf("tooltip = %q, want %q", got, want)
+	}
+	if got, want := phaseTooltip("wait", 1_500, 3_000), "wait 1.5s · 50%"; got != want {
+		t.Fatalf("tooltip = %q, want %q", got, want)
+	}
+	// A bar the phases do not fill (a turn with time in no phase at all) still
+	// says something rather than dividing by zero.
+	if got, want := phaseTooltip("think", 0, 0), "think 0ms · 0%"; got != want {
+		t.Fatalf("tooltip for an empty bar = %q, want %q", got, want)
+	}
+}
+
+// TestPhaseBarExplainsItsColours checks the bar is legible on its own: under the
+// pointer each stretch says what its colour was spent on. A three-pixel bar is
+// otherwise a colour with no name.
+func TestPhaseBarExplainsItsColours(t *testing.T) {
+	a := transcriptApp(phaseEntries()...)
+	tt := ui.NewTester(a.transcript, 800, 400)
+	tt.Frame()
+
+	bar, ok := tt.Find(phaseBarLabel)
+	if !ok || bar.W == 0 {
+		t.Fatalf("the phase bar is not drawn: %q", tt.Texts())
+	}
+	// The legend under the bar says "think 100ms · tool 100ms" — no share — so
+	// the strings below can only come from a tooltip.
+	for _, phase := range []struct{ name, want string }{
+		{"think", phaseTooltip("think", 100, 200)},
+		{"tool", phaseTooltip("tool", 100, 200)},
+	} {
+		segment, ok := tt.Find(phaseBarLabel + "-" + phase.name)
+		if !ok || segment.W == 0 {
+			t.Fatalf("the %s stretch of the bar is not drawn", phase.name)
+		}
+		tt.Move(segment.X+segment.W/2, segment.Y+segment.H/2)
+		tt.Frame()
+		tt.Advance(1500 * time.Millisecond)
+		tt.Frame()
+		if !tt.HasText(phase.want) {
+			t.Fatalf("resting on the %s stretch says nothing; texts=%q", phase.name, tt.Texts())
+		}
+	}
+}
+
+// TestPhaseBarSkipsPhasesTheTurnNeverHad checks a stretch is only drawn — and so
+// only explained — where there is time to draw.
+func TestPhaseBarSkipsPhasesTheTurnNeverHad(t *testing.T) {
+	a := transcriptApp(phaseEntries()...)
+	tt := ui.NewTester(a.transcript, 800, 400)
+	tt.Frame()
+	for _, name := range []string{"wait", "error"} {
+		if r, ok := tt.Find(phaseBarLabel + "-" + name); ok && r.W > 0 {
+			t.Fatalf("the %s stretch is drawn for a turn that never waited or failed", name)
+		}
+	}
+}
+
+// phaseEntries is one turn with a stretch of thinking, a tool call, and an
+// answer: enough phases for a bar with more than one colour.
+func phaseEntries() []protocol.Entry {
+	entry := func(id int, kind string, value any) protocol.Entry {
+		data, err := json.Marshal([]any{value})
+		if err != nil {
+			panic(err)
+		}
+		return protocol.Entry{ID: id, Kind: kind, Model: data}
+	}
+	return []protocol.Entry{
+		entry(1, "pi.user", map[string]any{
+			"role": "user", "content": []any{map[string]any{"type": "text", "text": "run it"}}, "timestamp": 1000,
+		}),
+		entry(2, "pi.assistant", map[string]any{
+			"role": "assistant", "content": []any{map[string]any{"type": "thinking", "thinking": "let me look"}}, "timestamp": 1100,
+		}),
+		entry(3, "pi.assistant", map[string]any{
+			"role": "assistant", "content": []any{map[string]any{"type": "toolCall", "id": "c1", "name": "bash", "arguments": map[string]any{"command": "ls"}}}, "timestamp": 1200,
+		}),
+		entry(4, "pi.tool-result", map[string]any{
+			"role": "toolResult", "toolCallId": "c1", "content": []any{map[string]any{"type": "text", "text": "a.go"}}, "timestamp": 1300,
+		}),
+		entry(5, "pi.assistant", map[string]any{
+			"role": "assistant", "content": []any{map[string]any{"type": "text", "text": "done"}}, "timestamp": 1400,
+		}),
+	}
+}
