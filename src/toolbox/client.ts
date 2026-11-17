@@ -53,6 +53,14 @@ export type ToolboxCallOptions = {
   signal?: AbortSignal;
 };
 
+/**
+ * The reference reports a call interrupted in flight as `aborted` — both its exec and
+ * its file operations use that word — so the tools' model-facing text matches.
+ */
+export function abortedCall(): Error {
+  return Object.assign(new Error("aborted"), { code: "aborted" });
+}
+
 const PING_TIMEOUT_MS = 5_000;
 const PING_INTERVAL_MS = 50;
 
@@ -182,7 +190,7 @@ export class Toolbox {
       let buffer = "";
       const onAbort = () => {
         socket.destroy();
-        fail(new Error("toolbox: call aborted"));
+        fail(abortedCall());
       };
       options.signal?.addEventListener("abort", onAbort, { once: true });
 
@@ -263,7 +271,7 @@ export class Toolbox {
       const socket = connect(this.socketPath);
       const onAbort = () => {
         socket.destroy();
-        fail(new Error("toolbox: call aborted"));
+        fail(abortedCall());
       };
       signal?.addEventListener("abort", onAbort, { once: true });
       socket.once("connect", () => {

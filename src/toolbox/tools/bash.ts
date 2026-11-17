@@ -1,7 +1,7 @@
 import { createBashTool } from "@earendil-works/pi-durable/tools";
 import { defineTool, type ToolExecutionApi, type ToolExecutionResult, type ToolRegistration } from "@earendil-works/pi-durable";
 import { requireCwd, toolboxError } from "./shared.ts";
-import type { Toolbox, ToolboxFailure } from "../client.ts";
+import { abortedCall, type Toolbox, type ToolboxFailure } from "../client.ts";
 
 /** The in-process tool: its schema, description, and result shape are the contract. */
 const reference: ToolRegistration = createBashTool();
@@ -47,6 +47,8 @@ export function createBashToolProxy(toolbox: Toolbox) {
     async execute(rawArgs, api, context): Promise<ToolExecutionResult> {
       const args = rawArgs as { command: string; timeout?: number };
       validateTimeout(args.timeout);
+      // The reference's exec refuses an already-aborted call before it starts anything.
+      if (context.abortSignal?.aborted) throw abortedCall();
       const call = await toolbox.call(
         "bash",
         { command: args.command, timeout: args.timeout },

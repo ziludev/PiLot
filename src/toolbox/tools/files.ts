@@ -1,7 +1,7 @@
 import { createEditTool, createWriteTool } from "@earendil-works/pi-durable/tools";
 import { defineTool, type ToolExecutionResult, type ToolRegistration } from "@earendil-works/pi-durable";
 import { requireCwd, toolboxError } from "./shared.ts";
-import type { Toolbox } from "../client.ts";
+import { abortedCall, type Toolbox } from "../client.ts";
 
 const writeReference: ToolRegistration = createWriteTool();
 const editReference: ToolRegistration = createEditTool();
@@ -14,6 +14,8 @@ export function createWriteToolProxy(toolbox: Toolbox) {
     parameters: writeReference.parameters,
     async execute(rawArgs, api, context): Promise<ToolExecutionResult> {
       const args = rawArgs as { path: string; content: string };
+      // Resolving the path is what the reference aborts on first, and it says "aborted".
+      if (context.abortSignal?.aborted) throw abortedCall();
       const call = await toolbox.call(
         "write",
         { path: args.path, content: args.content },
@@ -34,6 +36,7 @@ export function createEditToolProxy(toolbox: Toolbox) {
     prepareArguments: editReference.prepareArguments,
     async execute(rawArgs, api, context): Promise<ToolExecutionResult> {
       const args = rawArgs as { path: string; edits: Array<{ oldText: string; newText: string }> };
+      if (context.abortSignal?.aborted) throw abortedCall();
       const call = await toolbox.call(
         "edit",
         { path: args.path, edits: args.edits },
