@@ -72,6 +72,11 @@ func main() {
 		})
 		app.SetPicker(mygo.Dialog.Open)
 		app.SetQuit(mygo.App.Quit)
+		// The settings panel's transparency slider reaches every window, the
+		// ones already open and the ones opened later, which Attach applies.
+		app.SetOpacityHook(func(w *mygo.Window, value float32) {
+			w.SetOpacity(float64(value))
+		})
 		// An approval is the one thing that must reach the user while the
 		// window is behind others: the system alert plus a Dock bounce, which
 		// stops as soon as the wait is over.

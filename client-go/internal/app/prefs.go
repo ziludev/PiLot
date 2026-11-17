@@ -29,12 +29,24 @@ type prefs struct {
 	// OthersCollapsed folds the "other projects" group in the rail; the earlier client
 	// client kept the same fold in component state, which is why it forgot it.
 	OthersCollapsed bool `json:"othersCollapsed,omitempty"`
+	// Opacity is how transparent the window is drawn, 0.55 to 1. Zero means the
+	// preference predates the setting and reads as opaque.
+	Opacity float32 `json:"opacity,omitempty"`
 	// The window's frame, so a restart lands on the same screen at the same
 	// size instead of wherever the window manager puts it.
 	WindowX float32 `json:"windowX,omitempty"`
 	WindowY float32 `json:"windowY,omitempty"`
 	WindowW float32 `json:"windowW,omitempty"`
 	WindowH float32 `json:"windowH,omitempty"`
+}
+
+// opacity is the transparency to draw with: opaque until the setting says
+// otherwise, and never so transparent that the text stops reading.
+func (p prefs) opacity() float32 {
+	if p.Opacity == 0 {
+		return maxOpacity
+	}
+	return clampOpacity(p.Opacity)
 }
 
 // prefsPath is ~/.pitta/ui.json, next to the app's own state.

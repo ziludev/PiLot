@@ -27,6 +27,14 @@ func TestCmdCommaOpensSettings(t *testing.T) {
 	if !tt.HasText(shortcuts()[0].Keys) {
 		t.Fatalf("the key list is missing: %q", tt.Texts())
 	}
+	// The window's transparency and the daemon's controls are here now, not in
+	// the rail's footer.
+	if !tt.HasText(settingsWindow) || !tt.HasText(settingsOpacity) {
+		t.Fatalf("the window section is missing: %q", tt.Texts())
+	}
+	if !tt.HasText(i18n.T("restart")) || !tt.HasText(i18n.T("backup")) {
+		t.Fatalf("the agent controls are missing: %q", tt.Texts())
+	}
 	tt.Click(themeDarkLabel)
 	tt.Frame()
 	if a.prefs.Theme != "dark" {

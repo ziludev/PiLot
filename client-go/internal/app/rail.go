@@ -40,7 +40,7 @@ func (a *App) rail(c *ui.Context) {
 		}
 		a.projectBar(c, t)
 		a.railSearch(c, t)
-		a.railFilters(c, t, railChatCount(rows))
+		a.railFilters(c, t)
 		a.railFeishu(c, t)
 		a.railList(c, t, rows)
 		a.railTasks(c, t)
@@ -194,23 +194,14 @@ func (a *App) searchHitsPanel(c *ui.Context, t theme.Tokens) {
 
 // railFilters is the line between the search field and the list: what the list
 // shows, how many chats that is, and whether it keeps the archived ones.
-func (a *App) railFilters(c *ui.Context, t theme.Tokens, count int) {
+func (a *App) railFilters(c *ui.Context, t theme.Tokens) {
 	// the rail's one-row header: an uppercase label, a compact select that
 	// says how many chats each view holds, and the archive toggle at the end.
 	picked := railFilterIndex(a.prefs.SurfaceFilter)
-	counts := []int{count, 0, 0}
-	for _, surface := range a.surfaces {
-		switch surfaceKind(surface) {
-		case "client":
-			counts[1]++
-		case "feishu":
-			counts[2]++
-		}
-	}
-	labels := []string{
-		i18n.T("allChats") + " · " + itoa(counts[0]),
-		i18n.T("clientChats") + " · " + itoa(counts[1]),
-		i18n.T("feishuChats") + " · " + itoa(counts[2]),
+	counts := a.railFilterCounts()
+	labels := make([]string, len(railFilterKeys))
+	for i, key := range railFilterKeys {
+		labels[i] = i18n.T(key) + " · " + itoa(counts[i])
 	}
 	chosen := labels[picked]
 	ui.Row(c).FillWidth().Padding(6, 10).Gap(4).AlignItems(ui.Center).Children(func() {
@@ -430,11 +421,7 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 		if s.Archived {
 			title.Strikethrough().TextColor(t.MutedFg)
 		}
-		if a.isUnread(s.ConversationID) && !selected {
-			// A dot where the cost goes: this chat answered while nobody was
-			// looking, which the rail had no way to say.
-			rise(ui.Box(c).Width(5).Height(5).Radius(3).AlignSelf(ui.Center).Background(t.Primary))
-		}
+		drawRailMark(c, t, a.railMarkFor(s.ConversationID, selected), rise)
 		if s.Cost >= 0.005 {
 			// Under half a cent the number is noise, as in the rail view.
 			rise(ui.Text(c, railCost(s.Cost)).FontSize(10).TextColor(t.MutedFg).MaxLines(1))
@@ -534,12 +521,11 @@ func (a *App) railTasks(c *ui.Context, t theme.Tokens) {
 // railFooter is the rail's last line: a new chat, the agent's controls, and
 // where its home is.
 func (a *App) railFooter(c *ui.Context, t theme.Tokens) {
-	// One row, as the rail's footer: the three agentctl buttons, then the
-	// workspace path at the right end.
+	// One row, as the rail's footer: the log, then the workspace path at the
+	// right end. Restart and backup act on the daemon rather than on a chat, so
+	// they live in the settings panel.
 	ui.Row(c).FillWidth().Padding(6, 10).Gap(2).AlignItems(ui.Center).
 		BorderWidth(1, 0, 0, 0).BorderColor(t.SidebarBorder).Children(func() {
-		railIconAction(c, i18n.T("restart"), icons.RotateCw, func() { go a.control("restart") })
-		railIconAction(c, i18n.T("backup"), icons.Database, func() { go a.control("backup") })
 		railIconAction(c, i18n.T("logs"), icons.FileIcon, func() { a.apply(func() { a.toggleLogs(); a.invalidate() }) })
 		ui.Row(c).Grow(1).Children(func() {})
 		ui.Text(c, shortPath(a.cfg.Home)).FontSize(9.5).TextColor(t.MutedFg).
