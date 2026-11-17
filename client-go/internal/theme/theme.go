@@ -141,7 +141,9 @@ func Apply(c *ui.Context, t Tokens) {
 	base.Selection = t.Selection
 	base.Focus = t.Ring
 	base.Radius = Radius
-	base.Font = FontFamily
+	if family := FontForWindow(); family != "" {
+		base.Font = family
+	}
 	c.SetTheme(&base)
 }
 
