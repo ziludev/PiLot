@@ -21,6 +21,15 @@ func (a *App) fitPanes(width float32) {
 		return
 	}
 	maxRail := width * 0.45
+	// An open panel shares the window with the chat and the rail. Both floors
+	// come out of the rail first: a rail narrower than minRailWidth is unusable
+	// and a chat narrower than minMainWidth cannot be read, so the rail gives
+	// way before the panel does, and the panel gives way before the chat.
+	if a.sideOpen {
+		if room := width - minMainWidth - minPaneWidth; room > minRailWidth && room < maxRail {
+			maxRail = room
+		}
+	}
 	if maxRail < minRailWidth {
 		maxRail = minRailWidth
 	}
@@ -33,11 +42,13 @@ func (a *App) fitPanes(width float32) {
 	if !a.sideOpen {
 		return
 	}
-	// The panel gives way first: the transcript is what the window is for.
+	// The panel gives way first: the transcript is what the window is for. It
+	// may end up narrower than minPaneWidth in a window that cannot hold all
+	// three, but the chat keeps its floor.
 	room := width - a.railWidth
 	maxSide := room - minMainWidth
-	if maxSide < minPaneWidth {
-		maxSide = minPaneWidth
+	if maxSide < 0 {
+		maxSide = 0
 	}
 	if side := a.sideWidthOf(); side > maxSide {
 		// Setting mainPane is what resizes the panel; the next frame keeps it.
