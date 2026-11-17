@@ -589,10 +589,35 @@ func hasNewAnswer(before, after []protocol.Entry) bool {
 // growEntries takes the entries a frame carries and counts what arrived while
 // the reader is scrolled away from the newest turn.
 func (a *App) growEntries(entries []protocol.Entry) {
-	if !a.atBottom && len(entries) > len(a.entries) {
-		a.newMessages += len(entries) - len(a.entries)
+	merged := mergeEntries(a.entries, entries)
+	if !a.atBottom && len(merged) > len(a.entries) {
+		a.newMessages += len(merged) - len(a.entries)
 	}
-	a.entries = entries
+	a.entries = merged
+}
+
+// mergeEntries keeps the entries already held that fall before the frame's
+// window. The bridge's watch window holds the newest 50 entries and drops its
+// oldest when it would hold more than 100, so assigning the window would shrink
+// a chat back to its tail on the first frame after loading it.
+func mergeEntries(held, window []protocol.Entry) []protocol.Entry {
+	if len(window) == 0 {
+		return held
+	}
+	// A window reaching back as far as what is held is a full reload: it wins.
+	if len(held) == 0 || window[0].ID <= held[0].ID {
+		return window
+	}
+	keep := 0
+	for keep < len(held) && held[keep].ID < window[0].ID {
+		keep++
+	}
+	if keep == 0 {
+		return window
+	}
+	merged := make([]protocol.Entry, 0, keep+len(window))
+	merged = append(merged, held[:keep]...)
+	return append(merged, window...)
 }
 
 func (a *App) reloadConversation(current int) {
