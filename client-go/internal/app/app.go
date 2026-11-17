@@ -19,7 +19,7 @@ import (
 	"github.com/egoist/mygo/ui/markdown"
 
 	"pitta/internal/api"
-	"pitta/internal/avatar"
+	"pitta/internal/brand"
 	"pitta/internal/diff"
 	"pitta/internal/i18n"
 	"pitta/internal/icons"
@@ -280,7 +280,7 @@ type App struct {
 
 	entries   []protocol.Entry
 	live      *protocol.LiveDoc
-	mood      avatar.Mood
+	mood      brand.Mood
 	moodUntil time.Time
 	wasLive   bool
 

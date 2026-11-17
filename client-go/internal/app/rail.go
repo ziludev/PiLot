@@ -8,7 +8,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"pitta/internal/api"
-	"pitta/internal/avatar"
+	"pitta/internal/brand"
 	"pitta/internal/i18n"
 	"pitta/internal/icons"
 	"pitta/internal/motion"
@@ -65,8 +65,8 @@ func (a *App) railHeader(c *ui.Context, t theme.Tokens) {
 	// TestRailHeaderClearsTheTrafficLights).
 	ui.Row(c).FillWidth().Padding(8+bar.Bottom, 12, 8, 12+bar.Left).Gap(8).AlignItems(ui.Center).
 		BorderWidth(0, 0, 1, 0).BorderColor(t.SidebarBorder).DragWindow().Children(func() {
-		mood, tone := a.avatarLook()
-		avatar.View(c, 24, mood, tone)
+		mood, delegated := a.markLook()
+		brand.Draw(c, 24, mood, brand.Ink(a.markInk(t, delegated)))
 		ui.Column(c).Grow(1).Gap(1).Children(func() {
 			ui.Text(c, i18n.T("appName")).FontSize(14).FontWeight(600).
 				TextColor(t.SidebarFg).MaxLines(1)
@@ -661,26 +661,31 @@ func (a *App) railStatus() string {
 // avatarLook picks the face and colour: a running chat makes the bot think, the
 // two and a half seconds after a run finishes it smiles, and the colour says
 // who is working — a delegated task is not the same as this chat answering.
-func (a *App) avatarLook() (avatar.Mood, avatar.Tone) {
+// markLook is what the app's mark is doing: the flame breathes when the window is
+// quiet, flickers while a turn or a task runs, and beats once when an answer lands.
+// delegated reports that the work is a background task rather than the open chat,
+// which tints the mark so the two are told apart at a glance.
+func (a *App) markInk(t theme.Tokens, delegated bool) ui.Color {
+	if delegated {
+		return t.Primary
+	}
+	return t.SidebarFg
+}
+
+func (a *App) markLook() (brand.Mood, bool) {
 	running := a.live != nil && len(a.live.Run) > 0
 	now := time.Now()
 	if running {
-		a.wasLive, a.mood, a.moodUntil = true, avatar.MoodThinking, time.Time{}
+		a.wasLive, a.mood, a.moodUntil = true, brand.MoodThinking, time.Time{}
 	} else {
 		if a.wasLive {
-			a.wasLive, a.mood, a.moodUntil = false, avatar.MoodHappy, now.Add(2500*time.Millisecond)
+			a.wasLive, a.mood, a.moodUntil = false, brand.MoodHappy, now.Add(2500*time.Millisecond)
 		}
-		if a.mood == avatar.MoodHappy && now.After(a.moodUntil) {
-			a.mood = avatar.MoodIdle
+		if a.mood == brand.MoodHappy && now.After(a.moodUntil) {
+			a.mood = brand.MoodIdle
 		}
 	}
-	switch {
-	case a.runningTasks() > 0:
-		return a.mood, avatar.Tones.Delegated
-	case a.mood == avatar.MoodHappy:
-		return a.mood, avatar.Tones.Done
-	}
-	return a.mood, avatar.Tones.Idle
+	return a.mood, a.runningTasks() > 0
 }
 
 // runningTasks counts the background tasks the rail is already listing.

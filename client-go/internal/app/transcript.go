@@ -10,7 +10,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 
-	"pitta/internal/avatar"
+	"pitta/internal/brand"
 	"pitta/internal/diff"
 	"pitta/internal/i18n"
 	"pitta/internal/icons"
@@ -520,9 +520,9 @@ func (a *App) liveLine(c *ui.Context, t theme.Tokens, turn *turns.Turn) {
 	state := turn.State(a.live)
 	ui.Column(c).Gap(6).Children(func() {
 		ui.Row(c).Gap(6).Children(func() {
-			// The marker is the bot's own logo drawing itself, where a spinner
-			// said only "busy".
-			drawnLogo(c, 20, avatar.Tones.Idle)
+			// The marker is the app's mark drawing itself, where a spinner said
+			// only "busy".
+			drawnLogo(c, 20, brand.Ink(t.SidebarFg))
 			ui.Text(c, stateLabel(state)).FontSize(11).TextColor(t.Primary)
 			if state.ToolTail != "" {
 				ui.Text(c, truncate(state.ToolTail, 120)).FontSize(10).TextColor(t.MutedFg)
