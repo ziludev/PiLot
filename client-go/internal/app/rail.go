@@ -393,25 +393,47 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 			// Under half a cent the number is noise, as in the rail view.
 			rise(ui.Text(c, railCost(s.Cost)).FontSize(10).TextColor(t.MutedFg).MaxLines(1))
 		}
-		// The #id, the menu and the pin appear under the pointer, as the
-		// cluster the rail view positions over the right end of the row.
-		if hovered {
-			rise(ui.Text(c, "#"+itoa(s.ConversationID)).FontSize(9.5).TextColor(t.MutedFg))
-			rise(railRowButton(c, icons.MoreHorizontal, i18n.T("rename"), t.MutedFg, func() {
-				a.openChatMenuFor(s.ConversationID)
-			}))
-		}
 		pinTint := t.MutedFg
 		if pinned {
 			pinTint = t.Primary
 		}
-		if hovered || pinned {
+		// A pinned row keeps its pin in the flow; the rest of the cluster is an
+		// overlay, so the title keeps every pixel it has at rest instead of
+		// shortening under the pointer.
+		if pinned {
 			rise(railRowButton(c, icons.Pin, i18n.T("pinned"), pinTint, func() {
 				a.togglePin(s.ConversationID)
 			}))
 		}
+		if hovered {
+			a.railHoverCluster(c, t, s, pinned, pinTint, rise)
+		}
 	})
 }
+
+// railHoverCluster draws what a chat's row offers under the pointer: its number,
+// the rename that opens the chat menu, and the pin. It is placed over the row's
+// right end rather than laid out in it, so hovering cannot shorten the title.
+func (a *App) railHoverCluster(c *ui.Context, t theme.Tokens, s protocol.Surface, pinned bool, pinTint ui.Color, rise func(ui.Element) ui.Element) {
+	// The cluster paints over the row's own numbers, so it carries the row's
+	// hovered colour rather than letting them show through it.
+	cluster := ui.Row(c).Absolute().Right(2).Top(2).Gap(2).Padding(2).Radius(4).
+		AlignItems(ui.Center).Background(c.Theme().SurfaceHover).Label(railHoverLabel)
+	rise(cluster)
+	cluster.Children(func() {
+		ui.Text(c, "#"+itoa(s.ConversationID)).FontSize(9.5).TextColor(t.MutedFg).MaxLines(1)
+		railRowButton(c, icons.MoreHorizontal, i18n.T("rename"), t.MutedFg, func() {
+			a.openChatMenuFor(s.ConversationID)
+		})
+		railRowButton(c, icons.Pin, i18n.T("pinned"), pinTint, func() {
+			a.togglePin(s.ConversationID)
+		})
+	})
+}
+
+// railHoverLabel names the cluster, which is how the tests that measure the
+// title under a hover find it.
+const railHoverLabel = "rail-hover"
 
 // railRowButton is one of the small buttons a chat's row keeps on its right: the
 // pin, and the archive that puts the chat away.
