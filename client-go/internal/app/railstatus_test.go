@@ -94,6 +94,8 @@ func TestRailMarkPrefersWhatTheReaderMustDo(t *testing.T) {
 		{ID: 10, ConversationID: 1, State: "running"},
 		{ID: 11, ConversationID: 1, State: "blocked"},
 		{ID: 12, ConversationID: 2, State: "running"},
+		{ID: 13, ConversationID: 5, State: "sleeping"},
+		{ID: 14, ConversationID: 6, State: "sleeping"},
 	}
 	a.unread = map[int]bool{1: true, 2: true, 3: true}
 
@@ -108,6 +110,8 @@ func TestRailMarkPrefersWhatTheReaderMustDo(t *testing.T) {
 		{3, false, railUnreadMark},
 		{3, true, railNoMark}, // the chat on screen has been read
 		{4, false, railNoMark},
+		{5, false, railSleepingMark}, // parked until its clock: a clock, not a dot
+		{6, true, railSleepingMark},  // and the open chat says it too
 	}
 	for _, c := range cases {
 		if got := a.railMarkFor(c.conversation, c.selected); got != c.want {
@@ -139,6 +143,9 @@ func TestRailMarksReadTaskStates(t *testing.T) {
 	// a reminder parked for an hour must not ring the rail's running view.
 	if taskInFlight("sleeping") || taskNeedsYou("sleeping") || taskUnfinished("sleeping") {
 		t.Fatal("a sleeping task should not read as work in progress")
+	}
+	if !taskSleeping("sleeping") || taskSleeping("running") {
+		t.Fatal("taskSleeping should name the sleeping state alone")
 	}
 	for _, state := range []string{"done", "cancelled", ""} {
 		if taskInFlight(state) || taskNeedsYou(state) || taskUnfinished(state) {

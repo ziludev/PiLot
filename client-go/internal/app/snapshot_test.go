@@ -296,10 +296,15 @@ func TestSnapshotSettings(t *testing.T) {
 // at the width where the five views of the filter have to fit.
 func TestSnapshotRailStatus(t *testing.T) {
 	a := snapshotData(t)
-	// One of each: a task that waits, one that runs, an answer nobody read.
+	// One of each: a task that waits, one that runs, one parked until its clock,
+	// and an answer nobody read.
+	a.surfaces = append(a.surfaces, protocol.Surface{
+		SurfaceID: "client:14", ConversationID: 14, Kind: "client", Title: "nightly digest", ProjectID: "p1",
+	})
 	a.tasks = []protocol.Task{
 		{ID: 5, ConversationID: 11, State: "blocked"},
 		{ID: 6, ConversationID: 12, State: "running"},
+		{ID: 7, ConversationID: 14, State: "sleeping"},
 	}
 	a.unread = map[int]bool{12: true, 13: true}
 	tt := ui.NewTester(func(ctx *ui.Context) {

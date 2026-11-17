@@ -7,6 +7,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"pitta/internal/i18n"
+	"pitta/internal/icons"
 	"pitta/internal/protocol"
 	"pitta/internal/theme"
 )
@@ -317,11 +318,13 @@ const (
 	railNeedsYouMark
 	railRunningMark
 	railUnreadMark
+	railSleepingMark
 )
 
 // railMarkFor is the mark the chat's row shows. A task that waits for its owner
-// outranks one that runs, which outranks an answer nobody has read: the red one
-// is the only one the reader has to do something about.
+// outranks one that runs, which outranks an answer nobody has read. A task asleep
+// until a time of its own comes last: it is the quietest thing a row can say, and
+// the three above it all ask for a look sooner.
 func (a *App) railMarkFor(conversationID int, selected bool) railMark {
 	switch {
 	case a.chatNeedsYou(conversationID):
@@ -330,6 +333,8 @@ func (a *App) railMarkFor(conversationID int, selected bool) railMark {
 		return railRunningMark
 	case !selected && a.isUnread(conversationID):
 		return railUnreadMark
+	case a.chatSleeping(conversationID):
+		return railSleepingMark
 	}
 	return railNoMark
 }
@@ -346,5 +351,9 @@ func drawRailMark(c *ui.Context, t theme.Tokens, mark railMark, rise func(ui.Ele
 			BorderWidth(1.5).BorderColor(t.Primary))
 	case railUnreadMark:
 		rise(ui.Box(c).Width(5).Height(5).Radius(3).AlignSelf(ui.Center).Background(t.Primary))
+	case railSleepingMark:
+		// A clock rather than a dot: the chat is not doing anything now, and it
+		// will, which a coloured dot cannot say.
+		rise(ui.Icon(c, icons.Clock).Size(11, 11).TextColor(t.MutedFg).AlignSelf(ui.Center))
 	}
 }
