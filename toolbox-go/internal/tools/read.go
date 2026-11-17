@@ -385,6 +385,7 @@ func selectLines(path string, start, end, keep int) (lineSelection, error) {
 	selection := lineSelection{}
 	chunk := make([]byte, readChunk)
 	line := 0
+	keptLines := 0
 	var content []byte
 	keptBytes := 0
 	record := func(content []byte, final bool) {
@@ -397,12 +398,14 @@ func selectLines(path string, start, end, keep int) (lineSelection, error) {
 			selection.lines++
 			selection.bytes += len(content)
 			if keptBytes < keep {
-				if len(selection.kept) > 0 {
+				// Counted by line, not by bytes: an empty first line still contributes its separator.
+				if keptLines > 0 {
 					selection.kept = append(selection.kept, '\n')
 					keptBytes++
 				}
 				selection.kept = append(selection.kept, content...)
 				keptBytes += len(content)
+				keptLines++
 			}
 			// The last line of a file that ends with a newline is empty and adds no line to the count.
 			if final && len(content) == 0 && line == end-1 {
