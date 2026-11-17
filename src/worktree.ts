@@ -89,36 +89,6 @@ export async function removeWorktree(
   }
 }
 
-export type WorktreeInfo = { conversationId: number; branch: string; dir: string; dirty: number };
-
-export async function listWorktrees(repoRoot: string): Promise<WorktreeInfo[]> {
-  try {
-    const raw = await git(repoRoot, ["worktree", "list", "--porcelain"]);
-    const entries: WorktreeInfo[] = [];
-    let current: { dir?: string; branch?: string } = {};
-    for (const line of raw.split("\n")) {
-      if (line.startsWith("worktree ")) current.dir = line.slice(9);
-      else if (line.startsWith("branch ")) current.branch = line.slice(7).replace("refs/heads/", "");
-      else if (line.trim() === "" && current.dir !== undefined) {
-        const match = /conv-(\d+)$/.exec(current.branch ?? current.dir);
-        if (match !== null) {
-          entries.push({
-            conversationId: Number(match[1]),
-            branch: current.branch ?? "",
-            dir: current.dir,
-            dirty: 0,
-          });
-        }
-        current = {};
-      }
-    }
-    return entries;
-  } catch (error) {
-    logError("worktree", "could not list worktrees", error);
-    return [];
-  }
-}
-
 export type MergeResult =
   | { status: "merged"; branch: string; base: string; commits: number }
   | { status: "up-to-date"; branch: string; base: string }

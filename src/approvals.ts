@@ -102,12 +102,6 @@ export function resolveApproval(callId: string, approved: boolean, by = "unknown
   return true;
 }
 
-export function dropApproval(callId: string): void {
-  pending.delete(callId);
-  conversations.delete(callId);
-  clearTimer(callId);
-}
-
 /** Process shutdown: every waiter is told no, no timer survives the process. */
 export function dropAllApprovals(): number {
   let dropped = 0;

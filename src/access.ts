@@ -214,15 +214,6 @@ export async function chatTopicOf(
   return policy?.topic;
 }
 
-export async function isGuestConversation(
-  harness: Harness,
-  context: Context,
-  conversationId: number,
-): Promise<boolean> {
-  const policy = await harness.snapshot(ChatPolicy, conversationId as never, context).catch(() => undefined);
-  return policy?.guest === true;
-}
-
 /**
  * The owner's own p2p chat, learned from the first message they send. Needed to report
  * strangers: their chat id is new to us, so it cannot be the address we send to.
