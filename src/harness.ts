@@ -13,7 +13,6 @@ import {
   type EntryId,
 } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { createToolSearchExtension } from "@earendil-works/pi-durable/tool-search";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { assertModelAvailable, createAgentModels, warnIfRoutingGroup } from "./models.ts";
@@ -102,8 +101,8 @@ export const ChatsToken = defineDoc<{ chats: Record<string, number> }>({
 
 export type AgentRuntime = {
   harness: Harness;
-  /** The Go service behind `bash`/`read`/`write`/`edit`; undefined unless `AGENT_TOOLBOX=go`. */
-  toolbox: Toolbox | undefined;
+  /** The Go service behind `bash`/`read`/`write`/`edit`; the agent does not start without it. */
+  toolbox: Toolbox;
   conversationFor(surfaceId: string): Promise<Conversation>;
   /** Maps a conversation back to its surface, so approvals and reminders can route. */
   attachSurface(conversationId: number): Promise<void>;
@@ -188,13 +187,13 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     workspace,
   );
 
-  // Moving the coding tools out of this process is the one boot step that can fail before a single
-  // turn runs, so it happens here and is reported once. There is no fallback: a toolbox that cannot
-  // answer aborts the boot rather than silently serving the in-process tools.
-  const toolbox = config.toolbox.mode === "go" ? await startToolbox() : undefined;
+  // The coding tools live in another process, so this is the one boot step that can fail before a
+  // turn runs. It is reported once and never falls back: a toolbox that cannot answer aborts the
+  // boot rather than halving a turn between Go and Node.
+  const toolbox = await startToolbox();
 
   const registry = createRegistry();
-  registry.install(toolbox === undefined ? CodingTools : codingToolsFromToolbox(toolbox));
+  registry.install(codingToolsFromToolbox(toolbox));
   registry.install(personalExtension);
   registry.install(larkExtension);
   registry.install(skillsExtension);
@@ -675,7 +674,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     close: async () => {
       await harness.close(context);
       // After the harness settles, so no tool call is still waiting on the socket.
-      await toolbox?.close();
+      await toolbox.close();
       await mcp.close();
       // Drain and close the span store last: closing the harness settles the final spans.
       await telemetry?.close().catch(() => {});
