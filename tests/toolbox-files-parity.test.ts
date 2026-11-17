@@ -4,11 +4,16 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { after, before, test } from "node:test";
-import { createEditTool as createInProcessEdit, createReadTool as createInProcessRead, createWriteTool as createInProcessWrite } from "@earendil-works/pi-durable/tools";
+import {
+  createBashTool as createInProcessBash,
+  createEditTool as createInProcessEdit,
+  createReadTool as createInProcessRead,
+  createWriteTool as createInProcessWrite,
+} from "@earendil-works/pi-durable/tools";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import type { ToolExecutionApi, ToolExecutionResult, ToolRegistration } from "@earendil-works/pi-durable";
 import { Toolbox } from "../src/toolbox/client.ts";
-import { createBashTool } from "../src/toolbox/tools/bash.ts";
+import { createBashToolProxy } from "../src/toolbox/tools/bash.ts";
 import { createEditToolProxy, createWriteToolProxy } from "../src/toolbox/tools/files.ts";
 import { createReadToolProxy } from "../src/toolbox/tools/read.ts";
 
@@ -487,8 +492,29 @@ test("parity: edit refuses a missing file", { skip }, async () => {
   assert.match(seen.error ?? "", /^Could not edit file: .*gone\.txt\. Error code: not_found\./);
 });
 
+test("parity: each proxy announces the tool the reference announces", { skip }, () => {
+  // The model sees name, description, parameters, and result shape. The proxies
+  // borrow them from pi-durable rather than restating them, so this pins that the
+  // borrowing covers every field a caller can read.
+  const pairs = [
+    [createInProcessBash(), createBashToolProxy(toolbox)],
+    [createInProcessRead(), readProxy()],
+    [createInProcessWrite(), writeProxy()],
+    [createInProcessEdit(), editProxy()],
+  ];
+  for (const [reference, proxy] of pairs) {
+    assert.equal(proxy.name, reference.name);
+    assert.equal(proxy.description, reference.description);
+    assert.deepEqual(proxy.parameters, reference.parameters);
+    assert.deepEqual(proxy.structuredOutputSchema, reference.structuredOutputSchema);
+    assert.deepEqual(proxy.outputLimits, reference.outputLimits);
+  }
+  // `edit` is the one tool whose arguments need repairing before they are used.
+  assert.equal(typeof editProxy().prepareArguments, "function");
+});
+
 test("parity: the four tools are the four the harness offers", { skip }, async () => {
-  const names = [readProxy().name, writeProxy().name, editProxy().name, createBashTool(toolbox).name];
+  const names = [readProxy().name, writeProxy().name, editProxy().name, createBashToolProxy(toolbox).name];
   assert.deepEqual(names, ["read", "write", "edit", "bash"]);
 });
 

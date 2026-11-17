@@ -1,7 +1,7 @@
 import { config } from "../config.ts";
 import { log } from "../log.ts";
 import { Toolbox } from "./client.ts";
-import { createBashTool } from "./tools/bash.ts";
+import { createBashToolProxy } from "./tools/bash.ts";
 import { createEditToolProxy, createWriteToolProxy } from "./tools/files.ts";
 import { createReadToolProxy } from "./tools/read.ts";
 
@@ -33,6 +33,6 @@ export { Toolbox };
 export function codingToolsFromToolbox(toolbox: Toolbox) {
   return {
     name: "coding-tools",
-    tools: [createReadToolProxy(toolbox), createWriteToolProxy(toolbox), createEditToolProxy(toolbox), createBashTool(toolbox)],
+    tools: [createReadToolProxy(toolbox), createWriteToolProxy(toolbox), createEditToolProxy(toolbox), createBashToolProxy(toolbox)],
   };
 }
