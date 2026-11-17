@@ -116,7 +116,10 @@ func readFileTool(absolutePath string, args ReadArgs) (ReadResult, error) {
 		if mime != "" {
 			result, err = readImage(args.Path, raw, mime, args)
 		} else {
-			result, err = readText(args.Path, decodeFileUTF8(raw), args)
+			// The reference starts its scan at byte 3 when a BOM is present, so the BOM never reaches
+			// the model and the byte counts below are of the text without it.
+			_, text := stripBom(decodeFileUTF8(raw))
+			result, err = readText(args.Path, text, args)
 		}
 		if err != nil || statErr != nil {
 			return result, err

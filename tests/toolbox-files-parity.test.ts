@@ -279,6 +279,37 @@ test("parity: read with a fractional offset and limit", { skip }, async () => {
   assert.deepEqual(seen.diagnostics, [{ severity: "info", message: "2 more lines in file. Use offset=5 to continue." }]);
 });
 
+test("parity: read drops a byte order mark like the reference", { skip }, async () => {
+  // A BOM is not exotic: editors on Windows and several export tools write one.
+  const roots = seedBoth(readings, "bom.txt", "\uFEFFfirst\nsecond\n");
+  const seen = await parity(readTool(), readProxy(), { path: "bom.txt" }, roots);
+  assert.equal(seen.text, "first\nsecond\n");
+  const truncated = await parity(readTool(), readProxy(), { path: "bom.txt", offset: 2, limit: 5 }, roots);
+  assert.equal(truncated.text, "second\n");
+});
+
+test("parity: edit matches through a compatibility ligature", { skip }, async () => {
+  // NFKC folds U+FB01 to "fi", so text typed in ASCII still finds the ligature in the file.
+  const roots = seedBoth(writing, "lig.txt", "The \uFB01le is here\n");
+  const seen = await parity(
+    editTool(),
+    editProxy(),
+    { path: "lig.txt", edits: [{ oldText: "The file is here", newText: "changed" }] },
+    roots,
+  );
+  assert.match(seen.text, /Successfully replaced 1 block/);
+  assert.equal(readFileSync(join(roots.candidate, "lig.txt"), "utf8"), "changed\n");
+  assert.equal(seen.details?.diff, "-1 The \uFB01le is here\n+1 changed");
+});
+
+test("parity: read finds a name written in NFD", { skip }, async () => {
+  // macOS stores filenames decomposed, so a composed query has to be retried in NFD.
+  const decomposed = "cafe\u0301.txt";
+  const roots = seedBoth(readings, decomposed, "decomposed name\n");
+  const seen = await parity(readTool(), readProxy(), { path: "caf\u00E9.txt" }, roots);
+  assert.equal(seen.text, "decomposed name\n");
+});
+
 test("parity: write creates parent directories and reports the path", { skip }, async () => {
   const roots = { reference: join(writing, "ref"), candidate: join(writing, "go") };
   const seen = await parity(writeTool(), writeProxy(), { path: "deep/nested/file.txt", content: "hello\n" }, roots);
