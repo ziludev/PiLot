@@ -107,6 +107,17 @@ One level per chat, in `app.chat-access`: `closed`, `owner` or `group`. Chats li
 
 `remind` creates a durable reminder task: the deadline is in the database, the task sleeps, and a restart does not lose it. Running tasks show in the client's left rail with a status dot and their next fire time, and a finished turn raises a native notification when the window is in the background.
 
+### Where the coding tools run
+
+`bash`, `read`, `write` and `edit` can execute in a separate Go process, `toolbox-go/`, instead of inside the agent. The Node side keeps the tool schemas and a thin proxy, so the model sees the same names, parameters, result shapes, truncation, exit codes and diagnostics either way — that equality is what `tests/toolbox-parity.test.ts` and `tests/toolbox-files-parity.test.ts` assert, by running pi-durable's own tools against a real environment and comparing both paths field by field.
+
+The switch is `AGENT_TOOLBOX` and it is read once at boot:
+
+- `off` (the default) installs pi-durable's `CodingTools`; nothing else changes.
+- `go` starts `toolbox-go/bin/toolbox` on a unix socket under `.data/`, then installs the proxies.
+
+There is deliberately no fallback: with `go`, a toolbox that cannot answer aborts the boot rather than silently serving the in-process tools, so a turn never runs half on Go and half on Node. Recovering means setting `AGENT_TOOLBOX=off` and restarting. The binary is rebuilt from source on boot when any `toolbox-go/**/*.go` file is newer than it, which needs a Go toolchain; without one, a prebuilt `toolbox-go/bin/toolbox` is used as-is.
+
 ### Extensions
 
 Skills are scanned from `./.pi/skills`, `./.agents/skills`, `~/.pi/agent/skills`, `~/.agents/skills`, `~/.claude/skills`; only names go into the prompt and the `skill` tool fetches a body on demand. MCP servers from `mcp.json` (stdio or streamable HTTP) are connected at startup and their tools registered as `mcp__<server>__<tool>`. `delegate`, `delegate_parallel` and `build_feature` run sub-agents as task-owned conversations: they resume after a crash, abort in cascade, and nest one level. Feishu-native tools (`feishu_agenda`, `feishu_tasks`, `feishu_create_task`, `feishu_doc_read`) go through a locally logged-in `lark-cli`, so they act as you.
@@ -129,6 +140,7 @@ Everything lives in `.env`; `.env.example` explains every key.
 | `AGENT_MAX_TURNS` | tool calls per turn before the card offers Continue |
 | `AGENT_DAILY_BUDGET_USD` | daily spend cap, `0` for none |
 | `AGENT_WORKTREE`, `AGENT_SKILLS_DIRS`, `AGENT_MCP_CONFIG` | worktree mode, skill directories, MCP config file |
+| `AGENT_TOOLBOX`, `AGENT_TOOLBOX_BIN` | `off` runs the coding tools in-process, `go` runs them in `toolbox-go/`; the binary's path |
 | `AGENT_HTTP_PORT`, `AGENT_HTTP_HOST`, `AGENT_HTTP_TOKEN` | the local bridge the client and CLI use; `0` disables it |
 | `SLS_LOGSTORE_PREFIX` | for `logs_query`: the logstore is named `<prefix>-<env>-stdout` |
 | `PRESENCE_CLI` | the presence CLI that backs `logs_query` / `db_query`; defaults to `~/work/presence-cli/dist/index.js` |
@@ -137,7 +149,8 @@ Everything lives in `.env`; `.env.example` explains every key.
 ## Install
 
 macOS (launchd and the desktop client are macOS-only), Node 22+, `git`. `ffmpeg`, `whisper` and
-`lark-cli` are optional extras for transcription, voice messages and the native Feishu tools.
+`lark-cli` are optional extras for transcription, voice messages and the native Feishu tools. A Go
+toolchain is only needed with `AGENT_TOOLBOX=go`, to build `toolbox-go/`.
 
 ```bash
 git clone https://github.com/ziludev/pitta.git && cd pitta
@@ -260,6 +273,7 @@ src/
 evals/             the offline bench: guard (approval decisions) and contract (config ↔ .env.example ↔ README)
 docs/              the one page with edges: the Feishu console, by menu, with the failures each row causes
 client-go/         the desktop client: Go drawing the window with mygo/ui on Metal, no webview
+toolbox-go/        the coding tools as a Go service on a unix socket: bash, read, write, edit
 ```
 
 ## Behaviours that have been observed
