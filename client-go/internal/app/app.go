@@ -186,6 +186,9 @@ type App struct {
 	menu          chatMenu
 	findOpen      bool
 	shortcutsOpen bool
+	// logs is the agent's own log, drawn in the window rather than handed to
+	// Finder: reading it here keeps the tail one keystroke away.
+	logs logViewer
 
 	// unread dots the chats whose answers arrived while the window was behind
 	// another app, or while they were not the open one.
@@ -913,6 +916,7 @@ func (a *App) View(c *ui.Context) {
 	a.quitDialog(c, t)
 	a.settingsDialog(c, t)
 	a.shortcutsDialog(c, t)
+	a.logsDialog(c, t)
 	a.imageDialog(c, t)
 	a.previewDialog(c, t)
 	a.errorPanel(c, t)

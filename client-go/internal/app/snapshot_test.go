@@ -5,6 +5,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -371,4 +372,35 @@ func TestSnapshotTurn(t *testing.T) {
 			t.Fatalf("%s: %v (%v bytes)", name, err, stat)
 		}
 	}
+}
+
+// TestSnapshotLogViewer renders the log dialog over the window, so the shape a
+// reader gets when they press the log button is reviewable without the app.
+func TestSnapshotLogViewer(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PI_DURABLE_HOME", home)
+	logs := filepath.Join(home, "logs")
+	if err := os.MkdirAll(logs, 0o755); err != nil {
+		t.Fatalf("mkdir logs: %v", err)
+	}
+	body := strings.Join([]string{
+		"[2026-11-17 13:20:01] [toolbox] 2026/11/17 13:20:01 ready pid=94054 version=0.1.0 tools=[bash edit read write] in 54ms",
+		"[2026-11-17 13:20:09] [feishu] turn start chat=oc_1c22 conversationId=40508",
+		"[2026-11-17 13:20:11] [toolbox] 2026/11/17 13:20:11 bash: tool=bash exit=0 spill=false timeout=false took=19ms",
+		"[2026-11-17 13:20:11] [toolbox] 2026/11/17 13:20:11 read: path=/Users/alexwang/learn/pi-durable-agent/workspace/blank-probe.txt bytes=7 image=false truncated=false took=0s",
+		"[2026-11-17 13:20:12] [feishu] settled {\"status\":\"done\",\"seconds\":3}",
+		"[2026-11-17 13:20:14] [error] feishu: could not patch approval card: context deadline exceeded",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(logs, "agent.log"), []byte(body+"\n"), 0o644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+	a := snapshotData(t)
+	a.prefs = prefs{Theme: "light"}
+	a.toggleLogs()
+	defer a.toggleLogs()
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	assertHasText(t, tt, "bash: tool=bash exit=0")
+	writePNG(t, filepath.Join(snapshotDir(), "pitta-logs.png"), tt.Image())
 }

@@ -11,9 +11,10 @@ import (
 // origin/i18n.ts holds 183 keys in each of its two tables. attachImage,
 // attachImageHint and attach are ours, for the path-based picture picker a
 // native desktop app needs; goalMet and goalNotMet are ours, for the verdict a
-// turn ends on, which the React client drew as a tool result instead.
+// turn ends on, which the React client drew as a tool result instead; close and
+// logsEmpty are ours, for the log viewer that reads the file in the window.
 // TestOriginDictionaryStillMatches keeps that line.
-const wantKeys = 188
+const wantKeys = 190
 
 // useLang switches the package language for one test and restores it after.
 func useLang(t *testing.T, l Lang) {
