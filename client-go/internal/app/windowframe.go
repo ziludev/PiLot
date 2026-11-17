@@ -7,10 +7,8 @@ func (a *App) restoreFrame() {
 		return
 	}
 	p := a.prefs
-	if p.WindowW < 640 || p.WindowH < 400 {
-		return
-	}
-	a.win.SetSize(int(p.WindowW), int(p.WindowH))
+	width, height := saneFrame(p.WindowW, p.WindowH, 1180, 820)
+	a.win.SetSize(int(width), int(height))
 	// Zero means "never placed"; the window manager's own choice is better than
 	// the top-left corner.
 	if p.WindowX != 0 || p.WindowY != 0 {

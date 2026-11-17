@@ -23,7 +23,7 @@ import (
 // live run at the bottom.
 func (a *App) transcript(c *ui.Context) {
 	t := theme.Current(c)
-	built := turns.GroupTurns(a.entries, a.waits)
+	built := a.groupedTurns()
 	// The window keeps the first frame of a 500-entry chat cheap; the button
 	// opens the rest, as the transcript's TURN_WINDOW does.
 	window := a.turnWindow
@@ -90,6 +90,17 @@ func (a *App) transcript(c *ui.Context) {
 			}
 		})
 	})
+}
+
+// groupedTurns groups the entries once per change. Grouping parses every
+// entry's model, which cost more than a frame's budget on a long chat, and a
+// frame that only scrolls or hovers changes none of them.
+func (a *App) groupedTurns() []turns.Turn {
+	if a.turnStale || a.turnCache == nil {
+		a.turnCache = turns.GroupTurns(a.entries, a.waits)
+		a.turnStale = false
+	}
+	return a.turnCache
 }
 
 // turnBlock draws one turn: the user's message on the right, the agent's work
@@ -320,6 +331,12 @@ func (a *App) noteLine(c *ui.Context, t theme.Tokens, text string) {
 // stepRow is one tool call or answer on the turn's timeline: a line that opens
 // into what the tool returned, a patch when it changed files.
 func (a *App) stepRow(c *ui.Context, t theme.Tokens, step turns.Step) {
+	if name, _ := turns.ToolCall(step.Entry); name == turns.ReportDoneTool {
+		if met, ok, why := turns.Verdict(step.Entry); ok {
+			a.verdictBand(c, t, met, why)
+			return
+		}
+	}
 	open := a.stepOpen[step.Entry.ID]
 	label := step.Label
 	if label == "" {
@@ -353,6 +370,26 @@ func (a *App) stepRow(c *ui.Context, t theme.Tokens, step turns.Step) {
 		// instead of appearing at its full height.
 		ui.Column(c).Key(step.Entry.ID).Transition(motion.AccordionTransition()).
 			Children(func() { a.stepOutput(c, t, text, failed) })
+	})
+}
+
+// verdictBand is what report_done draws in place of a step: the turn's answer to
+// whether it met its goal. It sits on the timeline like a step dot but never
+// folds — the line under the verdict is the answer, the one saying how it was
+// checked, so it reads at body size instead of as a capped log.
+func (a *App) verdictBand(c *ui.Context, t theme.Tokens, met bool, why string) {
+	accent, title := t.Foreground, i18n.T("goalMet")
+	if !met {
+		accent, title = t.Destructive, i18n.T("goalNotMet")
+	}
+	ui.Column(c).Gap(3).PaddingY(2).Children(func() {
+		ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+			ui.Row(c).Size(5, 5).Radius(3).Background(accent)
+			ui.Text(c, title).FontSize(11).FontWeight(600).TextColor(accent)
+		})
+		if why != "" {
+			ui.Text(c, why).FontSize(12.5).TextColor(t.Foreground).Wrap()
+		}
 	})
 }
 

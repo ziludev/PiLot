@@ -296,3 +296,47 @@ func TestStepsHangOffARoundedRail(t *testing.T) {
 		t.Fatalf("the step rail is %d px wide, want 2 (around column %d)", width, rail)
 	}
 }
+
+// reportDoneEntries is a turn that ends on a verdict.
+func reportDoneEntries(met bool, why string) []protocol.Entry {
+	return []protocol.Entry{
+		{ID: 1, Kind: "pi.user", Model: rawModel(map[string]any{"role": "user", "content": "fix the seam"})},
+		{ID: 2, Kind: "pi.assistant", Model: rawModel(map[string]any{
+			"role": "assistant", "content": []any{map[string]any{
+				"type": "toolCall", "id": "call_1", "name": "report_done",
+				"arguments": map[string]any{"met": met, "why": why},
+			}},
+		})},
+		{ID: 3, Kind: "pi.tool-result", Model: rawModel(map[string]any{
+			"role": "toolResult", "toolCallId": "call_1", "toolName": "report_done",
+			"content": []any{map[string]any{"type": "text", "text": "recorded"}},
+		})},
+	}
+}
+
+// TestReportDoneDrawsAsVerdict is where the verdict belongs: report_done is not
+// one more step among the tools, it is the turn's answer to whether it got the
+// job done, so the word and the line saying how it was checked are drawn out in
+// the open, and the call never shows up as a foldable step label.
+func TestReportDoneDrawsAsVerdict(t *testing.T) {
+	a := transcriptApp(reportDoneEntries(true, "go test ./internal/app is green")...)
+	tt := ui.NewTester(a.transcript, 800, 400)
+	tt.Frame()
+
+	if !tt.HasText(i18n.T("goalMet")) {
+		t.Fatalf("the verdict did not draw; texts=%q", tt.Texts())
+	}
+	if !tt.HasText("go test ./internal/app is green") {
+		t.Fatalf("the reason did not draw; texts=%q", tt.Texts())
+	}
+	if tt.HasText("report_done") {
+		t.Fatalf("the call still drew as a step; texts=%q", tt.Texts())
+	}
+
+	a = transcriptApp(reportDoneEntries(false, "the seam still flickers")...)
+	tt = ui.NewTester(a.transcript, 800, 400)
+	tt.Frame()
+	if !tt.HasText(i18n.T("goalNotMet")) {
+		t.Fatalf("an unmet turn drew no verdict; texts=%q", tt.Texts())
+	}
+}

@@ -355,9 +355,10 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 		target = -motion.HoverRise
 		line.Shadow(0, 6, 14, -6, ui.RGBA(0, 0, 0, 0.45))
 	}
-	if lift := line.AnimateTo("lift", target, motion.Lift); lift != 0 {
-		line.Translate(0, lift)
-	}
+	// The lift moves what the row shows, never its box: a box that rose under a
+	// still pointer would give the hover to the row below at the seam, which
+	// would give it back, frame after frame, and the two would flicker.
+	lift := line.AnimateTo("lift", target, motion.Lift)
 	line.OnClick(func() {
 		// A chat already open in a window of its own comes forward instead of
 		// being loaded here a second time.
@@ -401,21 +402,29 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 		}
 	})
 	line.Children(func() {
+		// Every part of the row rises with the lift, so the row reads as picked
+		// up while the pointer keeps the box that found it.
+		rise := func(e ui.Element) ui.Element {
+			if lift != 0 {
+				e.Translate(0, lift)
+			}
+			return e
+		}
 		// The bar is drawn for every row so the names stay in one column.
-		bar := ui.Box(c).Width(2).Height(14).Radius(1).AlignSelf(ui.Center)
+		bar := rise(ui.Box(c).Width(2).Height(14).Radius(1).AlignSelf(ui.Center))
 		if selected {
 			bar.Background(t.Primary)
 		}
 		switch {
 		case row.topic:
-			ui.Icon(c, icons.CornerDownRight).Size(10, 10).TextColor(t.MutedFg)
+			rise(ui.Icon(c, icons.CornerDownRight).Size(10, 10).TextColor(t.MutedFg))
 		case surfaceKind(s) == "client":
-			ui.Icon(c, icons.Monitor).Size(10, 10).TextColor(t.Primary)
+			rise(ui.Icon(c, icons.Monitor).Size(10, 10).TextColor(t.Primary))
 		case surfaceKind(s) == "feishu":
-			ui.Icon(c, icons.MessagesSquare).Size(10, 10).TextColor(t.MutedFg)
+			rise(ui.Icon(c, icons.MessagesSquare).Size(10, 10).TextColor(t.MutedFg))
 		}
-		title := ui.Text(c, surfaceTitle(s)).FontSize(11.5).TextColor(t.SidebarFg).
-			Grow(1).MaxLines(1)
+		title := rise(ui.Text(c, surfaceTitle(s)).FontSize(11.5).TextColor(t.SidebarFg).
+			Grow(1).MaxLines(1))
 		if selected {
 			title.FontWeight(500)
 		}
@@ -425,35 +434,35 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 		if a.isUnread(s.ConversationID) && !selected {
 			// A dot where the cost goes: this chat answered while nobody was
 			// looking, which the rail had no way to say.
-			ui.Box(c).Width(5).Height(5).Radius(3).AlignSelf(ui.Center).Background(t.Primary)
+			rise(ui.Box(c).Width(5).Height(5).Radius(3).AlignSelf(ui.Center).Background(t.Primary))
 		}
 		if s.Cost >= 0.005 {
 			// Under half a cent the number is noise, as in the rail view.
-			ui.Text(c, railCost(s.Cost)).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
+			rise(ui.Text(c, railCost(s.Cost)).FontSize(10).TextColor(t.MutedFg).MaxLines(1))
 		}
 		// The #id, the menu and the pin appear under the pointer, as the
 		// cluster the rail view positions over the right end of the row.
 		if hovered {
-			ui.Text(c, "#"+itoa(s.ConversationID)).FontSize(9.5).TextColor(t.MutedFg)
-			railRowButton(c, icons.MoreHorizontal, i18n.T("rename"), t.MutedFg, func() {
+			rise(ui.Text(c, "#"+itoa(s.ConversationID)).FontSize(9.5).TextColor(t.MutedFg))
+			rise(railRowButton(c, icons.MoreHorizontal, i18n.T("rename"), t.MutedFg, func() {
 				a.openChatMenuFor(s.ConversationID)
-			})
+			}))
 		}
 		pinTint := t.MutedFg
 		if pinned {
 			pinTint = t.Primary
 		}
 		if hovered || pinned {
-			railRowButton(c, icons.Pin, i18n.T("pinned"), pinTint, func() {
+			rise(railRowButton(c, icons.Pin, i18n.T("pinned"), pinTint, func() {
 				a.togglePin(s.ConversationID)
-			})
+			}))
 		}
 	})
 }
 
 // railRowButton is one of the small buttons a chat's row keeps on its right: the
 // pin, and the archive that puts the chat away.
-func railRowButton(c *ui.Context, icon *ui.SVG, label string, tint ui.Color, onClick func()) {
+func railRowButton(c *ui.Context, icon *ui.SVG, label string, tint ui.Color, onClick func()) ui.Element {
 	button := ui.ButtonBase(c).Size(20, 20).Radius(4).Cursor(ui.CursorPointer)
 	button.Label(label)
 	button.Tooltip(label)
@@ -464,6 +473,7 @@ func railRowButton(c *ui.Context, icon *ui.SVG, label string, tint ui.Color, onC
 		ui.Icon(c, icon).Size(10, 10).TextColor(tint)
 	})
 	button.OnClick(onClick)
+	return button
 }
 
 // railOthersHeader folds the chats of the projects this rail is not scoped to

@@ -76,6 +76,24 @@ func ToolCallArgs(entry protocol.Entry) string {
 	return ""
 }
 
+// Verdict is what a report_done call claims: whether the turn reached the goal
+// it was given, and the line saying how that was checked. ok is false when the
+// entry carries no verdict to read, so a view can fall back to the plain call.
+func Verdict(entry protocol.Entry) (met, ok bool, why string) {
+	args := ToolCallArgs(entry)
+	if args == "" {
+		return false, false, ""
+	}
+	var call struct {
+		Met *bool  `json:"met"`
+		Why string `json:"why"`
+	}
+	if err := json.Unmarshal([]byte(args), &call); err != nil || call.Met == nil {
+		return false, false, ""
+	}
+	return *call.Met, true, strings.TrimSpace(call.Why)
+}
+
 // ToolResult is what a tool answered: its text and whether it failed.
 func ToolResult(entry protocol.Entry) (text string, isError bool) {
 	var out strings.Builder

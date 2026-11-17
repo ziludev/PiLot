@@ -54,3 +54,37 @@ func TestEntryReaders(t *testing.T) {
 		t.Fatalf("note Text = %q", got)
 	}
 }
+
+// TestVerdictReadsReportDone pins the verdict reader: met and why come from the
+// call's arguments, and a call that carries no verdict is not guessed at.
+func TestVerdictReadsReportDone(t *testing.T) {
+	done := entry(5, "pi.assistant", []map[string]any{
+		{"role": "assistant", "content": []any{
+			map[string]any{"type": "toolCall", "name": "report_done", "id": "call_2",
+				"arguments": map[string]any{"met": true, "why": "  go test ./...  "}},
+		}},
+	})
+	met, ok, why := Verdict(done)
+	if !ok || !met || why != "go test ./..." {
+		t.Fatalf("Verdict = %v %v %q", met, ok, why)
+	}
+
+	missed := entry(6, "pi.assistant", []map[string]any{
+		{"role": "assistant", "content": []any{
+			map[string]any{"type": "toolCall", "name": "report_done", "id": "call_3",
+				"arguments": map[string]any{"met": false, "why": "still red"}},
+		}},
+	})
+	if met, ok, _ := Verdict(missed); !ok || met {
+		t.Fatalf("Verdict of an unmet turn = %v %v", met, ok)
+	}
+
+	plain := entry(7, "pi.assistant", []map[string]any{
+		{"role": "assistant", "content": []any{
+			map[string]any{"type": "toolCall", "name": "bash", "id": "call_4", "arguments": map[string]any{"command": "ls"}},
+		}},
+	})
+	if _, ok, _ := Verdict(plain); ok {
+		t.Fatal("a bash call carried a verdict")
+	}
+}
