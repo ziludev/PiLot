@@ -118,6 +118,8 @@ The switch is `AGENT_TOOLBOX` and it is read once at boot:
 
 There is deliberately no fallback: with `go`, a toolbox that cannot answer aborts the boot rather than silently serving the in-process tools, so a turn never runs half on Go and half on Node. Recovering means setting `AGENT_TOOLBOX=off` and restarting. The binary is rebuilt from source on boot when any `toolbox-go/**/*.go` file is newer than it, which needs a Go toolchain; without one, a prebuilt `toolbox-go/bin/toolbox` is used as-is.
 
+Known differences, accepted for now: the reference resolves `read` paths through Unicode NFKC/NFD normalization and fuzzy-matches `edit` text the same way, while the Go side folds only the compatibility characters it has tables for (full-width ASCII, U+3000) and tries the narrow no-break space and typographic-apostrophe spellings instead. A file whose name or content needs a normalization form outside that set reads or matches natively but not through the toolbox.
+
 ### Extensions
 
 Skills are scanned from `./.pi/skills`, `./.agents/skills`, `~/.pi/agent/skills`, `~/.agents/skills`, `~/.claude/skills`; only names go into the prompt and the `skill` tool fetches a body on demand. MCP servers from `mcp.json` (stdio or streamable HTTP) are connected at startup and their tools registered as `mcp__<server>__<tool>`. `delegate`, `delegate_parallel` and `build_feature` run sub-agents as task-owned conversations: they resume after a crash, abort in cascade, and nest one level. Feishu-native tools (`feishu_agenda`, `feishu_tasks`, `feishu_create_task`, `feishu_doc_read`) go through a locally logged-in `lark-cli`, so they act as you.

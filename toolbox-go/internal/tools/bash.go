@@ -32,6 +32,8 @@ type BashArgs struct {
 type BashResult struct {
 	ExitCode       int    `json:"exitCode"`
 	FullOutputPath string `json:"fullOutputPath,omitempty"`
+	// TimedOut is for the call log only; the agent sees a timeout as a failure.
+	TimedOut bool `json:"-"`
 }
 
 // maxTimeoutSeconds matches the agent's guard, so both paths reject the same values.
@@ -59,7 +61,8 @@ func RegisterBash(srv *server.Server) {
 		if errors.As(runErr, &failure) {
 			srv.Logf("bash: tool=bash failed=%s timeout=%t took=%s", failure.Code, failure.Code == "timeout", took)
 		} else {
-			srv.Logf("bash: tool=bash exit=%d spill=%t took=%s", result.ExitCode, result.FullOutputPath != "", took)
+			// timeout= is on every line, so a slow call and a timed-out one look the same in the log.
+			srv.Logf("bash: tool=bash exit=%d spill=%t timeout=%t took=%s", result.ExitCode, result.FullOutputPath != "", result.TimedOut, took)
 		}
 		return result, runErr
 	})
@@ -197,7 +200,7 @@ func runBash(ctx context.Context, dir string, args BashArgs, timeout time.Durati
 			return BashResult{}, &server.Failure{Code: "spawn_error", Message: waitErr.Error(), SpillPath: path}
 		}
 	}
-	return BashResult{ExitCode: exitCode, FullOutputPath: path}, nil
+	return BashResult{ExitCode: exitCode, FullOutputPath: path, TimedOut: timedOut.Load()}, nil
 }
 
 // exitCodeOf maps a signal death to 128+signal, as the agent's environment does,

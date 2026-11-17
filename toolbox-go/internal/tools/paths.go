@@ -35,6 +35,39 @@ func isUnicodeSpace(r rune) bool {
 
 // resolvePath mirrors NodeExecutionEnv.absolutePath: "~", "~/", "file://" then absolute-or-relative
 // against the working directory.
+// resolveReadPath is pi-durable's resolveReadToolPath suffix: before giving up on a path, `read`
+// tries the spelling macOS and copy-pasted text produce for the same file. The reference also tries
+// NFD and NFKC-normalized variants; without a Unicode normalization table in the standard library
+// those two are the documented limitation, so this covers the narrow no-break space before AM/PM and
+// the typographic apostrophe.
+func resolveReadPath(absolutePath string) string {
+	variants := []string{
+		absolutePath,
+		collapseAMPMSpaces(absolutePath),
+		strings.ReplaceAll(absolutePath, "'", "\u2019"),
+	}
+	seen := map[string]bool{}
+	for _, variant := range variants {
+		if seen[variant] {
+			continue
+		}
+		seen[variant] = true
+		if exists(variant) {
+			return variant
+		}
+	}
+	return absolutePath
+}
+
+// collapseAMPMSpaces follows the reference regex `/ (AM|PM)\./gi`, replacing the plain space with
+// a narrow no-break space, which is what a Finder-renamed "3 PM." filename contains.
+func collapseAMPMSpaces(path string) string {
+	for _, marker := range []string{" AM.", " PM.", " am.", " pm.", " Am.", " Pm.", " aM.", " pM."} {
+		path = strings.ReplaceAll(path, marker, "\u202F"+marker[1:])
+	}
+	return path
+}
+
 func resolvePath(cwd, path string) string {
 	normalized := normalizeToolPath(path)
 	switch {

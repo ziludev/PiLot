@@ -101,15 +101,38 @@ func RegisterRead(srv *server.Server) {
 
 // readFileTool keeps the path as given in its messages; only the file system call is resolved.
 func readFileTool(absolutePath string, args ReadArgs) (ReadResult, error) {
-	raw, err := os.ReadFile(absolutePath)
-	if err != nil {
-		// pi-durable lets the fs error reach the model as-is, path and all.
-		return ReadResult{}, nodeStyleFileError(err, absolutePath)
+	resolved := resolveReadPath(absolutePath)
+	// A concurrent writer can change the file between the read and the check. Appending leaves the
+	// text as it was; an image must be whole. Anything else is read once more, then reported.
+	for attempt := 0; ; attempt++ {
+		before, statErr := os.Stat(resolved)
+		raw, err := os.ReadFile(resolved)
+		if err != nil {
+			// pi-durable lets the fs error reach the model as-is, path and all.
+			return ReadResult{}, nodeStyleFileError(err, resolved)
+		}
+		mime := detectImageMimeType(raw)
+		result := ReadResult{}
+		if mime != "" {
+			result, err = readImage(args.Path, raw, mime, args)
+		} else {
+			result, err = readText(args.Path, decodeFileUTF8(raw), args)
+		}
+		if err != nil || statErr != nil {
+			return result, err
+		}
+		after, afterErr := os.Stat(resolved)
+		if afterErr != nil {
+			return result, nil
+		}
+		unchanged := after.Size() == before.Size() && after.ModTime().Equal(before.ModTime())
+		if unchanged || (mime == "" && after.Size() > before.Size()) {
+			return result, nil
+		}
+		if attempt == 1 {
+			return ReadResult{}, fmt.Errorf("%s changed while it was read", args.Path)
+		}
 	}
-	if mime := detectImageMimeType(raw); mime != "" {
-		return readImage(args.Path, raw, mime, args)
-	}
-	return readText(args.Path, decodeFileUTF8(raw), args)
 }
 
 // readText mirrors pi-durable's readText, including the way it treats a fractional or zero offset:
