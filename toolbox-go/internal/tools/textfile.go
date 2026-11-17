@@ -139,8 +139,10 @@ func getLineSpans(content string) []lineSpan {
 // decodeUTF8 replaces invalid sequences the way Node's "utf8" decoding does: one U+FFFD per
 // maximal invalid subpart.
 func decodeFileUTF8(data []byte) string {
+	// TextDecoder emits one replacement character per invalid byte, so a run of bad bytes is not
+	// collapsed into a single one.
 	if utf8.Valid(data) {
 		return string(data)
 	}
-	return strings.ToValidUTF8(string(data), "\uFFFD")
+	return decodeUTF8(data)
 }

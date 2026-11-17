@@ -205,6 +205,73 @@ test("parity: read sends an image through unchanged", { skip }, async () => {
   assert.deepEqual(Buffer.from(image.data, "base64"), png);
 });
 
+/** A BMP whose header parses: declared size 128, pixel data at 54, 12-byte DIB, 24 bpp. */
+function bmpBytes(): Buffer {
+  const bytes = Buffer.alloc(128);
+  bytes.write("BM", 0, "ascii");
+  bytes.writeUInt32LE(128, 2);
+  bytes.writeUInt32LE(54, 10);
+  bytes.writeUInt32LE(12, 14);
+  bytes.writeUInt16LE(1, 22);
+  bytes.writeUInt16LE(24, 24);
+  return bytes;
+}
+
+/** A PNG header with the given chunks: type and payload, each with a zeroed CRC. */
+function pngBytes(chunks: Array<[string, Buffer]>): Buffer {
+  const parts: Buffer[] = [Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])];
+  for (const [type, payload] of chunks) {
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(payload.length, 0);
+    parts.push(length, Buffer.from(type, "ascii"), payload, Buffer.alloc(4));
+  }
+  return Buffer.concat(parts);
+}
+
+test("parity: read refuses a bmp with the conversion message", { skip }, async () => {
+  for (const side of ["ref", "go"]) writeFileSync(join(readings, side, "tiny.bmp"), bmpBytes());
+  const roots = { reference: join(readings, "ref"), candidate: join(readings, "go") };
+  const seen = await parity(readTool(), readProxy(), { path: "tiny.bmp" }, roots);
+  assert.equal(seen.isError, true);
+  assert.deepEqual(seen.diagnostics, [
+    {
+      severity: "error",
+      code: "unsupported_image",
+      message: "tiny.bmp is an image (image/bmp) that needs converting, and no image processor is configured",
+    },
+  ]);
+});
+
+test("parity: read treats an animated png as text", { skip }, async () => {
+  const ihdr = Buffer.from([0, 0, 0, 2, 0, 0, 0, 3, 8, 6, 0, 0, 0]);
+  const animated = pngBytes([
+    ["IHDR", ihdr],
+    ["acTL", Buffer.from([0, 0, 0, 2, 0, 0, 0, 0])],
+  ]);
+  for (const side of ["ref", "go"]) writeFileSync(join(readings, side, "anim.png"), animated);
+  const roots = { reference: join(readings, "ref"), candidate: join(readings, "go") };
+  const seen = await parity(readTool(), readProxy(), { path: "anim.png" }, roots);
+  assert.deepEqual(seen.outputTypes, ["text"]);
+  assert.equal(seen.isError, false);
+});
+
+test("parity: read treats a jpeg with a 4th byte of f7 as text", { skip }, async () => {
+  const odd = Buffer.from([0xff, 0xd8, 0xff, 0xf7, 0x00, 0x10, 0x4a, 0x46]);
+  for (const side of ["ref", "go"]) writeFileSync(join(readings, side, "odd.jpg"), odd);
+  const roots = { reference: join(readings, "ref"), candidate: join(readings, "go") };
+  const seen = await parity(readTool(), readProxy(), { path: "odd.jpg" }, roots);
+  assert.deepEqual(seen.outputTypes, ["text"]);
+});
+
+test("parity: read with a fractional offset and limit", { skip }, async () => {
+  const roots = seedBoth(readings, "fractional.txt", "1\n2\n3\n4\n5\n");
+  const seen = await parity(readTool(), readProxy(), { path: "fractional.txt", offset: 2.5, limit: 2.5 }, roots);
+  // sliceIndex truncates: the window is lines 2-4, and the continuation arithmetic stays fractional.
+  assert.equal(seen.text, "2\n3\n4");
+  assert.equal(seen.details, undefined);
+  assert.deepEqual(seen.diagnostics, [{ severity: "info", message: "2 more lines in file. Use offset=5 to continue." }]);
+});
+
 test("parity: write creates parent directories and reports the path", { skip }, async () => {
   const roots = { reference: join(writing, "ref"), candidate: join(writing, "go") };
   const seen = await parity(writeTool(), writeProxy(), { path: "deep/nested/file.txt", content: "hello\n" }, roots);

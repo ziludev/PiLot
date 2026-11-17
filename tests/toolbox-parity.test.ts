@@ -181,6 +181,44 @@ test("parity: both streams reach the model", { skip }, async () => {
   assert.equal(candidate.exitCode, reference.exitCode);
 });
 
+/**
+ * What one run streamed, before any retention: every call the tool made to `api.output` and the
+ * second argument it passed. The reference bash tool hands its window to `env.exec`, but
+ * `NodeExecutionEnv` never reads `options.window`, so nothing is skipped on either path — this
+ * test pins that down rather than assuming it.
+ */
+type Streamed = { text: string; calls: number; bytes: number; skipped: unknown[] };
+
+async function stream(tool: ReturnType<typeof createInProcessBash>, command: string): Promise<Streamed> {
+  const parts: string[] = [];
+  const skipped: unknown[] = [];
+  const api = {
+    env: new NodeExecutionEnv({ cwd: work }),
+    output: (chunk: string, skip?: unknown) => {
+      parts.push(chunk);
+      skipped.push(skip);
+    },
+    // A window the tool would pass down; the env ignores it, so output must still arrive whole.
+    outputWindow: { maxBytes: DEFAULT_MAX_BYTES, maxLines: DEFAULT_MAX_LINES, minIntervalMs: 0, bytesPerSecond: 1 },
+    retainedOutput: () => ({ text: parts.join(""), truncated: false }),
+    diagnostic: () => {},
+    details: undefined,
+  } as unknown as ToolExecutionApi;
+  await tool.execute({ command }, api, {});
+  const text = parts.join("");
+  return { text, calls: parts.length, bytes: Buffer.byteLength(text, "utf8"), skipped };
+}
+
+test("parity: a long stream arrives whole on both paths", { skip }, async () => {
+  const command = `seq 1 40000`;
+  const reference = await stream(createInProcessBash(), command);
+  const candidate = await stream(createToolboxBash(toolbox), command);
+  assert.equal(reference.text, candidate.text, "the streamed text is the same");
+  assert.ok(reference.bytes > 200 * 1024, `the output is large enough to matter: ${reference.bytes}`);
+  assert.deepEqual(candidate.skipped.filter((value) => value !== undefined), [], "the Go path skips nothing");
+  assert.deepEqual(reference.skipped.filter((value) => value !== undefined), [], "neither does the reference");
+});
+
 test("parity: a nonzero exit is an error result with the code", { skip }, async () => {
   const seen = await parity(`exit 7`);
   assert.equal(seen.exitCode, 7);
