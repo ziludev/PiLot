@@ -45,6 +45,7 @@ import { grantSession, loadGrants } from "./grants.ts";
 import { setRuntimeRef } from "./runtime-ref.ts";
 import { log, logError } from "./log.ts";
 import { acquireStorageLock } from "./storage-lock.ts";
+import { startToolbox, type Toolbox } from "./toolbox/index.ts";
 import { ensureRepo } from "./changes.ts";
 import { ensureWorktree, worktreePaths } from "./worktree.ts";
 import { gitBranchOf } from "./git-info.ts";
@@ -101,6 +102,8 @@ export const ChatsToken = defineDoc<{ chats: Record<string, number> }>({
 
 export type AgentRuntime = {
   harness: Harness;
+  /** The Go service behind `bash`/`read`/`write`/`edit`; undefined unless `AGENT_TOOLBOX=go`. */
+  toolbox: Toolbox | undefined;
   conversationFor(surfaceId: string): Promise<Conversation>;
   /** Maps a conversation back to its surface, so approvals and reminders can route. */
   attachSurface(conversationId: number): Promise<void>;
@@ -555,7 +558,12 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
 
   log("agent", `mcp: ${mcp.serverCount} servers, ${mcp.toolCount} tools`);
 
+  // Moving the coding tools out of this process is the one boot step that can fail
+  // before a single turn runs, so it happens here and is reported once.
+  const toolbox = config.toolbox.mode === "go" ? await startToolbox() : undefined;
+
   const runtime: AgentRuntime = {
+    toolbox,
     harness,
     conversationFor,
     attachSurface,
@@ -665,6 +673,8 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     budget: (_surfaceId: string) => checkBudget(harness, context, config.dailyBudgetUsd),
     close: async () => {
       await harness.close(context);
+      // After the harness settles, so no tool call is still waiting on the socket.
+      await toolbox?.close();
       await mcp.close();
       // Drain and close the span store last: closing the harness settles the final spans.
       await telemetry?.close().catch(() => {});

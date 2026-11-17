@@ -13,3 +13,4 @@ mcp.json
 
 .worktrees/
 client-go/build/
+toolbox-go/bin/
