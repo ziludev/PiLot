@@ -23,7 +23,22 @@ type ToolboxEvent = {
   code?: string;
   message?: string;
   result?: unknown;
+  spillPath?: string;
 };
+
+/** A call the tool itself refused: the agent turns it into the tool's own error. */
+export type ToolboxFailure = {
+  /** One of pi-durable's execution error codes: timeout, aborted, spawn_error. */
+  code: string;
+  message: string;
+  /** Output saved to a file that outlives the failure, when there is one. */
+  spillPath?: string;
+};
+
+/** A call's outcome: the tool's structured result, or the failure it decided on. */
+export type ToolboxOutcome =
+  | { result: Record<string, unknown>; failure?: undefined }
+  | { result?: undefined; failure: ToolboxFailure };
 
 export type ToolboxDiagnostic = { severity: string; code: string; message: string };
 
@@ -144,7 +159,8 @@ export class Toolbox {
     const deadline = Date.now() + PING_TIMEOUT_MS;
     for (;;) {
       try {
-        await this.call("ping", {}, { cwd: process.cwd() });
+        const outcome = await this.call("ping", {}, { cwd: process.cwd() });
+        if (outcome.failure !== undefined) throw new Error(outcome.failure.message);
         return;
       } catch (error) {
         if (Date.now() >= deadline) throw new Error(`toolbox: not ready after ${PING_TIMEOUT_MS}ms: ${(error as Error).message}`);
@@ -153,13 +169,16 @@ export class Toolbox {
     }
   }
 
-  /** Runs one call and resolves with its structured result. */
-  async call(tool: string, args: unknown, options: ToolboxCallOptions): Promise<unknown> {
+  /**
+   * Runs one call. Transport and protocol problems throw; a failure the tool decided
+   * on comes back as `failure`, because only the tool knows how to report it.
+   */
+  async call(tool: string, args: unknown, options: ToolboxCallOptions): Promise<ToolboxOutcome> {
     if (this.#closed) throw new Error("toolbox: already closed");
     const socket = await this.#connect(options.signal);
     const request = JSON.stringify({ tool, args, cwd: options.cwd, callId: options.callId });
 
-    return await new Promise<unknown>((done, fail) => {
+    return await new Promise<ToolboxOutcome>((done, fail) => {
       let buffer = "";
       const onAbort = () => {
         socket.destroy();
@@ -167,11 +186,12 @@ export class Toolbox {
       };
       options.signal?.addEventListener("abort", onAbort, { once: true });
 
-      const finish = (error: Error | undefined, result?: unknown) => {
+      const finish = (error: Error | undefined, outcome?: ToolboxOutcome) => {
         options.signal?.removeEventListener("abort", onAbort);
         socket.destroy();
         if (error) fail(error);
-        else done(result);
+        else if (outcome) done(outcome);
+        else fail(new Error("toolbox: call ended without an outcome"));
       };
 
       socket.setEncoding("utf8");
@@ -201,7 +221,11 @@ export class Toolbox {
   }
 
   /** Applies one event; returns true when the call has ended. */
-  #handle(event: ToolboxEvent, options: ToolboxCallOptions, finish: (error?: Error, result?: unknown) => void): boolean {
+  #handle(
+    event: ToolboxEvent,
+    options: ToolboxCallOptions,
+    finish: (error?: Error, outcome?: ToolboxOutcome) => void,
+  ): boolean {
     switch (event.type) {
       case "chunk":
         options.onChunk?.(event.data ?? "", event.skipped);
@@ -214,11 +238,20 @@ export class Toolbox {
         });
         return false;
       case "result":
-        finish(undefined, event.result);
+        finish(undefined, { result: (event.result ?? {}) as Record<string, unknown> });
         return true;
-      case "error":
-        finish(new Error(event.message ?? "toolbox: call failed"));
+      case "error": {
+        // A failure the tool decided on carries a code the agent maps onto its own
+        // error handling; anything else is the toolbox itself misbehaving.
+        if (event.code === undefined) {
+          finish(new Error(event.message ?? "toolbox: call failed"));
+          return true;
+        }
+        finish(undefined, {
+          failure: { code: event.code, message: event.message ?? "", spillPath: event.spillPath },
+        });
         return true;
+      }
       default:
         finish(new Error(`toolbox: unexpected event ${String((event as { type?: string }).type)}`));
         return true;

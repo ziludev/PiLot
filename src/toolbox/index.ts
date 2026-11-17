@@ -1,6 +1,9 @@
 import { config } from "../config.ts";
 import { log } from "../log.ts";
 import { Toolbox } from "./client.ts";
+import { createBashTool } from "./tools/bash.ts";
+import { createEditToolProxy, createWriteToolProxy } from "./tools/files.ts";
+import { createReadToolProxy } from "./tools/read.ts";
 
 /**
  * Starts the Go service that serves the coding tools when `AGENT_TOOLBOX=go`.
@@ -11,7 +14,9 @@ import { Toolbox } from "./client.ts";
 export async function startToolbox(): Promise<Toolbox> {
   const started = Date.now();
   const toolbox = await Toolbox.start({ bin: config.toolbox.bin, socketPath: config.toolbox.socketPath });
-  const ping = (await toolbox.call("ping", {}, { cwd: config.workspace })) as { version: string; tools: string[] };
+  const outcome = await toolbox.call("ping", {}, { cwd: config.workspace });
+  if (outcome.failure !== undefined) throw new Error(`toolbox: ${outcome.failure.message}`);
+  const ping = outcome.result as unknown as { version: string; tools: string[] };
   log(
     "toolbox",
     `ready pid=${toolbox.pid} version=${ping.version} tools=${ping.tools.join(",")} in ${Date.now() - started}ms`,
@@ -20,3 +25,14 @@ export async function startToolbox(): Promise<Toolbox> {
 }
 
 export { Toolbox };
+
+/**
+ * The four coding tools served by the toolbox, under the name pi-durable's own extension uses, so
+ * installing this replaces `CodingTools` instead of adding a second `bash` next to it.
+ */
+export function codingToolsFromToolbox(toolbox: Toolbox) {
+  return {
+    name: "coding-tools",
+    tools: [createReadToolProxy(toolbox), createWriteToolProxy(toolbox), createEditToolProxy(toolbox), createBashTool(toolbox)],
+  };
+}

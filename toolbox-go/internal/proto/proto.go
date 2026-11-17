@@ -55,4 +55,8 @@ type Event struct {
 
 	// TypeResult
 	Result json.RawMessage `json:"result,omitempty"`
+
+	// TypeError: the tool's failure code (timeout, aborted, spawn_error) and, when the
+	// output was saved anyway, the file that holds it.
+	SpillPath string `json:"spillPath,omitempty"`
 }

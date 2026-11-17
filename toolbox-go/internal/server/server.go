@@ -14,6 +14,18 @@ import (
 	"pitta/toolbox/internal/proto"
 )
 
+// Failure ends a call with a code the agent maps onto its own error handling, plus
+// the spill file that outlived the failure. A handler returns it as its error.
+type Failure struct {
+	// Code is one of the agent's execution error codes: timeout, aborted, spawn_error.
+	Code    string
+	Message string
+	// SpillPath is set when the output was saved to a file the user can still read.
+	SpillPath string
+}
+
+func (f *Failure) Error() string { return f.Message }
+
 // Emit writes one event of a call. A handler uses it for streamed output and
 // diagnostics; the terminal event is written by the server from the returned
 // value, so a handler can never end a call twice.
@@ -39,6 +51,15 @@ func New(base context.Context, logger *log.Logger) *Server {
 	return &Server{handlers: map[string]Handler{}, log: logger, base: ctx, cancel: cancel}
 }
 
+// Logf writes one line to the service log. Callers pass a nil logger in tests, so
+// logging never becomes a reason for a call to fail.
+func (s *Server) Logf(format string, args ...any) {
+	if s.log == nil {
+		return
+	}
+	s.log.Printf(format, args...)
+}
+
 // Register adds one tool. Registering a name twice panics: a silent override
 // would make the toolbox answer a tool the agent never meant to move here.
 func (s *Server) Register(tool string, handler Handler) {
@@ -55,6 +76,12 @@ func (s *Server) Names() []string {
 		names = append(names, name)
 	}
 	return names
+}
+
+// Handler returns the registered handler of a tool, nil when the tool is unknown. Tests use it to
+// call a tool without a socket.
+func (s *Server) Handler(name string) Handler {
+	return s.handlers[name]
 }
 
 // ErrUnknownTool is what a call for an unregistered tool fails with.
@@ -136,7 +163,14 @@ func (s *Server) handleConn(conn net.Conn) {
 		return
 	}
 	if err != nil {
-		_ = write(proto.Event{Type: proto.TypeError, Message: err.Error()})
+		event := proto.Event{Type: proto.TypeError, Message: err.Error()}
+		var failure *Failure
+		if errors.As(err, &failure) {
+			event.Code = failure.Code
+			event.Message = failure.Message
+			event.SpillPath = failure.SpillPath
+		}
+		_ = write(event)
 		return
 	}
 	payload, marshalErr := json.Marshal(result)
