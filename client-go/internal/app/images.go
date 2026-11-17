@@ -151,6 +151,37 @@ func (a *App) imageDialog(c *ui.Context, t theme.Tokens) {
 	}
 }
 
+// imageCacheLimit bounds how many entries keep their decoded pictures: one
+// screenshot is a few MB of pixels once decoded, and a long chat can carry many.
+const imageCacheLimit = 6
+
+// historyImages returns the pictures a stored entry carries, decoded on first
+// draw and then kept. View runs every frame, and imagesOf decodes a whole PNG
+// every time it is called (~15ms for a 1720x1116 screenshot), so calling it
+// from the draw path starves the main thread.
+func (a *App) historyImages(entry protocol.Entry) []imagePart {
+	// Entries without an id (a turn still streaming) are drawn from the live
+	// state and change as it does, so they are never cached.
+	if entry.ID == 0 {
+		return imagesOf(entry)
+	}
+	if images, ok := a.imageCache[entry.ID]; ok {
+		return images
+	}
+	images := imagesOf(entry)
+	if a.imageCache == nil {
+		a.imageCache = make(map[int][]imagePart, imageCacheLimit)
+	}
+	a.imageCache[entry.ID] = images
+	a.imageOrder = append(a.imageOrder, entry.ID)
+	for len(a.imageOrder) > imageCacheLimit {
+		oldest := a.imageOrder[0]
+		a.imageOrder = a.imageOrder[1:]
+		delete(a.imageCache, oldest)
+	}
+	return images
+}
+
 // imagesOf returns the pictures a user entry carries, for the transcript.
 func imagesOf(entry protocol.Entry) []imagePart {
 	parts := contentParts(entry)

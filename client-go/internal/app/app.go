@@ -172,6 +172,7 @@ type App struct {
 	scrollMaxY     float32
 	newMessages    int
 	sideSynced     bool
+	frameRecovered bool
 	mergeBusy      bool
 	merge          *protocol.MergeResult
 	changesLoading bool
@@ -200,6 +201,12 @@ type App struct {
 	imageOpen     bool
 	previewImage  int
 	previewSet    []imagePart
+
+	// historyImages holds the pictures a stored entry carries, decoded once per
+	// entry. View draws every frame; decoding a screenshot's PNG there costs
+	// ~15ms a frame, which pins the main thread and freezes the window.
+	imageCache map[int][]imagePart
+	imageOrder []int
 
 	// Project switcher state: the menu, the open dialog and the removal
 	// confirmation.
@@ -853,6 +860,12 @@ func (a *App) View(c *ui.Context) {
 	c.OnWindowShortcut(ui.Cmd, ui.KeyB, func() {
 		a.apply(func() { a.toggleSide(); a.invalidate() })
 	})
+	// A window can come up narrower than the saved rail; clamp before the split
+	// so the header and the composer keep their room.
+	if width, _ := c.Size(); width > 0 {
+		a.fitPanes(width)
+		a.recoverTinyWindow(width)
+	}
 	root := ui.Split(c, &a.railWidth, func() { a.rail(c) }, func() { a.pane(c) }).Fill()
 	// Files dragged from Finder land on the whole window: images become
 	// attachments, anything else opens in the viewer, which is more than the
