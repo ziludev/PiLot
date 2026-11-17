@@ -58,23 +58,15 @@ func (a *App) railHeader(c *ui.Context, t theme.Tokens) {
 	// switches live in the settings panel with the rest of the preferences; the
 	// header keeps the two things that say what this window is.
 	// The window draws its own title bar (mygo.WindowOptions.TitleBarStyle), so
-	// this row starts below the traffic lights and to their right, and drags the
-	// window like a title bar does.
+	// this row starts below the traffic lights rather than to their right: a
+	// sidebar's header lines up with its rows, and a name pushed past the
+	// controls floats between two gaps, which reads as a centred title.
 	bar := c.TitleBar()
-	// A narrow rail has no room for the controls and the name side by side: the
-	// name would float between two equal gaps, which reads as a centred title
-	// rather than a corner. There it goes under the controls, the way a native
-	// sidebar stacks them; a rail wide enough for both keeps the one-row bar.
-	left := float32(12) + bar.Left
-	if bar.Left > 0 && a.railWidth < bar.Left+220 {
-		left = 12
-	}
 	// Padding takes (top, right, bottom, left) here: the title bar's room is
-	// added to the top and the left only, so the row keeps its 12 px right
-	// padding. The two-value form applies the inset to both sides and squeezes
-	// the name column to an ellipsis in a real window (see
-	// TestRailHeaderClearsTheTrafficLights).
-	ui.Row(c).FillWidth().Padding(8+bar.Bottom, 12, 8, left).DragWindow().Gap(8).AlignItems(ui.Center).Label(railHeaderLabel).
+	// added to the top only, so the row keeps its 12 px sides and the name
+	// column keeps the width the split gave it (see
+	// TestRailHeaderStaysInTheCorner).
+	ui.Row(c).FillWidth().Padding(8+bar.Bottom, 12, 8, 12).DragWindow().Gap(8).AlignItems(ui.Center).Label(railHeaderLabel).
 		BorderWidth(0, 0, 1, 0).BorderColor(t.SidebarBorder).Children(func() {
 		mood, delegated := a.markLook()
 		brand.Draw(c, 24, mood, brand.Ink(a.markInk(t, delegated)))
