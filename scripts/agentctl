@@ -4,7 +4,8 @@
 #   ./scripts/agentctl install           # render + load the agent job (auto-start, auto-restart)
 #   ./scripts/agentctl install-backup    # render + load the daily 04:10 sqlite backup
 #   ./scripts/agentctl uninstall         # unload both jobs
-#   ./scripts/agentctl start|stop|restart|status
+#   ./scripts/agentctl start|stop|restart|status   # restart waits for the running turn to settle
+#                                                # (--force kills it; durable storage resumes it)
 #   ./scripts/agentctl logs [n]          # agent log tail
 #   ./scripts/agentctl backup            # run a backup now
 #   ./scripts/agentctl backups           # list snapshots
@@ -67,6 +68,37 @@ rotate_logs() {
   done
 }
 
+# A queued or placed submission is a turn that has not settled yet: model call, tool call, delivery.
+# Restarting under it cuts the turn, and the surface that owns it has to recover a half-written card
+# afterwards — which is how a "quick restart" turns into a duplicated answer.
+db_path() { echo "${AGENT_DB:-$PROJECT/.data/agent.sqlite}"; }
+
+turns_in_flight() {
+  local db; db="$(db_path)"
+  [ -f "$db" ] || { echo 0; return; }
+  sqlite3 "file:$db?mode=ro" "select count(*) from submissions where status in ('queued','placed')" 2>/dev/null || echo 0
+}
+
+wait_idle() {
+  local timeout="${RESTART_IDLE_TIMEOUT:-180}" deadline=$((SECONDS + ${RESTART_IDLE_TIMEOUT:-180}))
+  local count
+  count="$(turns_in_flight)"
+  [ "$count" = "0" ] && return 0
+  echo "agent has $count turn(s) in flight; waiting up to ${timeout}s for them to settle"
+  while [ "$(turns_in_flight)" != "0" ]; do
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      echo "still mid-turn after ${timeout}s — not restarting." >&2
+      echo "the turn is running in this very process if you started agentctl from inside it;" >&2
+      echo "use 'agentctl restart --force' to cut it (the turn resumes on the next start, but any" >&2
+      echo "half-delivered card is recovered by the surface, not resent)." >&2
+      return 1
+    fi
+    sleep 2
+  done
+  echo "agent idle; restarting"
+  return 0
+}
+
 load() {
   local label="$1" plist="$2"
   launchctl bootout "$DOMAIN" "$plist" 2>/dev/null || true
@@ -101,6 +133,10 @@ case "${1:-status}" in
     launchctl kill SIGTERM "$DOMAIN/$LABEL" 2>/dev/null || launchctl bootout "$DOMAIN" "$AGENTS/$LABEL.plist"
     ;;
   restart)
+    # Never cut a turn in half: wait for the queue to drain first unless forced.
+    if [ "${2:-}" != "--force" ]; then
+      wait_idle || exit 1
+    fi
     # kickstart -k keeps the same file descriptors, so rotation has to go through a full reload.
     launchctl bootout "$DOMAIN" "$AGENTS/$LABEL.plist" 2>/dev/null || true
     rotate_logs
