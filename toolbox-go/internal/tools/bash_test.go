@@ -231,14 +231,52 @@ func TestBashDecodesSplitUTF8(t *testing.T) {
 	}
 }
 
-func TestBashReplacesInvalidUTF8PerByte(t *testing.T) {
+func TestBashReplacesEachInvalidLeadByte(t *testing.T) {
 	call, _ := harness(t)
+	// FF and FE are both invalid lead bytes, so each one is its own malformed sequence.
 	got := call(map[string]any{"command": `printf '\377\376'`})
 	if got.failure != nil {
 		t.Fatalf("failure = %+v", got.failure)
 	}
 	if got.text != "\uFFFD\uFFFD" {
 		t.Fatalf("text = %q, want two replacement characters", got.text)
+	}
+}
+
+// TextDecoder reports one replacement character for a whole malformed subpart, so a truncated
+// three-byte sequence followed by ASCII is one replacement and the ASCII, not two replacements.
+func TestBashReplacesMalformedSubpartsLikeTextDecoder(t *testing.T) {
+	cases := []struct{ command, want string }{
+		{`printf '\357\273A'`, "\uFFFDA"},
+		{`printf 'A\360\237\222B'`, "A\uFFFDB"},
+		{`printf '\377\376'`, "\uFFFD\uFFFD"},
+		{`printf 'A\342\202'`, "A\uFFFD"},
+	}
+	for _, testCase := range cases {
+		call, _ := harness(t)
+		got := call(map[string]any{"command": testCase.command})
+		if got.failure != nil {
+			t.Fatalf("%s: failure = %+v", testCase.command, got.failure)
+		}
+		if got.text != testCase.want {
+			t.Fatalf("%s: text = %q, want %q", testCase.command, got.text, testCase.want)
+		}
+	}
+}
+
+// A byte-order mark at the start of the stream is dropped; one inside the output is kept.
+func TestBashDropsALeadingByteOrderMark(t *testing.T) {
+	call, _ := harness(t)
+	got := call(map[string]any{"command": `printf '\357\273\277hello'`})
+	if got.failure != nil {
+		t.Fatalf("failure = %+v", got.failure)
+	}
+	if got.text != "hello" {
+		t.Fatalf("text = %q, want the mark dropped", got.text)
+	}
+	inner := call(map[string]any{"command": `printf 'a\357\273\277b'`})
+	if inner.text != "a\ufeffb" {
+		t.Fatalf("text = %q, want the inner mark kept", inner.text)
 	}
 }
 

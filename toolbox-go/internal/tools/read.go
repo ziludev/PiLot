@@ -5,7 +5,9 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"strconv"
@@ -19,6 +21,10 @@ import (
 const (
 	defaultMaxLines = 2000
 	defaultMaxBytes = 50 * 1024
+	// Bytes of the selection kept in memory: enough to fill the output budget several times over,
+	// because truncateHeadOf never returns more than defaultMaxBytes of text.
+	keepBytes = 4 * defaultMaxBytes
+	readChunk = 64 * 1024
 	// The agent passes its model's image limits; these are pi-durable's defaults for the gap.
 	defaultImageBytes  = 5 * 1024 * 1024
 	defaultImageWidth  = 8000
@@ -106,20 +112,22 @@ func readFileTool(absolutePath string, args ReadArgs) (ReadResult, error) {
 	// text as it was; an image must be whole. Anything else is read once more, then reported.
 	for attempt := 0; ; attempt++ {
 		before, statErr := os.Stat(resolved)
-		raw, err := os.ReadFile(resolved)
+		mime, err := sniffImage(resolved)
 		if err != nil {
-			// pi-durable lets the fs error reach the model as-is, path and all.
-			return ReadResult{}, nodeStyleFileError(err, resolved)
+			// pi-durable lets the fs error reach the model as-is: a directory reads without a path,
+			// a missing file names it.
+			return ReadResult{}, nodeReadError(err, resolved)
 		}
-		mime := detectImageMimeType(raw)
-		result := ReadResult{}
+		var result ReadResult
 		if mime != "" {
+			// An image is handed over whole, so it is the one case that still loads the file.
+			raw, readErr := os.ReadFile(resolved)
+			if readErr != nil {
+				return ReadResult{}, nodeReadError(readErr, resolved)
+			}
 			result, err = readImage(args.Path, raw, mime, args)
 		} else {
-			// The reference starts its scan at byte 3 when a BOM is present, so the BOM never reaches
-			// the model and the byte counts below are of the text without it.
-			_, text := stripBom(decodeFileUTF8(raw))
-			result, err = readText(args.Path, text, args)
+			result, err = readText(args.Path, resolved, args)
 		}
 		if err != nil || statErr != nil {
 			return result, err
@@ -138,9 +146,67 @@ func readFileTool(absolutePath string, args ReadArgs) (ReadResult, error) {
 	}
 }
 
+// sniffImage names the format from the file's header and, for a png, reads the chunk headers only:
+// an animated png hides its acTL chunk behind chunks of any size, so a fixed prefix cannot tell.
+func sniffImage(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	header := make([]byte, 32)
+	read, err := io.ReadFull(file, header)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	header = header[:read]
+	if !hasPrefix(header, pngSignature) {
+		return detectImageMimeType(header), nil
+	}
+	if !isPng(header) {
+		return "", nil
+	}
+	animated, err := animatedPngFile(file)
+	if err != nil {
+		return "", err
+	}
+	if animated {
+		return "", nil
+	}
+	return "image/png", nil
+}
+
+// animatedPngFile walks the chunk headers with reads of eight bytes each.
+func animatedPngFile(file *os.File) (bool, error) {
+	offset := int64(len(pngSignature))
+	chunk := make([]byte, 8)
+	for {
+		if _, err := file.ReadAt(chunk, offset); err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+				return false, nil
+			}
+			return false, err
+		}
+		length := int64(binary.BigEndian.Uint32(chunk[:4]))
+		kind := string(chunk[4:8])
+		switch kind {
+		case "acTL":
+			return true, nil
+		case "IDAT":
+			return false, nil
+		}
+		next := offset + 8 + length + 4
+		if next <= offset {
+			return false, nil
+		}
+		offset = next
+	}
+}
+
 // readText mirrors pi-durable's readText, including the way it treats a fractional or zero offset:
 // the schema only promises numbers, so the arithmetic and the messages have to follow JavaScript.
-func readText(displayPath, text string, args ReadArgs) (ReadResult, error) {
+// It scans the file instead of loading it, so the cost is bounded by what the answer needs.
+func readText(displayPath, resolved string, args ReadArgs) (ReadResult, error) {
 	offset := 0.0
 	if args.Offset != nil {
 		offset = *args.Offset
@@ -151,8 +217,10 @@ func readText(displayPath, text string, args ReadArgs) (ReadResult, error) {
 	}
 	startLineDisplay := startLine + 1
 	sliceStart := sliceIndex(startLine)
-	lines := splitFileLines(text)
-	totalFileLines := len(lines)
+	totalFileLines, err := countFileLines(resolved)
+	if err != nil {
+		return ReadResult{}, nodeReadError(err, resolved)
+	}
 	if startLine >= float64(totalFileLines) {
 		return ReadResult{}, fmt.Errorf("Offset %s is beyond end of file (%d lines total)", jsNumber(offset), totalFileLines)
 	}
@@ -170,23 +238,25 @@ func readText(displayPath, text string, args ReadArgs) (ReadResult, error) {
 		selectedLineCount = maxInt(0, sliceEnd-sliceStart)
 	}
 	empty := selectedLineCount == 0
-	selected := []string(nil)
-	if !empty {
-		from := minInt(maxInt(sliceStart, 0), len(lines))
-		to := minInt(from+selectedLineCount, len(lines))
-		selected = lines[from:to]
-	}
 	// The selected text is the lines joined with "\n", and its byte length is what the tool reports.
+	selection := lineSelection{}
+	if !empty {
+		selection, err = selectLines(resolved, sliceStart, sliceStart+selectedLineCount, keepBytes)
+		if err != nil {
+			return ReadResult{}, nodeReadError(err, resolved)
+		}
+	}
 	head := ""
 	if !empty {
-		head = strings.Join(selected, "\n")
+		head = decodeFileUTF8(selection.kept)
+		if sliceStart == 0 {
+			// The reference starts at byte 3 when the file opens with a mark, so it never shows one.
+			head = strings.TrimPrefix(head, "\ufeff")
+		}
 	}
-	selectedBytes := len(head)
-	firstLineBytes := 0
-	if len(selected) > 0 {
-		firstLineBytes = len(selected[0])
-	}
-	endsWithNewline := len(selected) > 1 && selected[len(selected)-1] == ""
+	selectedBytes := selection.bytes
+	firstLineBytes := selection.firstLineBytes
+	endsWithNewline := selection.endsWithNewline
 	totalLines := 0
 	if !empty && selectedBytes != 0 {
 		totalLines = selectedLineCount
@@ -268,8 +338,98 @@ func jsNumber(value float64) string {
 
 // splitFileLines splits like the tool does: on "\n" only, so a CRLF file keeps its "\r" in the
 // line text, and a trailing newline produces a final empty line.
-func splitFileLines(text string) []string {
-	return strings.Split(text, "\n")
+// countFileLines counts the lines a split on "\n" would produce, without loading the file.
+func countFileLines(path string) (int, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+	chunk := make([]byte, readChunk)
+	newlines := 0
+	for {
+		read, err := file.Read(chunk)
+		for _, b := range chunk[:read] {
+			if b == '\n' {
+				newlines++
+			}
+		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return 0, err
+		}
+	}
+	return newlines + 1, nil
+}
+
+// lineSelection is what the answer needs to know about the selected lines, plus a bounded prefix
+// of their text; the rest of the selection is counted and dropped.
+type lineSelection struct {
+	lines           int
+	bytes           int
+	firstLineBytes  int
+	endsWithNewline bool
+	kept            []byte
+}
+
+// selectLines streams the file up to the end of the selection, counting every selected line and
+// keeping only the first keep bytes of their text.
+func selectLines(path string, start, end, keep int) (lineSelection, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return lineSelection{}, err
+	}
+	defer file.Close()
+	selection := lineSelection{}
+	chunk := make([]byte, readChunk)
+	line := 0
+	var content []byte
+	keptBytes := 0
+	record := func(content []byte, final bool) {
+		if line >= start && line < end {
+			if selection.lines == 0 {
+				selection.firstLineBytes = len(content)
+			} else {
+				selection.bytes++
+			}
+			selection.lines++
+			selection.bytes += len(content)
+			if keptBytes < keep {
+				if len(selection.kept) > 0 {
+					selection.kept = append(selection.kept, '\n')
+					keptBytes++
+				}
+				selection.kept = append(selection.kept, content...)
+				keptBytes += len(content)
+			}
+			// The last line of a file that ends with a newline is empty and adds no line to the count.
+			if final && len(content) == 0 && line == end-1 {
+				selection.endsWithNewline = true
+			}
+		}
+		line++
+	}
+	for line < end {
+		read, err := file.Read(chunk)
+		for _, b := range chunk[:read] {
+			if b == '\n' {
+				record(content, false)
+				content = content[:0]
+				continue
+			}
+			content = append(content, b)
+		}
+		if errors.Is(err, io.EOF) {
+			record(content, true)
+			break
+		}
+		if err != nil {
+			return lineSelection{}, err
+		}
+	}
+	return selection, nil
 }
 
 type truncateTotals struct {

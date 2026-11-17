@@ -124,6 +124,24 @@ func fileErrorCode(err error) string {
 
 // nodeStyleFileError reproduces the error Node's fs raises, because `read` and `write` let it reach
 // the model untouched: "<CODE>: <strerror>, open '<path>'".
+// nodeReadError is the same for a read: Node's error carries no path for the read syscall, so a
+// directory reads as "EISDIR: illegal operation on a directory, read".
+func nodeReadError(err error, absolutePath string) error {
+	if err != nil && errors.Is(err, syscall.EISDIR) {
+		return fmt.Errorf("EISDIR: illegal operation on a directory, read")
+	}
+	return nodeStyleFileError(err, absolutePath)
+}
+
+// nodeWriteError covers the two places a write can fail: realpath of the target, which Node's
+// mkdir reports for a parent that is a file, and the open itself.
+func nodeWriteError(err error, absolutePath string) error {
+	if err != nil && errors.Is(err, syscall.ENOTDIR) {
+		return fmt.Errorf("ENOTDIR: %s, realpath '%s'", nodeStrerror(syscall.ENOTDIR), absolutePath)
+	}
+	return nodeStyleFileError(err, absolutePath)
+}
+
 func nodeStyleFileError(err error, absolutePath string) error {
 	if err == nil {
 		return nil

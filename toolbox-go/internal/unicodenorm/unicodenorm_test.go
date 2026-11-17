@@ -17,8 +17,9 @@ func TestKnownForms(t *testing.T) {
 		{"가", "\u1100\u1161", "가"},
 		{"\u1100\u1161\u11A8", "\u1100\u1161\u11A8", "각"},   // jamo compose back
 		{"q\u0307\u0323", "q\u0323\u0307", "q\u0323\u0307"}, // canonical ordering by class
-		{"ẛ", "ſ\u0307", "ṡ"},                             // canonical decomposition is recursive
+		{"ẛ", "ſ\u0307", "ṡ"},                               // canonical decomposition is recursive
 		{"\u00A0", "\u00A0", " "},                           // no-break space
+		{"\U0001E030", "\U0001E030", "\u0430"},              // added after Unicode 13: only the newer tables fold it
 		{"plain ASCII", "plain ASCII", "plain ASCII"},
 		{"", "", ""},
 	}
