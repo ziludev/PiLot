@@ -44,7 +44,9 @@ after(async () => {
 });
 
 test("ping answers with its version and the tools it serves", { skip }, async () => {
-  const result = (await toolbox.call("ping", {}, { cwd: root })) as { version: string; pid: number; tools: string[] };
+  const outcome = await toolbox.call("ping", {}, { cwd: root });
+  assert.equal(outcome.failure, undefined);
+  const result = outcome.result as unknown as { version: string; pid: number; tools: string[] };
   assert.equal(typeof result.version, "string");
   assert.equal(result.pid, toolbox.pid);
   assert.ok(result.tools.includes("ping"));
