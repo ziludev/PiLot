@@ -62,7 +62,7 @@ func TestOriginDictionaryStillMatches(t *testing.T) {
 		// Ours: the rail filters by what a chat is doing, not only by the
 		// surface it came from, and names the view that holds the chats whose
 		// answers arrived unseen.
-		"unread": true,
+		"unread": true, "needsYou": true,
 	}
 	for lang, keys := range origin {
 		if len(keys) == 0 {

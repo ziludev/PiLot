@@ -9,8 +9,9 @@ import "github.com/egoist/mygo"
 // restart, and applies to every window the app opens rather than only the one
 // the slider was dragged in.
 const (
-	// minOpacity keeps the text readable: below this the window is a ghost.
-	minOpacity float32 = 0.55
+	// minOpacity keeps the text readable while letting a code editor show
+	// through: below this the window is a ghost.
+	minOpacity float32 = 0.4
 	maxOpacity float32 = 1
 )
 

@@ -87,20 +87,15 @@ func hasDarkPixel(img *image.RGBA, x0, x1, y int, ink ui.Color) bool {
 func TestRailHeaderClearsTheTrafficLights(t *testing.T) {
 	a := snapshotData(t)
 	a.prefs.RailWidth = 260
-	// The language button is the row's last child, so its right edge is where
-	// the row's own right padding shows: it must not move when the title bar
-	// appears, or the inset has eaten the room the name column needs.
-	next := "EN"
-	if i18n.Current() != i18n.ZH {
-		next = "中"
-	}
+	// The name is the row's first text after the avatar, so it moves with the
+	// inset: what it must not do is move by more than the inset, which would
+	// mean the padding was added to both sides and the column squeezed.
 	base := ui.NewTester(a.View, 1180, 820)
 	base.Frame()
-	lang, ok := base.Find(next)
+	name, ok := base.Find(i18n.T("appName"))
 	if !ok {
-		t.Fatalf("language label %q not drawn", next)
+		t.Fatalf("app name not drawn")
 	}
-	wantRight := lang.X + lang.W
 	for _, bar := range []ui.TitleBar{{}, {Height: 28, Left: 78}} {
 		tt := ui.NewTester(a.View, 1180, 820)
 		tt.SetTitleBar(bar)
@@ -115,12 +110,10 @@ func TestRailHeaderClearsTheTrafficLights(t *testing.T) {
 		if want := bar.Bottom + 8; rect.Y < want {
 			t.Fatalf("app name at y=%.1f, under the controls (want >= %.1f)", rect.Y, want)
 		}
-		// Padding's two-value form adds the inset to both sides, which leaves
-		// the name column an ellipsis wide; the four-value form pads the left.
-		if lang, ok := tt.Find(next); ok {
-			if got := lang.X + lang.W; got != wantRight {
-				t.Fatalf("language label ends at x=%.1f with title bar %+v, want %.1f: the inset is padding the right too", got, bar, wantRight)
-			}
+		// The inset pads the left and the top only; the name keeps the column
+		// the row's Grow gives it either way.
+		if got, want := rect.X-name.X, bar.Left; got != want {
+			t.Fatalf("app name moved %.1f px right with title bar %+v, want %.1f", got, bar, want)
 		}
 	}
 }

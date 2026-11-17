@@ -70,11 +70,11 @@ func railCost(cost float64) string {
 
 // railFilters are the views of the list: by where a chat came from, then by
 // what it is doing. prefs.SurfaceFilter keeps one of these values.
-var railFilters = []string{"all", "client", "feishu", "running", "unread"}
+var railFilters = []string{"all", "client", "feishu", "running", "needs", "unread"}
 
 // railFilterKeys name each view in the dictionary, in the same order as
 // railFilters, so a label cannot end up over another view's count.
-var railFilterKeys = []string{"allChats", "clientChats", "feishuChats", "running", "unread"}
+var railFilterKeys = []string{"allChats", "clientChats", "feishuChats", "running", "needsYou", "unread"}
 
 // railFilterIndex is where the saved filter sits in railFilters. An unknown
 // value reads as "all", so a hand-edited prefs file cannot empty the rail.
@@ -152,6 +152,17 @@ func (a *App) railRows() []railRow {
 	return rows
 }
 
+// railFilterCounted reports whether a view's label carries its count: the total
+// and the three state views, whose numbers move as turns run, rather than the
+// two kind views, which are fixed slices of the total.
+func railFilterCounted(filter string) bool {
+	switch filter {
+	case "client", "feishu":
+		return false
+	}
+	return true
+}
+
 // railShown reports whether the list's filter shows the chat: the kind views by
 // the surface the chat came from, the status views by the work it still has.
 func (a *App) railShown(s protocol.Surface, filter int) bool {
@@ -161,6 +172,8 @@ func (a *App) railShown(s protocol.Surface, filter int) bool {
 	switch railFilters[filter] {
 	case "running":
 		return a.isRunning(s.ConversationID)
+	case "needs":
+		return a.chatNeedsYou(s.ConversationID)
 	case "unread":
 		return a.isUnread(s.ConversationID)
 	}

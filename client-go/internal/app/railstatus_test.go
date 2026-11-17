@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"testing"
 
 	"pitta/internal/protocol"
@@ -72,15 +73,16 @@ func TestRailFilterCountsMatchTheViews(t *testing.T) {
 			t.Fatalf("%s: label says %d, view draws %d", key, counts[i], got)
 		}
 	}
-	// The archived chat is out of every count until the rail shows archives.
-	if counts[0] != 3 || counts[1] != 2 || counts[2] != 1 || counts[3] != 1 || counts[4] != 1 {
-		t.Fatalf("counts = %v, want [3 2 1 1 1]", counts)
+	// The archived chat is out of every count until the rail shows archives,
+	// and no chat waits for its owner here, so the "needs you" view is empty.
+	if fmt.Sprint(counts) != "[3 2 1 1 0 1]" {
+		t.Fatalf("counts = %v, want [3 2 1 1 0 1]", counts)
 	}
 
 	a.query = "deploy"
 	counts = a.railFilterCounts()
-	if counts[0] != 2 || counts[1] != 1 || counts[2] != 1 {
-		t.Fatalf("search counts = %v, want [2 1 1 …]", counts)
+	if fmt.Sprint(counts) != "[2 1 1 1 0 1]" {
+		t.Fatalf("search counts = %v, want [2 1 1 1 0 1]: both matching chats counted once each", counts)
 	}
 }
 

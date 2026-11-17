@@ -51,8 +51,9 @@ func (a *App) rail(c *ui.Context) {
 // railHeader names the app and the project it works in, and holds the two
 // switches the rail owns: the language and the theme.
 func (a *App) railHeader(c *ui.Context, t theme.Tokens) {
-	// px-3 py-2: avatar, name over status, then the theme toggle and the
-	// language button that shows the language it switches to.
+	// px-3 py-2: avatar, then the name over the status. The theme and language
+	// switches live in the settings panel with the rest of the preferences; the
+	// header keeps the two things that say what this window is.
 	// The window draws its own title bar (mygo.WindowOptions.TitleBarStyle), so
 	// this row starts below the traffic lights and to their right, and drags the
 	// window like a title bar does.
@@ -76,34 +77,6 @@ func (a *App) railHeader(c *ui.Context, t theme.Tokens) {
 				status.TextColor(t.MutedFg)
 			}
 		})
-		railGlyph(c, t, themeLabel(a.prefs.Theme), func() { a.toggleTheme() }, func() {
-			switch a.prefs.Theme {
-			case "light":
-				ui.Icon(c, icons.Sun).Size(12, 12).TextColor(t.MutedFg)
-			case "dark":
-				ui.Icon(c, icons.Moon).Size(12, 12).TextColor(t.MutedFg)
-			default:
-				ui.Icon(c, icons.Monitor).Size(12, 12).TextColor(t.MutedFg)
-			}
-		})
-		// The language button shows the language it switches to, as the rail's
-		// does with its EN / 中 label.
-		next := "EN"
-		if i18n.Current() != i18n.ZH {
-			next = "中"
-		}
-		lang := ui.ButtonBase(c).Height(22).PaddingX(6).Radius(5).Gap(4).
-			AlignItems(ui.Center).Cursor(ui.CursorPointer)
-		lang.Label(i18n.T("language"))
-		lang.Tooltip(i18n.T("language"))
-		if lang.Hovered() {
-			lang.Background(t.Accent)
-		}
-		lang.Children(func() {
-			ui.Icon(c, icons.Languages).Size(12, 12).TextColor(t.MutedFg)
-			ui.Text(c, next).FontSize(11).TextColor(t.MutedFg)
-		})
-		lang.OnClick(func() { a.toggleLang() })
 	})
 }
 
@@ -194,32 +167,37 @@ func (a *App) searchHitsPanel(c *ui.Context, t theme.Tokens) {
 
 // railFilters is the line between the search field and the list: what the list
 // shows, how many chats that is, and whether it keeps the archived ones.
+//
+// The views are laid flat rather than behind a select. A closed dropdown hides
+// the very thing the row is asked for — how many chats are running, how many
+// answers arrived unseen — and the six views fold onto two lines at the rail's
+// narrowest width, so there is nothing to open.
 func (a *App) railFilters(c *ui.Context, t theme.Tokens) {
-	// the rail's one-row header: an uppercase label, a compact select that
-	// says how many chats each view holds, and the archive toggle at the end.
 	picked := railFilterIndex(a.prefs.SurfaceFilter)
 	counts := a.railFilterCounts()
-	labels := make([]string, len(railFilterKeys))
-	for i, key := range railFilterKeys {
-		labels[i] = i18n.T(key) + " · " + itoa(counts[i])
-	}
-	chosen := labels[picked]
-	ui.Row(c).FillWidth().Padding(6, 10).Gap(4).AlignItems(ui.Center).Children(func() {
+	ui.Row(c).FillWidth().Padding(6, 10, 0, 10).Gap(4).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, strings.ToUpper(i18n.T("sessions"))).FontSize(10).FontWeight(600).
 			TextColor(t.MutedFg).MaxLines(1)
-		ui.Select(c, &chosen, labels).FontSize(10.5).Height(22).Label(i18n.T("sessions"))
 		ui.Row(c).Grow(1).Children(func() {})
 		a.railArchiveToggle(c, t)
 		railIconAction(c, i18n.T("newChat"), icons.Plus, func() { go a.newConversation() })
 	})
-	for index, label := range labels {
-		if label != chosen || index == picked {
-			continue
+	ui.Row(c).FillWidth().Wrap().Padding(4, 10, 4, 10).Gap(4).Children(func() {
+		for index, key := range railFilterKeys {
+			index := index
+			label := i18n.T(key)
+			if railFilterCounted(railFilters[index]) {
+				label += " " + itoa(counts[index])
+			}
+			chip(c, t, label, index == picked, func() {
+				a.apply(func() {
+					a.prefs.SurfaceFilter = railFilters[index]
+					a.savePrefsLater()
+					a.invalidate()
+				})
+			})
 		}
-		a.prefs.SurfaceFilter = railFilters[index]
-		a.savePrefsLater()
-		a.invalidate()
-	}
+	})
 }
 
 // railArchiveToggle folds the archived chats in and out. It is drawn always,
@@ -245,20 +223,6 @@ func (a *App) railArchiveToggle(c *ui.Context, t theme.Tokens) {
 			a.invalidate()
 		})
 	})
-}
-
-// railGlyph is a borderless button the size of an icon. The rail names its
-// glyph buttons through their label, which is what assistive technology, the
-// tester and the tooltip read.
-func railGlyph(c *ui.Context, t theme.Tokens, label string, onClick func(), draw func()) {
-	button := ui.ButtonBase(c).Size(22, 22).Radius(5).Cursor(ui.CursorPointer)
-	button.Label(label)
-	button.Tooltip(label)
-	if button.Hovered() {
-		button.Background(c.Theme().SurfaceHover)
-	}
-	button.Children(draw)
-	button.OnClick(onClick)
 }
 
 // railList draws the chats. A virtual list keeps a thousand chats as cheap as
