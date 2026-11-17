@@ -517,14 +517,19 @@ func (a *App) railTasks(c *ui.Context, t theme.Tokens) {
 	})
 }
 
-// railFooter is the rail's last line: a new chat, the agent's controls, and
-// where its home is.
+// railFooter is the rail's last line: the settings panel's button, the log, and
+// where the agent's home is.
 func (a *App) railFooter(c *ui.Context, t theme.Tokens) {
 	// One row, as the rail's footer: the log, then the workspace path at the
 	// right end. Restart and backup act on the daemon rather than on a chat, so
 	// they live in the settings panel.
 	ui.Row(c).FillWidth().Padding(6, 10).Gap(2).AlignItems(ui.Center).
 		BorderWidth(1, 0, 0, 0).BorderColor(t.SidebarBorder).Children(func() {
+		// Settings sits beside the log rather than only on ⌘, : a preference
+		// behind a shortcut nobody was told about is a preference nobody finds.
+		railIconAction(c, settingsTitle, icons.Settings, func() {
+			a.apply(func() { a.settingsOpen = true; a.invalidate() })
+		})
 		railIconAction(c, i18n.T("logs"), icons.FileIcon, func() { a.apply(func() { a.toggleLogs(); a.invalidate() }) })
 		ui.Row(c).Grow(1).Children(func() {})
 		ui.Text(c, shortPath(a.cfg.Home)).FontSize(9.5).TextColor(t.MutedFg).
