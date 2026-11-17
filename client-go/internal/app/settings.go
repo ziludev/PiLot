@@ -21,6 +21,8 @@ const (
 	// A language names itself, so these are not translated either.
 	langZH = "中文"
 	langEN = "English"
+	// settingsLanguage heads the language section, as the others are headed.
+	settingsLanguage = "Language"
 	// settingsGap keeps the panel's sections apart now that they live in a
 	// column of their own instead of the modal's built-in gap.
 	settingsGap = 6
@@ -89,7 +91,9 @@ func (a *App) settingsBody(c *ui.Context, t theme.Tokens) {
 		}
 	})
 	// The rail's header used to carry these two switches. They belong with
-	// the other preferences, where the panel can name them in full.
+	// the other preferences, where the panel can name them in full — and under a
+	// heading of their own, or the two chips read as more appearance options.
+	ui.Text(c, settingsLanguage).FontSize(10).TextColor(t.MutedFg)
 	ui.Row(c).FillWidth().Gap(6).Children(func() {
 		for _, choice := range []struct{ value, label string }{
 			{string(i18n.ZH), langZH},
