@@ -104,27 +104,29 @@ func railHeaderRects(t *testing.T, windowWidth int, railWidth float32, bar ui.Ti
 	return mark, name
 }
 
-// TestRailHeaderClearsTheTrafficLights checks the layout the hidden title bar
-// asks for on a rail wide enough to hold both: the row starts to the right of
-// the controls, and only by their width, because padding added to both sides
-// squeezes the name column to an ellipsis.
-func TestRailHeaderClearsTheTrafficLights(t *testing.T) {
-	baseMark, baseName := railHeaderRects(t, 1180, 460, ui.TitleBar{})
-	for _, bar := range []ui.TitleBar{{Height: 28, Left: 78}} {
-		mark, name := railHeaderRects(t, 1180, 460, bar)
-		if want := bar.Bottom + 8; name.Y < want {
-			t.Fatalf("app name at y=%.1f, under the controls (want >= %.1f)", name.Y, want)
+// TestRailHeaderStaysInTheCorner checks the rail's header against a window
+// with controls in its top-left corner: the name sits under them, at the rail's
+// own 12 px edge, whatever the controls' width. A row that moved right by their
+// width floated between two equal gaps in a wide sidebar, which read as a
+// centred title.
+func TestRailHeaderStaysInTheCorner(t *testing.T) {
+	for _, railWidth := range []float32{252, 345, 460} {
+		window := 1180
+		if railWidth < 300 {
+			window = 560
 		}
-		if got, want := mark.X-baseMark.X, bar.Left; got != want {
-			t.Fatalf("mark moved %.1f px right with title bar %+v, want %.1f", got, bar, want)
-		}
-		if got, want := name.X-baseName.X, mark.X-baseMark.X; got != want {
-			t.Fatalf("name moved %.1f px, mark moved %.1f px: the column was squeezed", got, want)
-		}
-		// The mark and the name sit a gap apart: the animation box must not be a
-		// row child of its own, or the gap doubles to the mark's own width.
-		if got, want := name.X-(mark.X+mark.W), float32(8); got != want {
-			t.Fatalf("gap between the mark and the name is %.1f px, want %.1f", got, want)
+		baseMark, _ := railHeaderRects(t, window, railWidth, ui.TitleBar{})
+		for _, bar := range []ui.TitleBar{{Height: 42, Left: 74, Bottom: 28}, {Height: 28, Left: 78}} {
+			mark, name := railHeaderRects(t, window, railWidth, bar)
+			if mark.X != baseMark.X {
+				t.Fatalf("rail %.0f: mark at x=%.1f with controls %+v, want x=%.1f", railWidth, mark.X, bar, baseMark.X)
+			}
+			if name.Y < bar.Bottom {
+				t.Fatalf("rail %.0f: app name at y=%.1f, under the controls (want >= %.1f)", railWidth, name.Y, bar.Bottom)
+			}
+			if got, want := name.X-(mark.X+mark.W), float32(8); got != want {
+				t.Fatalf("rail %.0f: gap between the mark and the name is %.1f px, want %.1f", railWidth, got, want)
+			}
 		}
 	}
 }
