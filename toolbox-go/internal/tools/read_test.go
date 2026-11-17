@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // pngHeader builds a PNG header with the given chunks. Each chunk is a type plus payload.
@@ -127,3 +128,41 @@ func TestReadImageRefusesWhatTheReferenceRefuses(t *testing.T) {
 }
 
 func intPtr(value int) *int { return &value }
+
+// fakeInfo is an os.FileInfo with only the two fields the retry loop reads.
+type fakeInfo struct {
+	os.FileInfo
+	size int64
+	mod  time.Time
+}
+
+func (f fakeInfo) Size() int64 { return f.size }
+
+func (f fakeInfo) ModTime() time.Time { return f.mod }
+
+// TestSnapshotChanged covers the decision the retry loop makes after a read. The
+// loop itself cannot be raced reliably in a test, so the rule is pinned here: an
+// appended text file is stable, everything else is read again.
+func TestSnapshotChanged(t *testing.T) {
+	t0 := time.Unix(1_700_000_000, 0)
+	t1 := t0.Add(time.Second)
+	cases := []struct {
+		name   string
+		before fakeInfo
+		after  fakeInfo
+		text   bool
+		want   bool
+	}{
+		{"untouched", fakeInfo{size: 10, mod: t0}, fakeInfo{size: 10, mod: t0}, true, false},
+		{"appended text", fakeInfo{size: 10, mod: t0}, fakeInfo{size: 14, mod: t1}, true, false},
+		{"appended image", fakeInfo{size: 10, mod: t0}, fakeInfo{size: 14, mod: t1}, false, true},
+		{"truncated", fakeInfo{size: 10, mod: t0}, fakeInfo{size: 4, mod: t1}, true, true},
+		{"rewritten in place", fakeInfo{size: 10, mod: t0}, fakeInfo{size: 10, mod: t1}, true, true},
+		{"replaced by a bigger image", fakeInfo{size: 10, mod: t0}, fakeInfo{size: 20, mod: t1}, false, true},
+	}
+	for _, probe := range cases {
+		if got := snapshotChanged(probe.before, probe.after, probe.text); got != probe.want {
+			t.Errorf("%s: got %t, want %t", probe.name, got, probe.want)
+		}
+	}
+}

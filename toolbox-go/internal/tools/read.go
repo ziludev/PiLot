@@ -138,14 +138,22 @@ func readFileTool(absolutePath string, args ReadArgs) (ReadResult, error) {
 		if afterErr != nil {
 			return result, nil
 		}
-		unchanged := after.Size() == before.Size() && after.ModTime().Equal(before.ModTime())
-		if unchanged || (mime == "" && after.Size() > before.Size()) {
+		if !snapshotChanged(before, after, mime == "") {
 			return result, nil
 		}
 		if attempt == 1 {
 			return ReadResult{}, fmt.Errorf("%s changed while it was read", args.Path)
 		}
 	}
+}
+
+// snapshotChanged reports whether the file moved under the read: an appended text
+// file still holds the text that was returned, anything else means re-reading.
+func snapshotChanged(before, after os.FileInfo, text bool) bool {
+	if after.Size() == before.Size() && after.ModTime().Equal(before.ModTime()) {
+		return false
+	}
+	return !(text && after.Size() > before.Size())
 }
 
 // sniffImage names the format from the file's header and, for a png, reads the chunk headers only:
