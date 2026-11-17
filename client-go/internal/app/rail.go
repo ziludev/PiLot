@@ -150,7 +150,9 @@ func (a *App) searchHitsPanel(c *ui.Context, t theme.Tokens) {
 		return
 	}
 	ui.Column(c).FillWidth().Padding(0, 10, 4, 10).Children(func() {
-		ui.Scroll(c).Height(140).Children(func() {
+		// A few hits hug their content; a long list stops at 140 and scrolls,
+		// rather than leaving dead rail between the last hit and the views.
+		ui.Scroll(c).MaxHeight(searchHitsHeight).Label(searchHitsLabel).Children(func() {
 			ui.Column(c).FillWidth().Children(func() {
 				for _, hit := range a.searchHits {
 					hit := hit
@@ -167,6 +169,14 @@ func (a *App) searchHitsPanel(c *ui.Context, t theme.Tokens) {
 		})
 	})
 }
+
+// searchHitsHeight is the room a long list of search hits may take; a short
+// list takes only what it needs.
+const searchHitsHeight = 140
+
+// searchHitsLabel names the box the hits scroll in, which is how the tests that
+// measure it find it.
+const searchHitsLabel = "search-hits"
 
 // railFilters is the line between the search field and the list: what the list
 // shows, how many chats that is, and whether it keeps the archived ones.
