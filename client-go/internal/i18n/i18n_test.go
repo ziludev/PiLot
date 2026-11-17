@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -12,9 +14,10 @@ import (
 // attachImageHint and attach are ours, for the path-based picture picker a
 // native desktop app needs; goalMet and goalNotMet are ours, for the verdict a
 // turn ends on, which the React client drew as a tool result instead; close and
-// logsEmpty are ours, for the log viewer that reads the file in the window.
+// logsEmpty are ours, for the log viewer that reads the file in the window;
+// toolCallsCount is ours, for the line a run of tool calls folds into.
 // TestOriginDictionaryStillMatches keeps that line.
-const wantKeys = 190
+const wantKeys = 191
 
 // useLang switches the package language for one test and restores it after.
 func useLang(t *testing.T, l Lang) {
@@ -69,8 +72,9 @@ func TestPlaceholdersMatchSource(t *testing.T) {
 			t.Errorf("key %q interpolates in one language only", k)
 		}
 	}
-	if len(withPlaceholder) != 1 || withPlaceholder[0] != "baseChangedHint" {
-		t.Fatalf("interpolated keys = %v, want [baseChangedHint]", withPlaceholder)
+	sort.Strings(withPlaceholder)
+	if want := []string{"baseChangedHint", "toolCallsCount"}; !slices.Equal(withPlaceholder, want) {
+		t.Fatalf("interpolated keys = %v, want %v", withPlaceholder, want)
 	}
 }
 

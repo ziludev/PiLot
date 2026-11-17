@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 	"time"
 
@@ -81,16 +82,12 @@ func TestTranscriptWindowKeepsTheFirstFrameCheap(t *testing.T) {
 		t.Fatalf("the window hid the newest turn; texts=%q", tt.Texts())
 	}
 
-	// The view follows the newest turn, so the button sits above the visible
-	// area: scroll up the way a reader would before clicking it.
+	// The view follows the newest turn, so the older ones sit above the visible
+	// area: scrolling up the way a reader would opens them, without a press.
 	a.transcriptScroll.Y = 0
 	tt.Frame()
-	if err := tt.Click("earlier turns"); err != nil {
-		t.Fatalf("click earlier turns: %v", err)
-	}
-	tt.Frame()
 	if !tt.HasText("question 0") {
-		t.Fatalf("the button did not open the older turns; texts=%q", tt.Texts())
+		t.Fatalf("scrolling to the top did not open the older turns; texts=%q", tt.Texts())
 	}
 }
 
@@ -338,5 +335,215 @@ func TestReportDoneDrawsAsVerdict(t *testing.T) {
 	tt.Frame()
 	if !tt.HasText(i18n.T("goalNotMet")) {
 		t.Fatalf("an unmet turn drew no verdict; texts=%q", tt.Texts())
+	}
+}
+
+// TestASmallScrollUpStopsFollowingTheEnd is the fix for a transcript that would
+// not slide: the reader flicked up a few points, and the "close enough to the
+// end" band pulled them straight back down. Anything that moves the offset up
+// was the reader, so it ends the following however small it was.
+func TestASmallScrollUpStopsFollowingTheEnd(t *testing.T) {
+	a := snapshotData(t)
+	tt := ui.NewTester(a.transcript, 600, 120)
+	tt.Frame()
+	tt.Frame() // the first frame is where the content gets its height
+	if a.transcriptScroll.MaxY <= 40 {
+		t.Fatalf("the transcript does not scroll (max %v); the test needs a long one", a.transcriptScroll.MaxY)
+	}
+	if !a.stickToBottom {
+		t.Fatal("a transcript opened at its end should follow it")
+	}
+
+	// A touchpad flick of ten points, the sort that used to be swallowed.
+	tt.Scroll(300, 60, 0, -10)
+	tt.Frame()
+	if a.stickToBottom {
+		t.Fatalf("an upward scroll of 10 was swallowed; offset %v of %v", a.transcriptScroll.Y, a.transcriptScroll.MaxY)
+	}
+	at := a.transcriptScroll.Y
+	tt.Advance(40 * time.Millisecond)
+	tt.Frame()
+	if a.transcriptScroll.Y > at+1 {
+		t.Fatalf("the transcript slid back down after the reader left the end: %v then %v", at, a.transcriptScroll.Y)
+	}
+}
+
+// toolRunEntries is a turn that runs three commands before it answers.
+func toolRunEntries() []protocol.Entry {
+	entries := []protocol.Entry{
+		{ID: 1, Kind: "pi.user", Model: rawModel(map[string]any{"role": "user", "content": "look around"})},
+	}
+	for i, command := range []string{"ls", "git status", "go test ./..."} {
+		callID := "call_" + itoa(i+1)
+		entries = append(entries,
+			protocol.Entry{ID: 2 + i*2, Kind: "pi.assistant", Model: rawModel(map[string]any{
+				"role": "assistant", "content": []any{map[string]any{
+					"type": "toolCall", "id": callID, "name": "bash",
+					"arguments": map[string]any{"command": command},
+				}},
+			})},
+			protocol.Entry{ID: 3 + i*2, Kind: "pi.tool-result", Model: rawModel(map[string]any{
+				"role": "toolResult", "toolCallId": callID, "toolName": "bash",
+				"content": []any{map[string]any{"type": "text", "text": "ok"}},
+			})},
+		)
+	}
+	return entries
+}
+
+// TestToolCallsFoldIntoOneLine is the room a turn gets back: three commands used
+// to put three lines between the question and the answer, and now take one, which
+// opens into the three of them when they are wanted.
+func TestToolCallsFoldIntoOneLine(t *testing.T) {
+	a := transcriptApp(toolRunEntries()...)
+	tt := ui.NewTester(a.transcript, 800, 400)
+	tt.Frame()
+
+	if !tt.HasText(i18n.TF("toolCallsCount", map[string]any{"count": 3})) {
+		t.Fatalf("the run did not fold; texts=%q", tt.Texts())
+	}
+	// The folded line ends with what the run came to; the calls before it do not
+	// each get a row of their own.
+	for _, command := range []string{"bash · ls", "bash · git status"} {
+		if tt.HasText(command) {
+			t.Fatalf("a folded call still drew its own row: %q; texts=%q", command, tt.Texts())
+		}
+	}
+
+	// The one line opens into the calls themselves.
+	if err := tt.Click(i18n.TF("toolCallsCount", map[string]any{"count": 3})); err != nil {
+		t.Fatalf("the folded row could not be clicked: %v", err)
+	}
+	tt.Frame()
+	for _, command := range []string{"bash · ls", "bash · git status", "bash · go test ./..."} {
+		if !tt.HasText(command) {
+			t.Fatalf("opening the run did not show %q; texts=%q", command, tt.Texts())
+		}
+	}
+}
+
+// TestASingleToolCallKeepsItsOwnRow keeps the fold for runs: one command reads
+// better as itself than as "1 次工具调用".
+func TestASingleToolCallKeepsItsOwnRow(t *testing.T) {
+	entries := []protocol.Entry{
+		{ID: 1, Kind: "pi.user", Model: rawModel(map[string]any{"role": "user", "content": "look"})},
+		{ID: 2, Kind: "pi.assistant", Model: rawModel(map[string]any{
+			"role": "assistant", "content": []any{map[string]any{
+				"type": "toolCall", "id": "call_1", "name": "bash",
+				"arguments": map[string]any{"command": "ls"},
+			}},
+		})},
+		{ID: 3, Kind: "pi.tool-result", Model: rawModel(map[string]any{
+			"role": "toolResult", "toolCallId": "call_1", "toolName": "bash",
+			"content": []any{map[string]any{"type": "text", "text": "ok"}},
+		})},
+	}
+	a := transcriptApp(entries...)
+	tt := ui.NewTester(a.transcript, 800, 400)
+	tt.Frame()
+	if !tt.HasText("bash · ls") {
+		t.Fatalf("a lone call was folded away; texts=%q", tt.Texts())
+	}
+	if tt.HasText(i18n.TF("toolCallsCount", map[string]any{"count": 1})) {
+		t.Fatalf("a lone call drew a run line; texts=%q", tt.Texts())
+	}
+}
+
+// TestScrollingToTheTopOpensTheRestOfTheHistory is the fix for a chat that read
+// as if it began in the middle: the window drew the newest sixty turns and a
+// button held the rest, so the beginning was there but never in view.
+func TestScrollingToTheTopOpensTheRestOfTheHistory(t *testing.T) {
+	i18n.Set(i18n.EN)
+	a := New(Config{})
+	a.previewImage = -1
+	a.current = 11
+	a.entries = manyTurns(200)
+	// A chat opens at its newest turn, the way openConversation parks it.
+	a.transcriptScroll.Y = math.MaxFloat32
+	tt := ui.NewTester(func(c *ui.Context) { a.main(c) }, 800, 400)
+	tt.Frame()
+	tt.Frame()
+	if a.turnWindow != 60 {
+		t.Fatalf("a fresh chat drew %d turns, want the newest 60", a.turnWindow)
+	}
+	if !tt.HasText(i18n.T("earlierTurns")) {
+		t.Fatalf("nothing offered the earlier turns; texts=%q", tt.Texts())
+	}
+
+	// Scrolling to the top lets the next sixty in.
+	tt.Scroll(400, 200, 0, -20000)
+	tt.Frame()
+	if a.turnWindow <= 60 {
+		t.Fatalf("reaching the top opened nothing: window %d", a.turnWindow)
+	}
+	// Staying at the top keeps opening, frame by frame, until the chat begins
+	// where it began rather than a press at a time.
+	for i := 0; i < 8 && a.turnWindow < a.turnTotal; i++ {
+		tt.Frame()
+	}
+	if a.turnWindow < a.turnTotal {
+		t.Fatalf("the top of the chat opened %d of %d turns", a.turnWindow, a.turnTotal)
+	}
+	// And once they are all in, the offer goes away.
+	a.turnWindow = len(a.groupedTurns())
+	tt.Frame()
+	if tt.HasText(i18n.T("earlierTurns")) {
+		t.Fatalf("the offer stayed after every turn was drawn; texts=%q", tt.Texts())
+	}
+}
+
+// TestAFlickFromTheEndStopsFollowingIt reads the flick the way the app does: the
+// pointer over the transcript, ten points up, while the view still follows its
+// end. It must stop there, and stay stopped.
+func TestAFlickFromTheEndStopsFollowingIt(t *testing.T) {
+	a := snapshotData(t)
+	a.transcriptScroll.Y = math.MaxFloat32
+	tt := ui.NewTester(a.transcript, 600, 120)
+	tt.Frame()
+	tt.Frame()
+	if !a.stickToBottom {
+		t.Fatalf("a chat opened at its end does not follow it (max %v)", a.transcriptScroll.MaxY)
+	}
+
+	tt.Scroll(300, 60, 0, -10)
+	tt.Frame()
+	if a.stickToBottom {
+		t.Fatalf("a ten-point flick was swallowed; offset %v of %v", a.transcriptScroll.Y, a.transcriptScroll.MaxY)
+	}
+	at := a.transcriptScroll.Y
+	tt.Frame()
+	if a.transcriptScroll.Y > at+1 {
+		t.Fatalf("the transcript slid back after the flick: %v then %v", at, a.transcriptScroll.Y)
+	}
+}
+
+// TestStoppingNearTheEndDoesNotYankTheViewBack keeps a reader who scrolls up a
+// little from being pulled the same little back: only the end itself re-attaches
+// the following, so the view never jumps under the pointer.
+func TestStoppingNearTheEndDoesNotYankTheViewBack(t *testing.T) {
+	a := snapshotData(t)
+	a.transcriptScroll.Y = math.MaxFloat32
+	tt := ui.NewTester(a.transcript, 600, 120)
+	tt.Frame()
+	tt.Frame()
+
+	// Up ten points, halfway through the last screen, and stop.
+	tt.Scroll(300, 60, 0, -10)
+	tt.Frame()
+	if a.stickToBottom {
+		t.Fatalf("a flick up re-attached the following")
+	}
+	at := a.transcriptScroll.Y
+	tt.Frame()
+	tt.Frame()
+	if a.transcriptScroll.Y > at+1 {
+		t.Fatalf("the view jumped from %v to %v after stopping near the end", at, a.transcriptScroll.Y)
+	}
+
+	// Scrolling all the way down does re-attach it.
+	a.transcriptScroll.Y = a.transcriptScroll.MaxY - 0.5
+	tt.Frame()
+	if !a.stickToBottom || !a.atBottom {
+		t.Fatalf("the end did not re-attach the following: stick=%v atBottom=%v", a.stickToBottom, a.atBottom)
 	}
 }

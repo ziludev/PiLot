@@ -24,6 +24,7 @@ import (
 func (a *App) transcript(c *ui.Context) {
 	t := theme.Current(c)
 	built := a.groupedTurns()
+	a.turnTotal = len(built)
 	// The window keeps the first frame of a 500-entry chat cheap; the button
 	// opens the rest, as the transcript's TURN_WINDOW does.
 	window := a.turnWindow
@@ -130,9 +131,7 @@ func (a *App) turnBlock(c *ui.Context, t theme.Tokens, turn *turns.Turn, live, f
 			ui.Row(c).Gap(7).Children(func() {
 				ui.Column(c).Width(2).Radius(1).Background(t.Border).FillHeight()
 				ui.Column(c).Gap(4).Grow(1).Children(func() {
-					for _, step := range turn.Steps {
-						a.stepRow(c, t, step)
-					}
+					a.stepList(c, t, turn)
 				})
 			})
 		}
@@ -373,6 +372,80 @@ func (a *App) stepRow(c *ui.Context, t theme.Tokens, step turns.Step) {
 	})
 }
 
+// stepList draws a turn's steps, folding each run of neighbouring tool calls into
+// one line. A turn that runs a dozen commands used to put a dozen lines between
+// the question and the answer.
+func (a *App) stepList(c *ui.Context, t theme.Tokens, turn *turns.Turn) {
+	for i := 0; i < len(turn.Steps); {
+		if !foldsIntoRun(turn.Steps[i]) {
+			a.stepRow(c, t, turn.Steps[i])
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(turn.Steps) && foldsIntoRun(turn.Steps[j]) {
+			j++
+		}
+		if j-i == 1 {
+			// A lone call says more as itself than as "1 次工具调用".
+			a.stepRow(c, t, turn.Steps[i])
+		} else {
+			a.toolRun(c, t, turn, turn.Steps[i:j])
+		}
+		i = j
+	}
+}
+
+// foldsIntoRun says whether a step joins the run of tool calls a turn folds. The
+// verdict does not: it is the turn's answer, and it is read, not unfolded.
+func foldsIntoRun(step turns.Step) bool {
+	if step.Kind != turns.StepTool {
+		return false
+	}
+	name, _ := turns.ToolCall(step.Entry)
+	return name != turns.ReportDoneTool
+}
+
+// toolRun is the one line a run of tool calls folds into. It opens into the calls
+// themselves, each row the same as a single call's, so nothing is lost — only put
+// away until it is wanted.
+func (a *App) toolRun(c *ui.Context, t theme.Tokens, turn *turns.Turn, steps []turns.Step) {
+	key := itoa(turn.ID) + ":" + itoa(steps[0].Entry.ID)
+	open := a.stepGroups[key]
+	label := i18n.TF("toolCallsCount", map[string]any{"count": len(steps)})
+	ui.Column(c).Gap(4).Children(func() {
+		ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).PaddingY(1).Children(func() {
+			ui.Row(c).Size(5, 5).Radius(3).Background(t.MutedFg)
+			chevron := icons.ChevronRight
+			if open {
+				chevron = icons.ChevronDown
+			}
+			ui.Icon(c, chevron).Size(10, 10).TextColor(t.MutedFg)
+			ui.Text(c, label).FontSize(10.5).TextColor(t.MutedFg)
+			// What the run came to, so a folded run still says what it did.
+			if last := steps[len(steps)-1].Label; last != "" && !open {
+				ui.Text(c, "·").FontSize(10.5).TextColor(t.MutedFg)
+				ui.Text(c, last).FontSize(10.5).TextColor(t.MutedFg)
+			}
+		}).OnClick(func() {
+			a.apply(func() {
+				a.stepGroups[key] = !open
+				a.invalidate()
+			})
+		})
+		if !open {
+			return
+		}
+		ui.Column(c).Key("run-" + key).Transition(motion.AccordionTransition()).Children(func() {
+			ui.Column(c).Gap(4).PaddingY(2).Children(func() {
+				for _, step := range steps {
+					a.stepRow(c, t, step)
+				}
+			})
+		})
+	})
+}
+
 // verdictBand is what report_done draws in place of a step: the turn's answer to
 // whether it met its goal. It sits on the timeline like a step dot but never
 // folds — the line under the verdict is the answer, the one saying how it was
@@ -605,15 +678,43 @@ func (a *App) followScroll() {
 		a.scrollY, a.scrollMaxY = 0, 0
 		return
 	}
-	switch {
-	case state.Y >= state.MaxY-24:
-		a.atBottom, a.stickToBottom, a.newMessages = true, true, 0
-	case state.Y < a.scrollY-1:
-		// The offset moved up since the last frame: the user did it, so stop
-		// following and let the jump bar count what arrives.
-		a.atBottom, a.stickToBottom = false, false
+	if state.Y > state.MaxY+0.5 {
+		// The offset is still the sentinel that means "the end", not a place the
+		// frame has landed on: the next frame reports where that is. What the
+		// reader sees meanwhile is the end, and remembering it is what lets a
+		// flick up be read at all when it lands.
+		a.scrollY, a.scrollMaxY = state.MaxY, state.MaxY
+		return
 	}
-	a.scrollY, a.scrollMaxY = state.Y, state.MaxY
+	if state.Y > 24 {
+		a.scrolledFromTop = true
+	}
+	switch {
+	case state.MaxY+0.5 >= a.scrollMaxY && state.Y < a.scrollY-1 && state.Y < a.scrollMaxY-1:
+		// The view moved up since the last frame, and sits above the end that
+		// frame stood at: the reader scrolled up, however few points. An answer
+		// arriving cannot do this — it grows the end, never lifts the view — and
+		// this is the case the old "close enough to the end" band swallowed,
+		// which slid a ten-point flick straight back down and left the transcript
+		// stuck.
+		a.atBottom, a.stickToBottom = false, false
+	case !a.stickToBottom && state.Y > a.scrollY+1 && state.Y >= state.MaxY-2:
+		// Back at the very end: follow again, and drop the count of what arrived
+		// while the reader was away. The end, not "close to it": a reader who
+		// scrolls up twenty points and stops there used to be yanked the twenty
+		// points back down, which read as the view jumping.
+		a.atBottom, a.stickToBottom, a.newMessages = true, true, 0
+	}
+	// At the top of a chat that still holds turns back: let the next sixty in, so
+	// a history the reader scrolls through reads as one, and a chat that began
+	// "in the middle" — the window drew the newest sixty and a button held the
+	// rest — begins where it began.
+	if a.scrolledFromTop && state.Y <= 24 && a.turnWindow < a.turnTotal {
+		a.turnWindow += 60
+		a.invalidate()
+	}
+	a.scrollY = min(state.Y, state.MaxY)
+	a.scrollMaxY = state.MaxY
 	if a.stickToBottom {
 		// Assigning Y is instant; ScrollTo would glide, leaving the view short
 		// of the end for a few frames while an answer streams.
