@@ -263,6 +263,13 @@ test("parity: read treats a jpeg with a 4th byte of f7 as text", { skip }, async
   assert.deepEqual(seen.outputTypes, ["text"]);
 });
 
+test("parity: read returns the raw lines and adds no line numbers", { skip }, async () => {
+  const roots = seedBoth(readings, "numbered.txt", "alpha\nbeta\ngamma\n");
+  const seen = await parity(readTool(), readProxy(), { path: "numbered.txt" }, roots);
+  assert.equal(seen.text, "alpha\nbeta\ngamma\n");
+  assert.doesNotMatch(seen.text, /^\s*\d+[|:]\s/m, "no line-number gutter on either path");
+});
+
 test("parity: read with a fractional offset and limit", { skip }, async () => {
   const roots = seedBoth(readings, "fractional.txt", "1\n2\n3\n4\n5\n");
   const seen = await parity(readTool(), readProxy(), { path: "fractional.txt", offset: 2.5, limit: 2.5 }, roots);
