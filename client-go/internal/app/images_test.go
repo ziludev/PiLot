@@ -152,6 +152,31 @@ func TestImagesOfReadsEntry(t *testing.T) {
 	}
 }
 
+// TestHistoryImagesDecodesOnce checks the transcript does not decode an entry's
+// PNG on every frame: the second lookup must hand back the first bitmap.
+func TestHistoryImagesDecodesOnce(t *testing.T) {
+	data := base64.StdEncoding.EncodeToString(pngBytes(t))
+	model, err := json.Marshal([]map[string]any{{
+		"role": "user",
+		"content": []map[string]any{
+			{"type": "image", "data": data, "mimeType": "image/png"},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	a := New(Config{})
+	entry := protocol.Entry{ID: 7, Model: model}
+	first := a.historyImages(entry)
+	if len(first) != 1 || first[0].bitmap == nil {
+		t.Fatalf("first = %+v", first)
+	}
+	second := a.historyImages(entry)
+	if len(second) != 1 || second[0].bitmap != first[0].bitmap {
+		t.Fatalf("second decoded again: %+v", second)
+	}
+}
+
 // TestExpandHome checks a shell-style path opens the file it names.
 func TestExpandHome(t *testing.T) {
 	home, err := os.UserHomeDir()

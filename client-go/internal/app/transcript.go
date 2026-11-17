@@ -107,7 +107,7 @@ func (a *App) turnBlock(c *ui.Context, t theme.Tokens, turn *turns.Turn, live, f
 			a.noteLine(c, t, noteText(note))
 		}
 		if turn.User != nil {
-			a.userBubble(c, t, turns.Text(*turn.User), imagesOf(*turn.User), a.isHit(*turn.User))
+			a.userBubble(c, t, turns.Text(*turn.User), a.historyImages(*turn.User), a.isHit(*turn.User))
 		}
 		for _, report := range turn.Reports {
 			a.reportBlock(c, t, turns.Text(report))
