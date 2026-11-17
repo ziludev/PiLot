@@ -388,6 +388,41 @@ func (a *App) noteLine(c *ui.Context, t theme.Tokens, text string) {
 	})
 }
 
+// delegationRow is the child a delegate call ran: who it was, whether it came
+// back broken, and a way into its own conversation. It sits above the output
+// because the child's answer is long, and who gave it is what a reader looks for
+// first — and it stays visible when the call is folded.
+func (a *App) delegationRow(c *ui.Context, t theme.Tokens, result protocol.Entry) {
+	run, ok := turns.DelegationOf(result)
+	if !ok {
+		return
+	}
+	openable := run.ConversationID != 0
+	line := ui.Row(c).Gap(6).AlignItems(ui.Center).Padding(0, 2).Radius(4)
+	if openable {
+		line.Cursor(ui.CursorPointer)
+		if line.Hovered() {
+			line.Background(t.Accent)
+		}
+	}
+	line.Children(func() {
+		ui.Text(c, "→ "+strings.Join(run.Roles, " / ")).FontSize(10.5).TextColor(t.MutedFg)
+		if run.Failed > 0 {
+			ui.Text(c, "·").FontSize(10.5).TextColor(t.MutedFg)
+			ui.Text(c, i18n.TF("toolRunFailed", map[string]any{"count": run.Failed})).
+				FontSize(10.5).TextColor(t.Destructive)
+		}
+		if openable {
+			ui.Text(c, "·").FontSize(10.5).TextColor(t.MutedFg)
+			ui.Text(c, i18n.T("openChildChat")).FontSize(10.5).TextColor(t.Primary)
+		}
+	})
+	if openable {
+		id := run.ConversationID
+		line.OnClick(func() { a.openChildChat(id) })
+	}
+}
+
 // stepRow is one tool call or answer on the turn's timeline: a line that opens
 // into what the tool returned, a patch when it changed files.
 func (a *App) stepRow(c *ui.Context, t theme.Tokens, step turns.Step, live bool) {
@@ -429,6 +464,9 @@ func (a *App) stepRow(c *ui.Context, t theme.Tokens, step turns.Step, live bool)
 				a.invalidate()
 			})
 		})
+		if step.Result != nil {
+			a.delegationRow(c, t, *step.Result)
+		}
 		if !open || step.Result == nil {
 			return
 		}
@@ -482,6 +520,11 @@ func foldsIntoRun(step turns.Step) bool {
 	// A step that is not a call at all (a protocol error, say) is its own line; a
 	// failed call belongs to its run, which counts it and opens itself to show it.
 	if name == "" {
+		return false
+	}
+	// A call that stands for a whole other conversation is not one of a run of
+	// calls: folding it away would fold the child's identity with it.
+	if name == turns.DelegateTool || name == turns.DelegateParallelTool {
 		return false
 	}
 	return name != turns.ReportDoneTool

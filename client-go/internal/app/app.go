@@ -391,6 +391,17 @@ func (a *App) openInNewWindow(conversationID int) {
 	windowOpener(a.cfg, a.api, conversationID)
 }
 
+// openChildChat opens a subagent's conversation beside the current one, and in
+// place of it only when a second window is not available: the parent is where the
+// reader goes back to, so it should not be the thing that gets replaced.
+func (a *App) openChildChat(conversationID int) {
+	if windowOpener != nil && !a.secondary {
+		a.openInNewWindow(conversationID)
+		return
+	}
+	a.selectConversation(conversationID)
+}
+
 // Attach takes the window and starts the first load.
 func (a *App) Attach(win *mygo.Window) {
 	a.win = win
