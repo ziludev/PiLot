@@ -89,3 +89,41 @@ func TestReadBmpIsAnUnsupportedConversion(t *testing.T) {
 		t.Fatalf("message = %v, want %q", first["message"], want)
 	}
 }
+
+// widePNG is a PNG header that claims the given size: the reference reads the
+// size from the header alone, so a 3000x3000 claim is enough to be refused.
+func widePNG(width, height uint32) []byte {
+	ihdr := make([]byte, 13)
+	binary.BigEndian.PutUint32(ihdr[0:4], width)
+	binary.BigEndian.PutUint32(ihdr[4:8], height)
+	ihdr[8], ihdr[9] = 8, 6
+	return pngHeader([2]string{"IHDR", string(ihdr)})
+}
+
+// TestReadImageRefusesWhatTheReferenceRefuses covers the three image errors the
+// reference answers instead of sending the picture: too large, larger than the
+// model takes, and a size it cannot read.
+func TestReadImageRefusesWhatTheReferenceRefuses(t *testing.T) {
+	small := intPtr(10)
+	big := widePNG(3000, 3000)
+
+	if got, err := readImage("huge.png", big, "image/png", ReadArgs{MaxImageBytes: small}); err != nil {
+		t.Fatalf("too large: unexpected error %v", err)
+	} else if !got.IsError || got.Diagnostics[0].Message != "huge.png is an image (image/png) of 33B, too large to send, and no image processor is configured to shrink it" {
+		t.Errorf("too large: got %+v", got)
+	}
+
+	if got, err := readImage("wide.png", big, "image/png", ReadArgs{}); err != nil {
+		t.Fatalf("larger than: unexpected error %v", err)
+	} else if !got.IsError || got.Diagnostics[0].Message != "wide.png is an image (image/png) of 3000x3000, larger than 2000x2000, and no image processor is configured to shrink it" {
+		t.Errorf("larger than: got %+v", got)
+	}
+
+	if got, err := readImage("odd.png", []byte{0x89, 'P', 'N', 'G'}, "image/png", ReadArgs{}); err != nil {
+		t.Fatalf("unreadable size: unexpected error %v", err)
+	} else if !got.IsError || got.Diagnostics[0].Message != "odd.png is an image (image/png) whose size cannot be read" {
+		t.Errorf("unreadable size: got %+v", got)
+	}
+}
+
+func intPtr(value int) *int { return &value }

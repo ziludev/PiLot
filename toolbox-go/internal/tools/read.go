@@ -25,10 +25,12 @@ const (
 	// because truncateHeadOf never returns more than defaultMaxBytes of text.
 	keepBytes = 4 * defaultMaxBytes
 	readChunk = 64 * 1024
-	// The agent passes its model's image limits; these are pi-durable's defaults for the gap.
-	defaultImageBytes  = 5 * 1024 * 1024
-	defaultImageWidth  = 8000
-	defaultImageHeight = 8000
+	// The agent passes its model's image limits; these are pi-durable's own
+	// DEFAULT_IMAGE_LIMITS for the gap, so a caller that omits them still gets
+	// the reference's answer.
+	defaultImageBytes  = 4718592 // 4.5 MB, the reference's maxBytes
+	defaultImageWidth  = 2000
+	defaultImageHeight = 2000
 )
 
 // ReadArgs mirrors the `read` tool's parameters plus the model facts the agent knows and the

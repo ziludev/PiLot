@@ -491,3 +491,35 @@ test("parity: the four tools are the four the harness offers", { skip }, async (
   const names = [readProxy().name, writeProxy().name, editProxy().name, createBashTool(toolbox).name];
   assert.deepEqual(names, ["read", "write", "edit", "bash"]);
 });
+
+test("parity: read refuses an image that is too large, larger than the model, or unmeasurable", { skip }, async () => {
+  // Three answers the reference gives instead of sending the picture. The size
+  // limit is reached with trailing bytes, which both sides measure before they
+  // ever look at the header.
+  const huge = Buffer.concat([
+    pngBytes([["IHDR", Buffer.from([0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0])]]),
+    Buffer.alloc(5 * 1024 * 1024),
+  ]);
+  const ihdr = Buffer.from([0, 0, 0x0b, 0xb8, 0, 0, 0x0b, 0xb8, 8, 6, 0, 0, 0]); // 3000x3000
+  const wide = pngBytes([["IHDR", ihdr]]);
+  const cases: Array<[string, Buffer, string]> = [
+    ["huge.png", huge, "huge.png is an image (image/png) of 5.0MB, too large to send, and no image processor is configured to shrink it"],
+    ["wide.png", wide, "wide.png is an image (image/png) of 3000x3000, larger than 2000x2000, and no image processor is configured to shrink it"],
+  ];
+  for (const [name, bytes, message] of cases) {
+    for (const side of ["ref", "go"]) writeFileSync(join(readings, side, name), bytes);
+    const roots = { reference: join(readings, "ref"), candidate: join(readings, "go") };
+    const seen = await parity(readTool(), readProxy(), { path: name }, roots);
+    assert.equal(seen.isError, true, `${name} should be refused`);
+    assert.deepEqual(seen.diagnostics, [{ severity: "error", code: "unsupported_image", message }], name);
+  }
+
+  // A file that only starts like a PNG is text on both sides: the signature is
+  // eight bytes, and the header after it decides.
+  const truncated = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+  for (const side of ["ref", "go"]) writeFileSync(join(readings, side, "odd.png"), truncated);
+  const roots = { reference: join(readings, "ref"), candidate: join(readings, "go") };
+  const seen = await parity(readTool(), readProxy(), { path: "odd.png" }, roots);
+  assert.equal(seen.isError, false);
+  assert.deepEqual(seen.outputTypes, ["text"]);
+});
