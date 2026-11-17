@@ -8,7 +8,7 @@ import { createBashTool as createInProcessBash } from "@earendil-works/pi-durabl
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import type { ToolExecutionApi, ToolExecutionResult } from "@earendil-works/pi-durable";
 import { Toolbox } from "../src/toolbox/client.ts";
-import { createBashTool as createToolboxBash } from "../src/toolbox/tools/bash.ts";
+import { createBashToolProxy } from "../src/toolbox/tools/bash.ts";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES } from "../src/toolbox/limits.ts";
 
 /**
@@ -156,7 +156,7 @@ after(async () => {
 /** Runs both paths and asserts they agree, returning the shared outcome. */
 async function parity(command: string, timeout?: number): Promise<Seen> {
   const reference = await run(createInProcessBash(), command, timeout);
-  const candidate = await run(createToolboxBash(toolbox), command, timeout);
+  const candidate = await run(createBashToolProxy(toolbox), command, timeout);
   assert.deepEqual(redact(candidate), redact(reference), `paths disagree for: ${command}`);
   for (const seen of [reference, candidate]) if (seen.spill !== undefined) rmSync(seen.spill.path, { force: true });
   return reference;
@@ -174,7 +174,7 @@ test("parity: both streams reach the model", { skip }, async () => {
   // as a set instead of byte for byte.
   const command = `echo out; echo err >&2`;
   const reference = await run(createInProcessBash(), command);
-  const candidate = await run(createToolboxBash(toolbox), command);
+  const candidate = await run(createBashToolProxy(toolbox), command);
   const lines = (seen: Seen) => seen.text.split("\n").filter(Boolean).sort();
   assert.deepEqual(lines(candidate), lines(reference));
   assert.deepEqual(lines(reference), ["err", "out"]);
@@ -212,7 +212,7 @@ async function stream(tool: ReturnType<typeof createInProcessBash>, command: str
 test("parity: a long stream arrives whole on both paths", { skip }, async () => {
   const command = `seq 1 40000`;
   const reference = await stream(createInProcessBash(), command);
-  const candidate = await stream(createToolboxBash(toolbox), command);
+  const candidate = await stream(createBashToolProxy(toolbox), command);
   assert.equal(reference.text, candidate.text, "the streamed text is the same");
   assert.ok(reference.bytes > 200 * 1024, `the output is large enough to matter: ${reference.bytes}`);
   assert.deepEqual(candidate.skipped.filter((value) => value !== undefined), [], "the Go path skips nothing");
@@ -273,7 +273,7 @@ test("parity: a leading byte-order mark is dropped and an inner one kept", { ski
 test("parity: a missing working directory reads the same", { skip }, async () => {
   const missing = join(dir, "gone");
   const reference = await runIn(createInProcessBash(), missing);
-  const candidate = await runIn(createToolboxBash(toolbox), missing);
+  const candidate = await runIn(createBashToolProxy(toolbox), missing);
   assert.equal(candidate.error, reference.error);
   assert.match(reference.error ?? "", /Working directory does not exist/);
 });

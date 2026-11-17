@@ -1,6 +1,7 @@
 import { DEFAULT_IMAGE_LIMITS, createReadTool } from "@earendil-works/pi-durable/tools";
 import { defineTool, type ToolExecutionApi, type ToolExecutionResult, type ToolRegistration } from "@earendil-works/pi-durable";
-import type { Toolbox, ToolboxFailure } from "../client.ts";
+import { requireCwd, toolboxError } from "./shared.ts";
+import type { Toolbox } from "../client.ts";
 
 /** The in-process tool: its schema, description, and image limits are the contract. */
 const reference: ToolRegistration = createReadTool();
@@ -33,10 +34,6 @@ async function imageFacts(api: ToolExecutionApi, context: { abortSignal?: AbortS
   };
 }
 
-function failureOf(failure: ToolboxFailure): Error {
-  return Object.assign(new Error(failure.message), failure);
-}
-
 /**
  * The `read` tool served by the toolbox: the file is opened and bounded in the Go process, and the
  * result is assembled here in the shape the harness and the model already expect.
@@ -49,15 +46,14 @@ export function createReadToolProxy(toolbox: Toolbox) {
     structuredOutputSchema: reference.structuredOutputSchema,
     async execute(rawArgs, api, context): Promise<ToolExecutionResult> {
       const args = rawArgs as { path: string; offset?: number; limit?: number };
-      const env = api.env;
-      if (env === undefined) throw new Error("No execution environment is configured");
+      const cwd = requireCwd(api);
       const facts = await imageFacts(api, context);
       const call = await toolbox.call(
         "read",
         { path: args.path, offset: args.offset, limit: args.limit, ...facts },
-        { cwd: env.cwd, signal: context.abortSignal },
+        { cwd, signal: context.abortSignal },
       );
-      if (call.failure !== undefined) throw failureOf(call.failure);
+      if (call.failure !== undefined) throw toolboxError(call.failure);
 
       const diagnostics = (call.result.diagnostics as ToolExecutionResult["diagnostics"]) ?? [];
       if (call.result.isError === true) return { output: [], isError: true, diagnostics };
