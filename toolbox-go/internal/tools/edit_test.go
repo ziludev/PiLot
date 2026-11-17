@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -374,3 +375,55 @@ func TestReadLargeFileStaysBounded(t *testing.T) {
 
 // discardLogger keeps the per-call log lines out of the test output.
 func discardLogger() *log.Logger { return log.New(io.Discard, "", 0) }
+
+// A selection that starts with an empty line used to lose that line's separator, which shifted the
+// whole text. The reference keeps it, so a blank first line is visible to the model.
+func TestReadKeepsBlankLinesAtTheStartOfTheSelection(t *testing.T) {
+	dir := t.TempDir()
+	srv := server.New(context.Background(), discardLogger())
+	RegisterRead(srv)
+	cases := []struct {
+		name    string
+		content string
+		args    map[string]any
+		want    string
+	}{
+		{"blank then text", "\nhello\n", map[string]any{}, "\nhello\n"},
+		{"two blanks then text", "\n\nhello\n", map[string]any{}, "\n\nhello\n"},
+		{"only a newline", "\n", map[string]any{}, "\n"},
+		{"window opens on a blank", "hello\n\nworld\n", map[string]any{"offset": 2}, "\nworld\n"},
+		{"limit ends before the blank", "\nhello\nworld\n", map[string]any{"limit": 2}, "\nhello"},
+		{"blank first line then truncation", "\n" + strings.Repeat("line\n", 2001), map[string]any{}, "\nline\nline"},
+	}
+	for index, testCase := range cases {
+		path := filepath.Join(dir, fmt.Sprintf("blank-%d.txt", index))
+		if err := os.WriteFile(path, []byte(testCase.content), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		result, err := callTool(t, srv, "read", mergePath(map[string]any{"path": filepath.Base(path)}, testCase.args), dir)
+		if err != nil {
+			t.Fatalf("%s: %v", testCase.name, err)
+		}
+		text, _ := result["text"].(string)
+		if testCase.name == "blank first line then truncation" {
+			if !strings.HasPrefix(text, testCase.want) {
+				t.Fatalf("%s: text starts %q, want %q", testCase.name, text[:12], testCase.want)
+			}
+			continue
+		}
+		if text != testCase.want {
+			t.Fatalf("%s: text = %q, want %q", testCase.name, text, testCase.want)
+		}
+	}
+}
+
+func mergePath(base, extra map[string]any) map[string]any {
+	merged := map[string]any{}
+	for key, value := range base {
+		merged[key] = value
+	}
+	for key, value := range extra {
+		merged[key] = value
+	}
+	return merged
+}

@@ -310,6 +310,43 @@ test("parity: read finds a name written in NFD", { skip }, async () => {
   assert.equal(seen.text, "decomposed name\n");
 });
 
+test("parity: read matches over generated files and windows", { skip }, async () => {
+  // Deterministic fuzz over blank-line-heavy content, offsets and limits: the blank-first-line bug
+  // was invisible to hand-written cases, so the comparison runs over generated ones too.
+  let state = 0x2f6e2b1;
+  const next = (bound: number) => {
+    state = (state * 1103515245 + 12345) & 0x7fffffff;
+    return state % bound;
+  };
+  for (let index = 0; index < 120; index++) {
+    const lines = Array.from({ length: 1 + next(6) }, () => "x".repeat(next(4)));
+    const content = `${lines.join("\n")}${next(2) === 0 ? "\n" : ""}`;
+    const args: Record<string, unknown> = {};
+    if (next(3) === 0) args.offset = 1 + next(5);
+    if (next(3) === 0) args.limit = 1 + next(4);
+    const name = `fuzz-${index}.txt`;
+    const roots = seedBoth(readings, name, content);
+    const seen = await parity(readTool(), readProxy(), { path: name, ...args }, roots);
+    assert.ok(seen, `${name}: both sides must answer`);
+  }
+});
+
+test("parity: read keeps a blank first line of the selection", { skip }, async () => {
+  // An empty line is a line: the reference keeps its separator, so the text starts with "\n".
+  const cases: Array<[string, string, Record<string, unknown>, string]> = [
+    ["blank.txt", "\nhello\n", {}, "\nhello\n"],
+    ["twoblank.txt", "\n\nhello\n", {}, "\n\nhello\n"],
+    ["newline.txt", "\n", {}, "\n"],
+    ["middle.txt", "hello\n\nworld\n", { offset: 2 }, "\nworld\n"],
+    ["limited.txt", "\nhello\nworld\n", { limit: 2 }, "\nhello"],
+  ];
+  for (const [name, content, args, want] of cases) {
+    const roots = seedBoth(readings, name, content);
+    const seen = await parity(readTool(), readProxy(), { path: name, ...args }, roots);
+    assert.equal(seen.text, want, `${name}: ${JSON.stringify(seen)}`);
+  }
+});
+
 test("parity: read refuses a directory with the same text", { skip }, async () => {
   for (const side of ["ref", "go"]) mkdirSync(join(readings, side, "folder"), { recursive: true });
   const roots = { reference: join(readings, "ref"), candidate: join(readings, "go") };
