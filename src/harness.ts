@@ -3,7 +3,6 @@ import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models";
 import { dirname } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
-  AssistantEntry,
   ConversationBusy,
   defineDoc,
   defineExtension,
@@ -24,6 +23,7 @@ import { titleExtension } from "./title.ts";
 import { contextGuardExtension } from "./context-guard.ts";
 import { ChatMemory, GlobalMemory, memoryExtension, type Note } from "./memory.ts";
 import type { ToolStep } from "./details.ts";
+import { answerTextInTx } from "./answer.ts";
 import { reminderExtension } from "./reminders.ts";
 import { guardExtension } from "./approval.ts";
 import { diagnosticsExtension } from "./diagnostics.ts";
@@ -135,7 +135,11 @@ export type AgentRuntime = {
     options: { threadKey?: string; parentMessageId?: string },
   ): Promise<Conversation>;
   recordMessage(messageId: string, conversation: Conversation, entryId: number): Promise<void>;
-  answerText(conversation: Conversation, answerId: EntryId): Promise<string>;
+  /**
+   * The text of one run. Pass `fromId` (the entry the run started at) to get every text block of
+   * the run; without it only the final answer entry is read. See src/answer.ts.
+   */
+  answerText(conversation: Conversation, answerId: EntryId, fromId?: EntryId): Promise<string>;
   /** Tool calls of one run, in order, with short output previews. */
   turnSteps(conversation: Conversation, from: number, to: number): Promise<ToolStep[]>;
   budget(surfaceId: string): Promise<BudgetCheck>;
@@ -548,17 +552,8 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     return steps;
   }
 
-  async function answerText(conversation: Conversation, answerId: EntryId): Promise<string> {
-    const entry = await conversation.commit((tx) => tx.entry(AssistantEntry, answerId), context);
-    const messages = (entry?.model ?? []) as unknown as Array<{ content?: unknown }>;
-    const parts: string[] = [];
-    for (const message of messages) {
-      if (!Array.isArray(message.content)) continue;
-      for (const part of message.content as Array<Record<string, unknown>>) {
-        if (part["type"] === "text" && typeof part["text"] === "string") parts.push(part["text"]);
-      }
-    }
-    return parts.join("").trim();
+  async function answerText(conversation: Conversation, answerId: EntryId, fromId?: EntryId): Promise<string> {
+    return conversation.commit((tx) => answerTextInTx(tx, conversation.id, answerId, fromId), context);
   }
 
   log("agent", `mcp: ${mcp.serverCount} servers, ${mcp.toolCount} tools`);

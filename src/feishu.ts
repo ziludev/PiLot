@@ -1984,7 +1984,7 @@ const continuing = new Set<string>();
       }
 
       if (settled.status === "done" && settled.answer !== undefined) {
-        let answer = await runtime.answerText(conversation, settled.answer);
+        let answer = await runtime.answerText(conversation, settled.answer, settled.entry);
         // The model reads its own earlier "this group is read-only" answers and repeats them,
         // with the owner instructions right in front of it. Correcting once, with the
         // correction last in the context, is what actually unsticks it — verified against the
@@ -2002,7 +2002,7 @@ const continuing = new Set<string>();
             });
           const again = await retry?.wait(context).catch(() => undefined);
           if (again?.status === "done" && again.answer !== undefined) {
-            answer = await runtime.answerText(conversation, again.answer);
+            answer = await runtime.answerText(conversation, again.answer, again.entry);
             log("feishu", "corrected answer read", { chars: answer.length });
             await note(conversation, context, "模型误以为本群只读而拒绝，已自动纠正一次");
           }
@@ -2084,7 +2084,9 @@ const continuing = new Set<string>();
           });
         const rest = await continued?.wait(context).catch(() => undefined);
         if (rest?.status === "done" && rest.answer !== undefined) {
-          const answer = await runtime.answerText(conversation, rest.answer);
+          // `continue` places no entry of its own, but the run began at the owner's message: read the
+          // range so the text written before the turn limit is part of the answer, not lost.
+          const answer = await runtime.answerText(conversation, rest.answer, settled.entry);
           const after = await runtime.budget(chatId).catch(() => undefined);
           const cost = after === undefined ? 0 : Math.max(0, after.spentToday - budget.spentToday);
           const total = Math.round((Date.now() - startedAt) / 100) / 10;
@@ -2466,7 +2468,7 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
           }
           log("feishu", "recovered delivery footer", `${startedAt} 起 · ${total}`);
           if (settled.status === "done" && settled.answer !== undefined && conversation !== undefined) {
-            const answer = await runtime.answerText(conversation, settled.answer);
+            const answer = await runtime.answerText(conversation, settled.answer, settled.entry);
             await replyOrSend(
               card.chatId,
               card.messageId,

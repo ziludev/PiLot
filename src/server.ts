@@ -479,7 +479,7 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
           const settled = await submission.wait(context);
           const answer =
             settled.status === "done" && settled.answer !== undefined
-              ? await runtime.answerText(conversation, settled.answer)
+              ? await runtime.answerText(conversation, settled.answer, settled.entry)
               : "";
           return send(res, 200, {
             submissionId: submission.id as unknown as number,
