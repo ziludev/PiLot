@@ -102,6 +102,13 @@ type App struct {
 	md            markdown.Options
 	steer         bool
 	turnWindow    int
+	// turnTotal is how many turns the transcript has to draw, so reaching the top
+	// knows whether the window is still holding some back.
+	turnTotal int
+	// scrolledFromTop says the view has been somewhere below the top, so reaching
+	// the top is the reader asking for what the window holds back — not a chat
+	// that simply opened there.
+	scrolledFromTop bool
 	// Grouped turns, kept until the entries or the waits change: grouping
 	// parses every entry, and a frame that only scrolls parses nothing.
 	turnCache []turns.Turn
@@ -196,8 +203,18 @@ type App struct {
 
 	// focused is false while the window is behind another one; nothing is
 	// notified while the reader is looking at the answer.
-	focused    bool
-	notifiedID string
+	focused bool
+	// notified is the answer that last reached the owner, per chat: coming back
+	// to a chat must not announce the answer already read there.
+	notified map[int]string
+	// notifyAt is when each chat last buzzed. The quiet wait alone would still
+	// let a turn that keeps pausing buzz at every pause.
+	notifyAt map[int]time.Time
+	// notifyTimer is the wait that ends in a notification: every frame pushes it
+	// back, so only an answer that has fallen still is announced. notifyQuiet is
+	// how long that is; a test shortens it.
+	notifyTimer *time.Timer
+	notifyQuiet time.Duration
 
 	// errsOpen shows the panel behind the corner error badge.
 	errsOpen bool
@@ -235,9 +252,12 @@ type App struct {
 	// modelCollapsed remembers which provider groups the palette folded.
 	modelCollapsed map[string]bool
 	// modelList draws the palette rows, which mix headings and models.
-	modelList    ui.ListState
-	modelOpen    bool
-	stepOpen     map[int]bool
+	modelList ui.ListState
+	modelOpen bool
+	stepOpen  map[int]bool
+	// stepGroups is the runs of tool calls a reader opened; a run is folded until
+	// it is in here, under the turn it belongs to.
+	stepGroups   map[string]bool
 	patchView    diff.View
 	draft        string
 	query        string
@@ -318,6 +338,10 @@ func New(cfg Config) *App {
 		prefs:         p,
 		focused:       true,
 		stepOpen:      map[int]bool{},
+		stepGroups:    map[string]bool{},
+		notified:      map[int]string{},
+		notifyAt:      map[int]time.Time{},
+		notifyQuiet:   notifySettle,
 		previewImage:  -1,
 		seenApprovals: map[string]bool{},
 		previewScale:  1,

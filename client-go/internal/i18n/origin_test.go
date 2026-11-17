@@ -53,6 +53,8 @@ func TestOriginDictionaryStillMatches(t *testing.T) {
 		// Ours: the React client left report_done as a tool result, the native
 		// one draws it as the turn's verdict and needs the words for it.
 		"goalMet": true, "goalNotMet": true,
+		// Ours: a run of tool calls folds into one line that says how many.
+		"toolCallsCount": true,
 		// Ours: the native client reads the agent log in the window instead of
 		// handing the file to Finder, so the dialog names its own button and
 		// says what an empty log means.
