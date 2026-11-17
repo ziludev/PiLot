@@ -55,15 +55,3 @@ export async function grantSession(
   log("approval", "session grant", { conversationId, key });
 }
 
-export async function grantsOf(harness: Harness, context: Context, conversationId: number): Promise<string[]> {
-  const doc = await harness.snapshot(SessionGrants, context);
-  return doc?.byConversation[String(conversationId)] ?? [];
-}
-
-export async function clearGrants(harness: Harness, context: Context, conversationId: number): Promise<void> {
-  cache.delete(String(conversationId));
-  await harness.commit(async (tx) => {
-    const doc = await tx.doc(SessionGrants);
-    delete doc.byConversation[String(conversationId)];
-  }, context);
-}

@@ -2,8 +2,6 @@ import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import {
   dropAllApprovals,
-  dropApproval,
-  listApprovals,
   pendingCount,
   registerApproval,
   resolveApproval,
@@ -28,7 +26,7 @@ async function register(callId: string, approved: (value: boolean) => void, conv
 }
 
 beforeEach(() => {
-  for (const entry of listApprovals()) dropApproval(entry.callId);
+  dropAllApprovals();
   setWaitRecorder(undefined);
 });
 
@@ -64,11 +62,11 @@ test("the wait is recorded with its conversation and duration", async () => {
   assert.ok((waits[0]?.end ?? 0) >= (waits[0]?.start ?? 0));
 });
 
-test("an aborted call drops out without recording a wait", async () => {
+test("dropping every pending call records no wait", async () => {
   const waits: unknown[] = [];
   setWaitRecorder((wait) => waits.push(wait));
   await register("call-4", () => {}, 7);
-  dropApproval("call-4");
+  assert.equal(dropAllApprovals(), 1);
   assert.equal(pendingCount(), 0);
   assert.equal(waits.length, 0);
 });
