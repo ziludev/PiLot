@@ -11,7 +11,7 @@ import { bool, obj, str } from "@earendil-works/pi-schema";
  * read by the next turn would be a lie with a timestamp. In memory, read once, gone.
  */
 
-export type DoneClaim = { met: boolean; why: string; at: number };
+type DoneClaim = { met: boolean; why: string; at: number };
 
 const CLAIMS = new Map<string, DoneClaim>();
 

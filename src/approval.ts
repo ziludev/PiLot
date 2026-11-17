@@ -93,7 +93,7 @@ export function downloadThenRun(command: string): string | undefined {
   return hit === undefined ? undefined : `下载后直接执行（${hit}）：${command.slice(0, 120)}`;
 }
 
-export type ApprovalNeed = { reason: string; key: string };
+type ApprovalNeed = { reason: string; key: string };
 
 /** Returns why a call needs a human, or undefined when it may run unattended. */
 export function approvalReason(tool: string, args: Record<string, unknown>): ApprovalNeed | undefined {

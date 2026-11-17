@@ -3,7 +3,7 @@ import type { Context } from "@earendil-works/chord/context";
 import { log, logError } from "./log.ts";
 import { settle } from "./settle.ts";
 
-export type DayUsage = {
+type DayUsage = {
   /** Cumulative totals across every conversation, at the last sample of that day. */
   cost: number;
   tokens: number;
@@ -28,7 +28,7 @@ export const UsageDays = defineDoc<{
   checkpointWhen: () => false,
 });
 
-export const SAMPLE_INTERVAL_MS = 10 * 60 * 1000;
+const SAMPLE_INTERVAL_MS = 10 * 60 * 1000;
 
 function localDate(at = Date.now()): string {
   return new Date(at).toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });

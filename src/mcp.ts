@@ -9,7 +9,7 @@ import {
 import { McpClient, StdioTransport, StreamableHttpTransport, toLlmContent } from "@earendil-works/pi-mcp";
 import { log, logError } from "./log.ts";
 
-export type McpServerConfig = {
+type McpServerConfig = {
   /** Prepended to every tool name as `mcp__<name>__<tool>`. */
   name: string;
   /** stdio server. */

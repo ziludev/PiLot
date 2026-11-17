@@ -5,7 +5,7 @@ import type { Context } from "@earendil-works/chord/context";
  * message id -> the transcript entry it produced. Needed to fork a reply at the
  * exact point it answers, and to survive restarts (a thread keeps its parent).
  */
-export const MessageIndex = defineDoc<{
+const MessageIndex = defineDoc<{
   messages: Record<string, { conversationId: number; entryId: number; at: number }>;
 }>({
   kind: "app.message-index",
@@ -16,7 +16,7 @@ export const MessageIndex = defineDoc<{
 });
 
 /** thread key -> its forked conversation, plus where the fork came from. */
-export const ThreadMap = defineDoc<{
+const ThreadMap = defineDoc<{
   threads: Record<
     string,
     { conversationId: number; parentConversationId?: number; surfaceId?: string; at: number }

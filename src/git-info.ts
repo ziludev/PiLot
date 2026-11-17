@@ -9,7 +9,7 @@ async function git(dir: string, args: string[]): Promise<string> {
   return stdout;
 }
 
-export type CommitInfo = {
+type CommitInfo = {
   hash: string;
   short: string;
   date: string;
@@ -19,9 +19,9 @@ export type CommitInfo = {
   removed: number;
 };
 
-export type BranchInfo = { name: string; current: boolean; upstream?: string; track?: string };
+type BranchInfo = { name: string; current: boolean; upstream?: string; track?: string };
 
-export type RemoteInfo = {
+type RemoteInfo = {
   url?: string;
   /** github | gitlab | other | none */
   kind: "github" | "gitlab" | "other" | "none";
@@ -34,7 +34,7 @@ export async function gitBranchOf(path: string): Promise<string> {
 }
 
 /** The branch the project's main checkout is on: the base for a chat's work. */
-export async function baseBranch(projectPath: string): Promise<string> {
+async function baseBranch(projectPath: string): Promise<string> {
   try {
     return (await git(projectPath, ["rev-parse", "--abbrev-ref", "HEAD"])).trim() || "HEAD";
   } catch {
@@ -131,7 +131,7 @@ export function compareUrl(remote: RemoteInfo, base: string, branch: string): st
   return undefined;
 }
 
-export type PushResult =
+type PushResult =
   | { status: "pushed"; branch: string; remote: string; compareUrl?: string }
   | { status: "dry-run"; branch: string; remote: string; output: string }
   | { status: "no-remote" }

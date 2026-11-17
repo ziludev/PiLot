@@ -15,7 +15,7 @@ import { recentVerdicts, VerdictDoc, type Verdict } from "./verdicts.ts";
  * digest can never disagree with the cards it summarises.
  */
 
-export type DigestInput = {
+type DigestInput = {
   now: number;
   hours: number;
   verdicts: readonly Verdict[];

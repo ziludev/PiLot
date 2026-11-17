@@ -36,13 +36,13 @@ export type ToolboxFailure = {
 };
 
 /** A call's outcome: the tool's structured result, or the failure it decided on. */
-export type ToolboxOutcome =
+type ToolboxOutcome =
   | { result: Record<string, unknown>; failure?: undefined }
   | { result?: undefined; failure: ToolboxFailure };
 
-export type ToolboxDiagnostic = { severity: string; code: string; message: string };
+type ToolboxDiagnostic = { severity: string; code: string; message: string };
 
-export type ToolboxCallOptions = {
+type ToolboxCallOptions = {
   /** The call's working directory, already resolved by the agent. */
   cwd: string;
   callId?: string;

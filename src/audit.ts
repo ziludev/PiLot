@@ -9,7 +9,7 @@ import type { ChatLevel } from "./access.ts";
  * the two read-only queries are rare enough that a bounded ring answers "what did a colleague
  * look at, and who let them" without growing without limit.
  */
-export type AuditKind = "access" | "deny" | "approve" | "query" | "report";
+type AuditKind = "access" | "deny" | "approve" | "query" | "report";
 
 export type AuditEvent = {
   at: number;
@@ -23,7 +23,7 @@ export type AuditEvent = {
 };
 
 /** The newest events win; older ones fall off the front. */
-export const AUDIT_LIMIT = 300;
+const AUDIT_LIMIT = 300;
 
 export const AuditDoc = defineDoc<{ events: AuditEvent[] }>({
   kind: "app.audit",

@@ -21,7 +21,7 @@ export type Verdict = {
 };
 
 /** A week of nights; older verdicts fall off the front. */
-export const VERDICT_LIMIT = 100;
+const VERDICT_LIMIT = 100;
 
 export const VerdictDoc = defineDoc<{ verdicts: Verdict[] }>({
   kind: "app.turn-verdicts",
@@ -32,7 +32,7 @@ export const VerdictDoc = defineDoc<{ verdicts: Verdict[] }>({
 });
 
 /** Pure so the ring behaviour is testable without a runtime. */
-export function pushVerdict(verdicts: readonly Verdict[], verdict: Verdict, limit = VERDICT_LIMIT): Verdict[] {
+function pushVerdict(verdicts: readonly Verdict[], verdict: Verdict, limit = VERDICT_LIMIT): Verdict[] {
   const next = [...verdicts, verdict];
   return next.length <= limit ? next : next.slice(next.length - limit);
 }

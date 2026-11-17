@@ -44,7 +44,7 @@ type Frontmatter = { fields: Record<string, string>; body: string };
  * scalars. Lists and nested maps are skipped on purpose — only name and description
  * matter here, and a full YAML parser would be a heavy dependency for two fields.
  */
-export function parseFrontmatter(text: string): Frontmatter {
+function parseFrontmatter(text: string): Frontmatter {
   const normalised = text.replace(/\r\n/g, "\n");
   if (!normalised.startsWith("---\n")) return { fields: {}, body: normalised };
   const end = normalised.indexOf("\n---", 4);
@@ -154,7 +154,7 @@ function noteDuplicates(entries: string[]): void {
 }
 
 /** Every skill visible to the agent, project dirs first so they win name clashes. */
-export async function listSkills(force = false): Promise<Skill[]> {
+async function listSkills(force = false): Promise<Skill[]> {
   const dirs = config.skills.dirs;
   if (!force && cached !== undefined && cached.at > Date.now() - SCAN_TTL_MS && cached.dirs.join() === dirs.join()) {
     return cached.skills;

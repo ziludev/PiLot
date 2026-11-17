@@ -39,7 +39,7 @@ const TITLE_PROMPT =
 
 type TitleInput = { conversationId: number; surfaceId: string };
 
-export function cleanTitle(raw: string): string {
+function cleanTitle(raw: string): string {
   return raw
     .replace(/^[#\s"'“”「」]+|[#\s"'“”「」。.!！]+$/g, "")
     .split("\n")[0]
@@ -47,7 +47,7 @@ export function cleanTitle(raw: string): string {
     .trim() ?? "";
 }
 
-export const TitleTask = defineTask<TitleInput, { phase: "run" }, string>({
+const TitleTask = defineTask<TitleInput, { phase: "run" }, string>({
   name: "app.title",
   version: 1,
   initial: () => ({ phase: "run" }),

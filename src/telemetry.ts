@@ -11,7 +11,7 @@ import { log, logError } from "./log.ts";
  * timestamps after the fact. `durable trace` reads the same file read-only, so the cost of a slow
  * turn can be located while the agent keeps running.
  */
-export function telemetryPath(dbPath: string): string {
+function telemetryPath(dbPath: string): string {
   return join(dirname(dbPath), "telemetry.sqlite");
 }
 

@@ -250,7 +250,7 @@ function renderNotes(notes: Note[] | undefined, limit: number): string | undefin
 }
 
 /** Memory sections + tools, ready for the personal extension. */
-export const memorySections = [
+const memorySections = [
   section("global_memory", async (input, context) => {
     // Guest conversations (shared groups) must never see the owner's memory.
     const policy = await input.read.snapshot(ChatPolicy, input.conversationId, context).catch(() => undefined);

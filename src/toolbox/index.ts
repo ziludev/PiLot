@@ -24,7 +24,6 @@ export async function startToolbox(): Promise<Toolbox> {
   return toolbox;
 }
 
-export { Toolbox };
 
 /**
  * The four coding tools served by the toolbox, under the extension name pi-durable's own coding
