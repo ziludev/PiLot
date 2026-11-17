@@ -388,37 +388,66 @@ func (a *App) noteLine(c *ui.Context, t theme.Tokens, text string) {
 	})
 }
 
-// delegationRow is the child a delegate call ran: who it was, whether it came
-// back broken, and a way into its own conversation. It sits above the output
-// because the child's answer is long, and who gave it is what a reader looks for
-// first — and it stays visible when the call is folded.
+// delegationRow is who a delegate call ran: a line per child, with a way into the
+// child's own conversation. It sits above the output because the child's answer is
+// long, and who gave it is what a reader looks for first — and it stays visible
+// when the call is folded.
 func (a *App) delegationRow(c *ui.Context, t theme.Tokens, result protocol.Entry) {
 	run, ok := turns.DelegationOf(result)
 	if !ok {
 		return
 	}
-	openable := run.ConversationID != 0
+	// A batch that recorded no conversations can still say it failed, but there is
+	// nobody to hang the failure on: it gets one line for the whole batch.
+	openable := false
+	for _, child := range run.Children {
+		if child.ConversationID != 0 {
+			openable = true
+		}
+	}
+	ui.Column(c).Gap(2).Children(func() {
+		if !openable && run.Failed > 0 {
+			roles := make([]string, len(run.Children))
+			for i, child := range run.Children {
+				roles[i] = child.Role
+			}
+			a.childLine(c, t, strings.Join(roles, " / "), run.Failed, 0)
+			return
+		}
+		for _, child := range run.Children {
+			failed := 0
+			if child.Failed {
+				failed = 1
+			}
+			a.childLine(c, t, child.Role, failed, child.ConversationID)
+		}
+	})
+}
+
+// childLine is one child: its role, whether it failed, and the way into it. The
+// whole line is the target, because a word-sized click is a click that misses.
+func (a *App) childLine(c *ui.Context, t theme.Tokens, role string, failed, conversationID int) {
 	line := ui.Row(c).Gap(6).AlignItems(ui.Center).Padding(0, 2).Radius(4)
-	if openable {
+	if conversationID != 0 {
 		line.Cursor(ui.CursorPointer)
 		if line.Hovered() {
 			line.Background(t.Accent)
 		}
 	}
 	line.Children(func() {
-		ui.Text(c, "→ "+strings.Join(run.Roles, " / ")).FontSize(10.5).TextColor(t.MutedFg)
-		if run.Failed > 0 {
+		ui.Text(c, "→ "+role).FontSize(10.5).TextColor(t.MutedFg)
+		if failed > 0 {
 			ui.Text(c, "·").FontSize(10.5).TextColor(t.MutedFg)
-			ui.Text(c, i18n.TF("toolRunFailed", map[string]any{"count": run.Failed})).
+			ui.Text(c, i18n.TF("toolRunFailed", map[string]any{"count": failed})).
 				FontSize(10.5).TextColor(t.Destructive)
 		}
-		if openable {
+		if conversationID != 0 {
 			ui.Text(c, "·").FontSize(10.5).TextColor(t.MutedFg)
 			ui.Text(c, i18n.T("openChildChat")).FontSize(10.5).TextColor(t.Primary)
 		}
 	})
-	if openable {
-		id := run.ConversationID
+	if conversationID != 0 {
+		id := conversationID
 		line.OnClick(func() { a.openChildChat(id) })
 	}
 }

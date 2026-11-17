@@ -486,9 +486,10 @@ func TestSnapshotToolRunSummary(t *testing.T) {
 	writePNG(t, "/tmp/pitta-tool-run.png", tt.Image())
 }
 
-// TestSnapshotDelegationRow draws a delegate call next to a parallel one. The
-// reader has to see who did the work without opening the child's answer, and be
-// able to get into that answer's own conversation.
+// TestSnapshotDelegationRow draws a delegate call, a parallel batch that names
+// each child's conversation, and an older batch that only names roles. The reader
+// has to see who did the work without opening the child's answer, and get into
+// the conversations that are known.
 func TestSnapshotDelegationRow(t *testing.T) {
 	call := func(entryID int, at int64, name, callID string, args map[string]any) protocol.Entry {
 		return protocol.Entry{ID: entryID, Kind: "pi.assistant", Model: rawModel(map[string]any{
@@ -509,20 +510,30 @@ func TestSnapshotDelegationRow(t *testing.T) {
 		answered(3, 22_000, "c1", "delegate", map[string]any{"conversationId": 475, "role": "designer"},
 			"【designer 的产出】\n单文件 todo.py，argparse 分发……"),
 		call(4, 22_000, "delegate_parallel", "c2", map[string]any{"tasks": `[{"role":"implementer"},{"role":"reviewer"}]`}),
-		answered(5, 61_000, "c2", "delegate_parallel", map[string]any{"roles": []any{"implementer", "reviewer"}, "failed": float64(1)},
-			"【implementer】\n写完了\n\n---\n\n【reviewer】失败：timeout"),
+		answered(5, 61_000, "c2", "delegate_parallel", map[string]any{
+			"roles": []any{"implementer", "reviewer"}, "failed": float64(1),
+			"children": []any{
+				map[string]any{"role": "implementer", "conversationId": float64(477)},
+				map[string]any{"role": "reviewer", "conversationId": float64(478), "failed": true},
+			},
+		}, "【implementer】\n写完了\n\n---\n\n【reviewer】失败：timeout"),
+		call(6, 61_000, "delegate_parallel", "c3", map[string]any{"tasks": `[{"role":"planner"},{"role":"tester"}]`}),
+		answered(7, 90_000, "c3", "delegate_parallel", map[string]any{"roles": []any{"planner", "tester"}, "failed": float64(1)},
+			"【planner】\n拆好了\n\n---\n\n【tester】失败：timeout"),
 	}
 	a := transcriptApp(entries...)
-	tt := ui.NewTester(func(c *ui.Context) { theme.Apply(c, theme.Light()); a.transcript(c) }, 820, 460)
+	tt := ui.NewTester(func(c *ui.Context) { theme.Apply(c, theme.Light()); a.transcript(c) }, 820, 560)
 	tt.Frame()
-	for _, want := range []string{"→ designer", "Open chat", "→ implementer / reviewer", "1 failed"} {
+	all := strings.Join(tt.Texts(), " | ")
+	for _, want := range []string{"→ designer", "→ implementer", "→ reviewer", "1 failed", "→ planner / tester"} {
 		if !tt.HasText(want) {
-			t.Errorf("missing %q; texts=%q", want, strings.Join(tt.Texts(), " | "))
+			t.Errorf("missing %q; texts=%q", want, all)
 		}
 	}
-	// A parallel batch has no child conversation to open, so it offers no way in.
-	if strings.Count(strings.Join(tt.Texts(), " | "), "Open chat") != 1 {
-		t.Errorf("only the single delegate should open a chat; texts=%q", strings.Join(tt.Texts(), " | "))
+	// The single delegate and both named parallel children open; the older batch
+	// knows no conversations, so it offers no way in.
+	if got := strings.Count(all, "Open chat"); got != 3 {
+		t.Errorf("%d ways into a child, want 3; texts=%q", got, all)
 	}
 	writePNG(t, "/tmp/pitta-delegation.png", tt.Image())
 }
