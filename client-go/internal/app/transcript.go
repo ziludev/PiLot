@@ -210,7 +210,7 @@ func (a *App) userBubble(c *ui.Context, t theme.Tokens, text string, images []im
 		if hovered {
 			a.messageActions(c, t, text, text)
 		}
-		bubble := ui.Column(c).MaxWidth(760).Padding(8, 12).Gap(6).Radius(12).Background(t.Muted)
+		bubble := ui.Column(c).MaxWidth(answerWidth).Padding(8, 12).Gap(6).Radius(12).Background(t.Muted)
 		if hit {
 			// The line a cross-chat search matched wears a ring, so the jump
 			// lands on the sentence and not just on the turn.
@@ -238,6 +238,17 @@ func (a *App) userBubble(c *ui.Context, t theme.Tokens, text string, images []im
 	})
 }
 
+// answerWidth caps a reply's card, streaming or settled: the same text must not
+// jump to another width when the turn completes.
+const answerWidth = 760
+
+// answerLabel names a settled reply's card, and streamLabel the card a reply
+// streams into, so the tests can compare the two.
+const (
+	answerLabel = "answer-block"
+	streamLabel = "answer-stream"
+)
+
 // answerBlock renders the agent's reply as Markdown, which is what it writes.
 func (a *App) answerBlock(c *ui.Context, t theme.Tokens, text string, retryText string, hit bool) {
 	if strings.TrimSpace(text) == "" {
@@ -246,7 +257,8 @@ func (a *App) answerBlock(c *ui.Context, t theme.Tokens, text string, retryText 
 	row := ui.Row(c).Fill().Gap(2).AlignItems(ui.Center)
 	hovered := row.Hovered()
 	row.Children(func() {
-		block := ui.Column(c).MaxWidth(760).Padding(8, 12).Radius(12).Border(1, t.Border).Background(t.Card)
+		block := ui.Column(c).MaxWidth(answerWidth).Padding(8, 12).Radius(12).Border(1, t.Border).Background(t.Card).
+			Label(answerLabel)
 		if hit {
 			block.BorderColor(t.Primary)
 		}
@@ -531,7 +543,13 @@ func (a *App) liveLine(c *ui.Context, t theme.Tokens, turn *turns.Turn) {
 		if strings.TrimSpace(state.Text) != "" {
 			// Stream, not View: half-written Markdown must not flicker between
 			// frames as the parser re-reads it.
-			body := ui.Column(c).Fill().Padding(8, 12).Radius(12).Border(1, t.Border).Background(t.Card)
+			// No Fill: the card hugs the text it holds and grows with it, which
+			// is how the settled card measures itself, so completing a turn
+			// changes nothing but the caret.
+			// Hug the text, cap at the width a settled card takes. Inside a
+			// column a card stretches unless it says otherwise.
+			body := ui.Column(c).MaxWidth(answerWidth).AlignSelf(ui.Start).Padding(8, 12).Radius(12).
+				Border(1, t.Border).Background(t.Card).Label(streamLabel)
 			body.Children(func() {
 				markdown.Stream(c, state.Text, &a.md)
 				// A caret at the end of the streaming text says the agent is
