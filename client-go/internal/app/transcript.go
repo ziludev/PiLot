@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"math"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -148,7 +149,7 @@ func (a *App) turnBlock(c *ui.Context, t theme.Tokens, turn *turns.Turn, live, f
 			a.liveLine(c, t, turn)
 		}
 		a.phaseBar(c, t, turn)
-		ui.Text(c, turnSummary(turn)).FontSize(9).TextColor(t.MutedFg)
+		a.summaryLine(c, t, turn)
 	})
 }
 
@@ -795,6 +796,54 @@ func stateLabel(state turns.State) string {
 
 // turnSummary is the accounting line under a turn: tools, files, diff size,
 // cost and duration.
+// summaryLine is the turn's stats, and the files behind the "2 files" in them:
+// the count is what the engine reported, the list is what the calls named, so a
+// reader who wants to know which files does not have to open every call.
+func (a *App) summaryLine(c *ui.Context, t theme.Tokens, turn *turns.Turn) {
+	files := turns.EditedFiles(turn.Steps)
+	summary := turnSummary(turn)
+	if len(files) == 0 {
+		ui.Text(c, summary).FontSize(9).TextColor(t.MutedFg)
+		return
+	}
+	open := a.filesOpen[turn.ID]
+	line := ui.Row(c).Gap(4).AlignItems(ui.Center).Radius(3).Padding(0, 2)
+	line.Cursor(ui.CursorPointer)
+	if line.Hovered() {
+		line.Background(t.Accent)
+	}
+	line.Children(func() {
+		ui.Text(c, summary).FontSize(9).TextColor(t.MutedFg)
+	})
+	line.OnClick(func() {
+		a.apply(func() {
+			a.filesOpen[turn.ID] = !open
+			a.invalidate()
+		})
+	})
+	if !open {
+		return
+	}
+	ui.Text(c, "✎ "+fileList(files)).FontSize(9).TextColor(t.MutedFg).Padding(0, 2)
+}
+
+// fileList names the files a turn touched, keeping the line one line: the tail
+// becomes a count rather than a second line nobody reads.
+func fileList(files []string) string {
+	const shown = 4
+	names := make([]string, 0, shown)
+	for i, file := range files {
+		if i == shown {
+			break
+		}
+		names = append(names, filepath.Base(file))
+	}
+	if rest := len(files) - len(names); rest > 0 {
+		return strings.Join(names, ", ") + " +" + itoa(rest)
+	}
+	return strings.Join(names, ", ")
+}
+
 func turnSummary(turn *turns.Turn) string {
 	parts := make([]string, 0, 5)
 	if turn.Stats.Tools > 0 {

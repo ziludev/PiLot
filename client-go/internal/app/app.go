@@ -266,7 +266,10 @@ type App struct {
 	stepGroups map[string]bool
 	// outputOpen is the tool answers a reader asked to see in full; every other
 	// one is capped with the count of what is held back under it.
-	outputOpen   map[int]bool
+	outputOpen map[int]bool
+	// filesOpen is the turns whose file list the reader opened. The summary line
+	// says "2 files"; which two is the question that follows it.
+	filesOpen    map[int]bool
 	patchView    diff.View
 	draft        string
 	query        string
@@ -352,6 +355,7 @@ func New(cfg Config) *App {
 		stepOpen:      map[int]bool{},
 		stepGroups:    map[string]bool{},
 		outputOpen:    map[int]bool{},
+		filesOpen:     map[int]bool{},
 		notified:      map[int]string{},
 		notifyAt:      map[int]time.Time{},
 		notifyQuiet:   notifySettle,

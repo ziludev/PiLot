@@ -556,3 +556,34 @@ func TestOpenChildChatPrefersASecondWindow(t *testing.T) {
 		t.Fatalf("current chat moved to %d; a child opens in its own window", a.current)
 	}
 }
+
+// TestSnapshotFileList draws a turn whose stats say "2 files" with the list open.
+// The count is the engine's; the names are what the calls recorded, so a reader
+// who wants to know which files does not have to open every call.
+func TestSnapshotFileList(t *testing.T) {
+	write := func(entryID int, at int64, name, callID string, args map[string]any) protocol.Entry {
+		return protocol.Entry{ID: entryID, Kind: "pi.assistant", Model: rawModel(map[string]any{
+			"role": "assistant", "timestamp": float64(at),
+			"content": []any{map[string]any{"type": "toolCall", "id": callID, "name": name, "arguments": args}},
+		})}
+	}
+	entries := append(turnEntries(1, "把 transcript 拆开", "拆好了\n\n改了 transcript.go 和 delegation.go，各自负责自己的行。"),
+		write(3, 1_000, "read", "c1", map[string]any{"path": "internal/app/transcript.go"}),
+		write(4, 2_000, "write", "c2", map[string]any{"path": "internal/app/transcript.go"}),
+		write(5, 3_000, "edit", "c3", map[string]any{"path": "internal/app/delegation.go"}),
+	)
+	a := transcriptApp(entries...)
+	// Collapsed first: the names stay out of the way until asked for.
+	tt := ui.NewTester(func(c *ui.Context) { theme.Apply(c, theme.Light()); a.transcript(c) }, 720, 420)
+	tt.Frame()
+	if tt.HasText("transcript.go, delegation.go") {
+		t.Errorf("file names drew before the list was opened; texts=%q", strings.Join(tt.Texts(), " | "))
+	}
+	a.filesOpen[1] = true
+	tt = ui.NewTester(func(c *ui.Context) { theme.Apply(c, theme.Light()); a.transcript(c) }, 720, 460)
+	tt.Frame()
+	if !tt.HasText("transcript.go, delegation.go") {
+		t.Fatalf("opened file list missing; texts=%q", strings.Join(tt.Texts(), " | "))
+	}
+	writePNG(t, "/tmp/pitta-files.png", tt.Image())
+}
