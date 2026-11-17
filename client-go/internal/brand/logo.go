@@ -140,7 +140,7 @@ func DrawIn(c *ui.Context, size int, ink string, progress float32) ui.Element {
 		drawings[key] = svg
 		drawMu.Unlock()
 	}
-	return ui.Image(c, svg).Size(float32(size), float32(size))
+	return ui.Image(c, svg).Size(float32(size), float32(size)).Label(MarkLabel)
 }
 
 // frameMarkup is the whole mark with the flame moved as the mood says. The stand

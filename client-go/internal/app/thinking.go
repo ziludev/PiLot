@@ -20,6 +20,9 @@ const (
 // the flame's outline while the ink follows it, then the stand and the filled shape
 // arriving as the line closes. It stands where a spinner said only "busy".
 func drawnLogo(c *ui.Context, size int, ink string) ui.Element {
+	// The frame goes inside the box, not beside it: a box and an image returned
+	// together are two layout children, so the row took the box's width as a gap
+	// as wide as the mark itself.
 	box := ui.Box(c).Size(float32(size), float32(size))
 	progress := box.Keyframes("draw", []ui.Keyframe{
 		{At: 0, Value: 0},
@@ -29,5 +32,6 @@ func drawnLogo(c *ui.Context, size int, ink string) ui.Element {
 		RepeatDelay: drawHold,
 		NonMotion:   true,
 	})
-	return brand.DrawIn(c, size, ink, progress)
+	box.Children(func() { brand.DrawIn(c, size, ink, progress) })
+	return box
 }
