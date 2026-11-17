@@ -66,7 +66,11 @@ func (a *App) railHeader(c *ui.Context, t theme.Tokens) {
 	ui.Row(c).FillWidth().Padding(8+bar.Bottom, 12, 8, 12+bar.Left).Gap(8).AlignItems(ui.Center).
 		BorderWidth(0, 0, 1, 0).BorderColor(t.SidebarBorder).DragWindow().Children(func() {
 		mood, tone := a.avatarLook()
-		avatar.View(c, 24, mood, tone)
+		if mood == avatar.MoodThinking {
+			drawnLogo(c, 24, tone)
+		} else {
+			avatar.View(c, 24, mood, tone)
+		}
 		ui.Column(c).Grow(1).Gap(1).Children(func() {
 			ui.Text(c, i18n.T("appName")).FontSize(14).FontWeight(600).
 				TextColor(t.SidebarFg).MaxLines(1)
