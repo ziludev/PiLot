@@ -55,7 +55,7 @@ await watcher.stop();
 
 const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
 if (settled.status === "done" && settled.answer !== undefined) {
-  console.log(`\n${await runtime.answerText(conversation, settled.answer)}\n`);
+  console.log(`\n${await runtime.answerText(conversation, settled.answer, settled.entry)}\n`);
   console.log(`— ${seconds}s, conversation ${conversation.id}`);
 } else {
   console.error(`\n✗ unanswered: ${settled.reason ?? "unknown"}`);

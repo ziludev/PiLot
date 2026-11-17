@@ -1,5 +1,4 @@
 import {
-  AssistantEntry,
   configure,
   defineExtension,
   defineTask,
@@ -10,6 +9,7 @@ import {
 import type { Context } from "@earendil-works/chord/context";
 import { obj, opt, str } from "@earendil-works/pi-schema";
 import { settle } from "./settle.ts";
+import { answerTextInTx } from "./answer.ts";
 import type { TaskRuntime, ToolExecutionApi } from "@earendil-works/pi-durable";
 import { ROLES, toolsFor, type RoleName } from "./roles.ts";
 import { notify, surfaceForConversation } from "./channel.ts";
@@ -36,17 +36,6 @@ async function configureChild(tx: Tx, id: ConversationId, role: RoleName): Promi
     ...toolsFor(role),
     maxTurns: ROLES[role].maxTurns,
   });
-}
-
-function answerText(messages: readonly { content?: unknown }[] | undefined): string {
-  const parts: string[] = [];
-  for (const message of messages ?? []) {
-    if (!Array.isArray(message.content)) continue;
-    for (const part of message.content as Array<Record<string, unknown>>) {
-      if (part["type"] === "text" && typeof part["text"] === "string") parts.push(part["text"]);
-    }
-  }
-  return parts.join("").trim();
 }
 
 async function ensureChild(
@@ -92,8 +81,9 @@ async function runChild(
     if (settled.status !== "done" || settled.answer === undefined) {
       return { ok: false, error: `${role} 没答出来：${settled.reason ?? "unanswered"}` };
     }
-    const entry = await api.commit((tx) => tx.entry(AssistantEntry, settled.answer as never), context);
-    const text = answerText(entry?.model as unknown as { content?: unknown }[] | undefined);
+    // The stage's own text, not just the last entry: a subagent that finishes with a tool call
+    // would otherwise hand back only the line it wrote after that call.
+    const text = await api.commit((tx) => answerTextInTx(tx, conversationId, settled.answer as never, settled.entry), context);
     log("subagent", `${role} answered`, { key, chars: text.length });
     api.output(`✔ ${role} 完成（${text.length} 字）\n`);
     return { ok: true, text, conversationId: conversationId as unknown as number };
@@ -290,12 +280,11 @@ async function runStage(
         error: `${role} 没答出来：${settled.reason ?? "unanswered"}${settled.detail === undefined ? "" : `（${String(settled.detail)}）`}`,
       };
     }
-    // Read through a transaction: the plain `runtime.entry()` record did not carry the
-    // model messages, which silently produced empty stage output.
+    // Every text block of the stage, read in a transaction: the plain entry record does not carry
+    // the model messages, and the last entry alone drops what was said before the final tool call.
     let text = "";
     await runtime.commit(async (tx) => {
-      const entry = await tx.entry(AssistantEntry, settled.answer as never);
-      text = answerText(entry?.model as unknown as { content?: unknown }[] | undefined);
+      text = await answerTextInTx(tx, childId as never, settled.answer as never, settled.entry);
       return undefined;
     }, context);
     if (text.length === 0) return { ok: false, error: `${role} 产出为空` };
