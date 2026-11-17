@@ -523,3 +523,49 @@ test("parity: read refuses an image that is too large, larger than the model, or
   assert.equal(seen.isError, false);
   assert.deepEqual(seen.outputTypes, ["text"]);
 });
+
+test("parity: edit agrees over generated files, spans, and line endings", { skip }, async () => {
+  // The hand-written cases cover one shape of edit each. This walks 200 generated
+  // ones — CRLF, a BOM, no trailing newline, multi-line spans, three edits at once,
+  // no-op replacements — and compares the diff, the patch, the message, and the
+  // bytes left on disk.
+  let state = 0x51ed_270b;
+  const next = (bound: number) => {
+    state = (state * 1103515245 + 12345) & 0x7fff_ffff;
+    return state % bound;
+  };
+  const line = (index: number) => `L${String(index + 1).padStart(3, "0")}${" x".repeat(next(4))}`;
+  let multiEdit = 0;
+  for (let index = 0; index < 200; index++) {
+    const count = 2 + next(40);
+    const lines = Array.from({ length: count }, (_, at) => line(at));
+    let content = lines.join("\n") + (next(2) === 0 ? "\n" : "");
+    if (next(4) === 0) content = `\uFEFF${content}`;
+    if (next(4) === 0) content = content.replaceAll("\n", "\r\n");
+
+    const ending = content.includes("\r\n") ? "\r\n" : "\n";
+    const span = (from: number) => {
+      const length = 1 + next(Math.min(4, lines.length - from));
+      return lines.slice(from, from + length).join(ending);
+    };
+    const edits = [{ oldText: span(next(count - 1)), newText: next(2) === 0 ? `first ${index}` : `first ${index}\nsecond` }];
+    if (next(2) === 0 && count > 12) {
+      // A second edit far enough away to be its own hunk, and sometimes close
+      // enough that the context windows touch.
+      const from = count - 3 - next(Math.min(8, count - 12));
+      edits.push({ oldText: span(from), newText: `tail ${index}` });
+      multiEdit++;
+    }
+    if (next(10) === 0) edits[0].newText = edits[0].oldText; // a no-op: both sides must refuse
+
+    const name = `edit-fuzz-${index}.txt`;
+    const roots = seedBoth(writing, name, content);
+    await parity(editTool(), editProxy(), { path: name, edits }, roots);
+    assert.deepEqual(
+      readFileSync(join(roots.candidate, name)),
+      readFileSync(join(roots.reference, name)),
+      `${name}: the bytes on disk must match`,
+    );
+  }
+  assert.ok(multiEdit > 20, `the run should exercise multiple edits, saw ${multiEdit}`);
+});
