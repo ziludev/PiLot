@@ -55,7 +55,7 @@ func TestOriginDictionaryStillMatches(t *testing.T) {
 		"goalMet": true, "goalNotMet": true,
 		// Ours: a run of tool calls folds into one line that says how many, how
 		// many of them failed and how long it took.
-		"toolCallsCount": true, "toolRunFailed": true,
+		"toolCallsCount": true, "toolRunFailed": true, "openChildChat": true,
 		// Ours: a tool answer longer than a screenful is capped and the line under
 		// it says what is held back, instead of cutting the text in silence.
 		"hiddenLines": true, "showAllLines": true, "collapseOutput": true,

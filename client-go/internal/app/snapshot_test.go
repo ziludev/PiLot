@@ -12,6 +12,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"pitta/internal/api"
 	"pitta/internal/protocol"
 	"pitta/internal/theme"
 )
@@ -483,4 +484,64 @@ func TestSnapshotToolRunSummary(t *testing.T) {
 		}
 	}
 	writePNG(t, "/tmp/pitta-tool-run.png", tt.Image())
+}
+
+// TestSnapshotDelegationRow draws a delegate call next to a parallel one. The
+// reader has to see who did the work without opening the child's answer, and be
+// able to get into that answer's own conversation.
+func TestSnapshotDelegationRow(t *testing.T) {
+	call := func(entryID int, at int64, name, callID string, args map[string]any) protocol.Entry {
+		return protocol.Entry{ID: entryID, Kind: "pi.assistant", Model: rawModel(map[string]any{
+			"role": "assistant", "timestamp": float64(at),
+			"content": []any{map[string]any{"type": "toolCall", "id": callID, "name": name, "arguments": args}},
+		})}
+	}
+	answered := func(entryID int, at int64, callID, name string, details map[string]any, text string) protocol.Entry {
+		return protocol.Entry{ID: entryID, Kind: "pi.tool-result", Model: rawModel(map[string]any{
+			"role": "toolResult", "toolCallId": callID, "toolName": name, "timestamp": float64(at),
+			"details": details,
+			"content": []any{map[string]any{"type": "text", "text": text}},
+		})}
+	}
+	entries := []protocol.Entry{
+		{ID: 1, Kind: "pi.user", Model: rawModel(map[string]any{"role": "user", "content": "出个方案再实现"})},
+		call(2, 1_000, "delegate", "c1", map[string]any{"role": "designer", "task": "写设计文档"}),
+		answered(3, 22_000, "c1", "delegate", map[string]any{"conversationId": 475, "role": "designer"},
+			"【designer 的产出】\n单文件 todo.py，argparse 分发……"),
+		call(4, 22_000, "delegate_parallel", "c2", map[string]any{"tasks": `[{"role":"implementer"},{"role":"reviewer"}]`}),
+		answered(5, 61_000, "c2", "delegate_parallel", map[string]any{"roles": []any{"implementer", "reviewer"}, "failed": float64(1)},
+			"【implementer】\n写完了\n\n---\n\n【reviewer】失败：timeout"),
+	}
+	a := transcriptApp(entries...)
+	tt := ui.NewTester(func(c *ui.Context) { theme.Apply(c, theme.Light()); a.transcript(c) }, 820, 460)
+	tt.Frame()
+	for _, want := range []string{"→ designer", "Open chat", "→ implementer / reviewer", "1 failed"} {
+		if !tt.HasText(want) {
+			t.Errorf("missing %q; texts=%q", want, strings.Join(tt.Texts(), " | "))
+		}
+	}
+	// A parallel batch has no child conversation to open, so it offers no way in.
+	if strings.Count(strings.Join(tt.Texts(), " | "), "Open chat") != 1 {
+		t.Errorf("only the single delegate should open a chat; texts=%q", strings.Join(tt.Texts(), " | "))
+	}
+	writePNG(t, "/tmp/pitta-delegation.png", tt.Image())
+}
+
+// TestOpenChildChatPrefersASecondWindow keeps the parent chat where it is: a
+// child conversation opens beside it, not over it.
+func TestOpenChildChatPrefersASecondWindow(t *testing.T) {
+	saved := windowOpener
+	opened := 0
+	windowOpener = func(_ Config, _ *api.Client, conversationID int) { opened = conversationID }
+	defer func() { windowOpener = saved }()
+
+	a := New(Config{})
+	a.current = 12
+	a.openChildChat(475)
+	if opened != 475 {
+		t.Fatalf("opened %d, want 475", opened)
+	}
+	if a.current != 12 {
+		t.Fatalf("current chat moved to %d; a child opens in its own window", a.current)
+	}
 }
