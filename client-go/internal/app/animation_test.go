@@ -10,7 +10,6 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"pitta/internal/protocol"
-	"pitta/internal/theme"
 )
 
 // different reports whether two frames differ at all, which is how a headless
@@ -97,8 +96,9 @@ func TestApprovalBarSlidesIn(t *testing.T) {
 }
 
 // TestStreamingCaretBlinks checks the caret at the end of a streaming answer
-// comes and goes: the block under the text differs half a period apart, while
-// the rest of the transcript stays put.
+// comes and goes. It follows the caret's own element rather than a band of
+// pixels: the logo beside the phase animates now, and a band also caught the
+// card's edge as the caret came and went.
 func TestStreamingCaretBlinks(t *testing.T) {
 	a := snapshotData(t)
 	generation, err := json.Marshal(map[string]any{
@@ -113,20 +113,29 @@ func TestStreamingCaretBlinks(t *testing.T) {
 	a.live = &protocol.LiveDoc{Run: json.RawMessage(`{"id":"run_1"}`), Generation: generation}
 	tt := ui.NewTester(a.View, 1180, 820)
 	tt.Frame()
-	at, ok := tt.Find("writing")
-	if !ok {
+	if _, ok := tt.Find("writing"); !ok {
 		t.Skip("the streaming text is not on screen")
 	}
-	// The caret sits under the text, inside the streaming card: the spinner
-	// above it also animates, so only this band is counted.
-	band := image.Rect(int(at.X), int(at.Y+at.H), int(at.X+24), int(at.Y+at.H+22))
-	primary := theme.Dark().Primary
-	on := countColour(tt.Image(), band, primary)
+	caret, ok := tt.Find(caretLabel)
+	if !ok {
+		t.Fatalf("the caret is not drawn while the answer streams")
+	}
+	band := image.Rect(int(caret.X), int(caret.Y), int(caret.X+caret.W), int(caret.Y+caret.H))
+	// The caret's colour, read off the caret: the test does not need to know
+	// which theme the window is in to know that its mark went away.
+	c := tt.Image().RGBAAt(band.Min.X+band.Dx()/2, band.Min.Y+band.Dy()/2)
+	ink := ui.Color{R: c.R, G: c.G, B: c.B, A: c.A}
+	if on := countColour(tt.Image(), band, ink); on == 0 {
+		t.Fatalf("the caret is laid out but painted in nothing")
+	}
+	// Half a period later it is gone from the frame, not merely moved.
 	tt.Advance(560 * time.Millisecond)
 	tt.Frame()
-	off := countColour(tt.Image(), band, primary)
-	if (on > 0) == (off > 0) {
-		t.Fatalf("the caret did not blink: %d then %d pixels", on, off)
+	if _, ok := tt.Find(caretLabel); ok {
+		t.Fatalf("the caret is still drawn half a blink later")
+	}
+	if off := countColour(tt.Image(), band, ink); off != 0 {
+		t.Fatalf("the caret left %d pixels of its colour behind", off)
 	}
 }
 

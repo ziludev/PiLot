@@ -10,6 +10,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 
+	"pitta/internal/avatar"
 	"pitta/internal/diff"
 	"pitta/internal/i18n"
 	"pitta/internal/icons"
@@ -509,13 +510,19 @@ func truncateLines(text string, maxLines, maxRunes int) string {
 	return truncate(text, maxRunes)
 }
 
+// caretLabel names the streaming caret, which is how the test that it blinks
+// finds it among the marks that animate around it.
+const caretLabel = "caret"
+
 // liveLine shows what the running turn is doing now: the phase, the tool it
 // waits on, and the text as it streams.
 func (a *App) liveLine(c *ui.Context, t theme.Tokens, turn *turns.Turn) {
 	state := turn.State(a.live)
 	ui.Column(c).Gap(6).Children(func() {
 		ui.Row(c).Gap(6).Children(func() {
-			ui.Spinner(c)
+			// The marker is the bot's own logo drawing itself, where a spinner
+			// said only "busy".
+			drawnLogo(c, 20, avatar.Tones.Idle)
 			ui.Text(c, stateLabel(state)).FontSize(11).TextColor(t.Primary)
 			if state.ToolTail != "" {
 				ui.Text(c, truncate(state.ToolTail, 120)).FontSize(10).TextColor(t.MutedFg)
@@ -533,8 +540,11 @@ func (a *App) liveLine(c *ui.Context, t theme.Tokens, turn *turns.Turn) {
 				// frames coming while it is built.
 				if state.Kind == turns.StateStreaming {
 					if blink := body.Loop("caret", 1060*time.Millisecond, ui.Linear); blink < 0.5 {
+						// Labelled so a test can find it: the logo beside the
+						// phase animates too, so a band of pixels no longer
+						// isolates the caret.
 						ui.Box(c).Width(6).Height(13).Radius(1).Background(t.Primary).
-							AlignSelf(ui.Start)
+							AlignSelf(ui.Start).Label(caretLabel)
 					}
 				}
 			})
