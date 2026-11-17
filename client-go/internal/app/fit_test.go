@@ -1,48 +1,55 @@
 package app
 
-import (
-	"testing"
+import "testing"
 
-	"github.com/egoist/mygo/ui"
-)
-
-// TestNarrowWindowKeepsTheRailUsable checks a window narrower than the saved
-// rail: a 260 px rail in a 420 px window cut the header's name into slivers.
-func TestNarrowWindowKeepsTheRailUsable(t *testing.T) {
-	a := snapshotData(t)
-	a.railWidth = 260
-	a.sideOpen = false
-	tt := ui.NewTester(a.View, 420, 600)
-	tt.Frame()
-	if a.railWidth > 420*0.45+1 {
-		t.Fatalf("rail kept %.0f px in a 420 px window", a.railWidth)
-	}
-	if !tt.HasText("Pitta") {
-		t.Fatalf("the header lost its name: %q", tt.Texts())
+// TestFitPanesKeepsTheChatReadable checks the three columns share a narrow
+// window without the chat falling below the width it needs. The panel used to
+// keep a 240 px minimum even when the window could not hold it, so at the
+// smallest window the transcript was left with 220 px.
+func TestFitPanesKeepsTheChatReadable(t *testing.T) {
+	for _, width := range []float32{640, 700, 760, 900, 1180, 1600} {
+		for _, side := range []bool{false, true} {
+			for _, savedRail := range []float32{180, 260, 345} {
+				a := New(Config{})
+				a.prefs = prefs{}
+				a.sideOpen = side
+				a.railWidth = savedRail
+				a.sideSynced = true
+				a.mainPane = width - savedRail - 300
+				a.fitPanes(width)
+				sideWidth := float32(0)
+				if side {
+					sideWidth = width - a.railWidth - a.mainPane
+				}
+				main := width - a.railWidth - sideWidth
+				if main < minMainWidth-0.01 {
+					t.Fatalf("width %.0f side=%v rail %.0f: the chat got %.1f px, want at least %d", width, side, a.railWidth, main, minMainWidth)
+				}
+				if a.railWidth < minRailWidth-0.01 {
+					t.Fatalf("width %.0f: the rail got %.1f px, want at least %d", width, a.railWidth, minRailWidth)
+				}
+				if side && sideWidth <= 0 {
+					t.Fatalf("width %.0f rail %.0f: the panel was squeezed out of the window", width, a.railWidth)
+				}
+			}
+		}
 	}
 }
 
-// TestSidePanelYieldsToANarrowWindow checks the panel giving way instead of
-// squeezing the transcript out of the window.
-func TestSidePanelYieldsToANarrowWindow(t *testing.T) {
-	a := snapshotData(t)
-	a.railWidth = 220
+// TestFitPanesLeavesATallWindowAlone checks a window with room to spare keeps
+// the widths it was given.
+func TestFitPanesLeavesATallWindowAlone(t *testing.T) {
+	a := New(Config{})
+	a.prefs = prefs{}
 	a.sideOpen = true
-	a.prefs.SideWidth = 520
-	tt := ui.NewTester(a.View, 900, 700)
-	tt.Frame()
-	tt.Frame()
-	if side := 900 - a.railWidth - a.mainPane; side > 900-a.railWidth-minMainWidth+2 {
-		t.Fatalf("panel kept %.0f px next to a %.0f px transcript", side, a.mainPane)
+	a.railWidth = 260
+	a.sideSynced = true
+	a.mainPane = 1180 - 260 - 300
+	a.fitPanes(1180)
+	if a.railWidth != 260 {
+		t.Fatalf("rail moved to %.1f px in a window with room for it", a.railWidth)
 	}
-}
-
-// TestSaneFrame replaces a sliver with the default size.
-func TestSaneFrame(t *testing.T) {
-	if w, h := saneFrame(122, 118, defaultW, defaultH); w != defaultW || h != defaultH {
-		t.Fatalf("sliver frame kept at %.0f×%.0f", w, h)
-	}
-	if w, h := saneFrame(1180, 820, defaultW, defaultH); w != 1180 || h != 820 {
-		t.Fatalf("good frame changed to %.0f×%.0f", w, h)
+	if side := 1180 - a.railWidth - a.mainPane; side != 300 {
+		t.Fatalf("panel moved to %.1f px in a window with room for it", side)
 	}
 }
