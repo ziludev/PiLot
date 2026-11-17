@@ -69,6 +69,10 @@ func run(socketPath string, logger *log.Logger) error {
 
 	srv := server.New(ctx, logger)
 	tools.RegisterPing(srv, version)
+	tools.RegisterBash(srv)
+	tools.RegisterRead(srv)
+	tools.RegisterWrite(srv)
+	tools.RegisterEdit(srv)
 	logger.Printf("toolbox: listening on %s tools=%v", socketPath, srv.Names())
 
 	done := make(chan error, 1)

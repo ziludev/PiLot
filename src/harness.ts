@@ -45,7 +45,7 @@ import { grantSession, loadGrants } from "./grants.ts";
 import { setRuntimeRef } from "./runtime-ref.ts";
 import { log, logError } from "./log.ts";
 import { acquireStorageLock } from "./storage-lock.ts";
-import { startToolbox, type Toolbox } from "./toolbox/index.ts";
+import { startToolbox, codingToolsFromToolbox, type Toolbox } from "./toolbox/index.ts";
 import { ensureRepo } from "./changes.ts";
 import { ensureWorktree, worktreePaths } from "./worktree.ts";
 import { gitBranchOf } from "./git-info.ts";
@@ -188,8 +188,13 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     workspace,
   );
 
+  // Moving the coding tools out of this process is the one boot step that can fail before a single
+  // turn runs, so it happens here and is reported once. There is no fallback: a toolbox that cannot
+  // answer aborts the boot rather than silently serving the in-process tools.
+  const toolbox = config.toolbox.mode === "go" ? await startToolbox() : undefined;
+
   const registry = createRegistry();
-  registry.install(CodingTools);
+  registry.install(toolbox === undefined ? CodingTools : codingToolsFromToolbox(toolbox));
   registry.install(personalExtension);
   registry.install(larkExtension);
   registry.install(skillsExtension);
@@ -557,10 +562,6 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   }
 
   log("agent", `mcp: ${mcp.serverCount} servers, ${mcp.toolCount} tools`);
-
-  // Moving the coding tools out of this process is the one boot step that can fail
-  // before a single turn runs, so it happens here and is reported once.
-  const toolbox = config.toolbox.mode === "go" ? await startToolbox() : undefined;
 
   const runtime: AgentRuntime = {
     toolbox,
