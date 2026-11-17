@@ -50,7 +50,13 @@ func runEdit(srv *server.Server, ctx context.Context, req proto.Request) (any, e
 	}
 	absolutePath := resolvePath(req.Cwd, args.Path)
 	started := time.Now()
-	result, err := applyEdit(ctx, absolutePath, args.Path, args.Edits)
+	var result EditResult
+	// Serialize with `write` on the same file: the two are read-modify-write and would otherwise race.
+	err := withFileMutation(absolutePath, func() error {
+		var applyErr error
+		result, applyErr = applyEdit(ctx, absolutePath, args.Path, args.Edits)
+		return applyErr
+	})
 	if err != nil {
 		srv.Logf("edit: path=%s failed=%q took=%s", args.Path, err.Error(), time.Since(started).Round(time.Millisecond))
 		return nil, err
@@ -131,7 +137,7 @@ func RegisterWrite(srv *server.Server) {
 		}
 		absolutePath := resolvePath(req.Cwd, args.Path)
 		started := time.Now()
-		if err := writeFile(ctx, absolutePath, args.Content); err != nil {
+		if err := withFileMutation(absolutePath, func() error { return writeFile(ctx, absolutePath, args.Content) }); err != nil {
 			srv.Logf("write: path=%s failed=%q took=%s", args.Path, err.Error(), time.Since(started).Round(time.Millisecond))
 			return nil, err
 		}
