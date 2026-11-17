@@ -26,6 +26,7 @@ import (
 	"pitta/internal/motion"
 	"pitta/internal/protocol"
 	"pitta/internal/theme"
+	"pitta/internal/turns"
 )
 
 // Config is what the window needs to reach the agent.
@@ -101,6 +102,10 @@ type App struct {
 	md            markdown.Options
 	steer         bool
 	turnWindow    int
+	// Grouped turns, kept until the entries or the waits change: grouping
+	// parses every entry, and a frame that only scrolls parses nothing.
+	turnCache []turns.Turn
+	turnStale bool
 
 	// M2 layout: the side panel and the file view share the middle pane.
 	sideOpen  bool
@@ -594,6 +599,7 @@ func (a *App) growEntries(entries []protocol.Entry) {
 		a.newMessages += len(merged) - len(a.entries)
 	}
 	a.entries = merged
+	a.turnStale = true
 }
 
 // mergeEntries keeps the entries already held that fall before the frame's
@@ -632,12 +638,14 @@ func (a *App) reloadConversation(current int) {
 	}
 	a.apply(func() {
 		a.entries = conv.Entries
+		a.turnStale = true
 		a.model = conv.Model
 		a.thinking = conv.ThinkingLevel
 		if conv.Usage != nil {
 			a.usage = *conv.Usage
 		}
 		a.waits = conv.ApprovalWaits
+		a.turnStale = true
 		a.live = nil
 		// A newly opened chat lands on its newest turn, not its oldest.
 		a.stickToBottom, a.atBottom, a.newMessages = true, true, 0
@@ -725,6 +733,7 @@ func (a *App) selectConversation(conversationID int) {
 		}
 		a.setCurrent(conversationID)
 		a.entries = nil
+		a.turnStale = true
 		a.live = nil
 		a.approvals = nil
 		a.invalidate()

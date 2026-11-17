@@ -50,6 +50,9 @@ func TestOriginDictionaryStillMatches(t *testing.T) {
 		// Ours: a native window has no clipboard image paste, so the picture
 		// picker names itself.
 		"attachImage": true, "attachImageHint": true, "attach": true,
+		// Ours: the React client left report_done as a tool result, the native
+		// one draws it as the turn's verdict and needs the words for it.
+		"goalMet": true, "goalNotMet": true,
 	}
 	for lang, keys := range origin {
 		if len(keys) == 0 {

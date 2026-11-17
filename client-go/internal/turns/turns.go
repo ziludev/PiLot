@@ -40,6 +40,11 @@ type Step struct {
 	Result *protocol.Entry
 }
 
+// ReportDoneTool is the call a turn ends on to say whether it met the goal it
+// was given. It is the turn's answer rather than one of its tools, so it is
+// not counted among them and is drawn as a verdict instead of a step.
+const ReportDoneTool = "report_done"
+
 // Phases is how the turn's wall time was spent, in milliseconds.
 type Phases struct {
 	Think int64
@@ -271,6 +276,9 @@ func (t *Turn) derive(waits []protocol.ApprovalWait) {
 		for _, part := range partsOf(messages(entry.Model)) {
 			switch part["type"] {
 			case "toolCall":
+				if name, _ := part["name"].(string); name == ReportDoneTool {
+					continue // the verdict is the turn's answer, not one of its tools
+				}
 				tools++
 				if args, ok := part["arguments"].(map[string]any); ok {
 					if path, ok := args["path"].(string); ok {
