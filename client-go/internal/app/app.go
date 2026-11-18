@@ -276,7 +276,10 @@ type App struct {
 	outputOpen map[int]bool
 	// filesOpen is the turns whose file list the reader opened. The summary line
 	// says "2 files"; which two is the question that follows it.
-	filesOpen    map[int]bool
+	filesOpen map[int]bool
+	// stepsOpen is the turns whose folded steps the reader expanded. A long turn
+	// folds to one line; this is the one that was opened back up, by turn id.
+	stepsOpen    map[int]bool
 	patchView    diff.View
 	draft        string
 	query        string
@@ -363,6 +366,7 @@ func New(cfg Config) *App {
 		stepGroups:    map[string]bool{},
 		outputOpen:    map[int]bool{},
 		filesOpen:     map[int]bool{},
+		stepsOpen:     map[int]bool{},
 		notified:      map[int]string{},
 		notifyAt:      map[int]time.Time{},
 		notifyQuiet:   notifySettle,
