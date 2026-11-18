@@ -44,11 +44,22 @@ export const WorkMemory = defineDoc<{ notes: Note[] }>({
 
 const MAX_GLOBAL_NOTES = 60;
 const MAX_CHAT_NOTES = 20;
+/** A global note past this length stops being an index line and becomes an archive. */
+const INDEX_LIMIT = 160;
+/** Past this, a global note is refused: the detail belongs in work memory. */
+const HARD_LIMIT = 400;
 
 const remember = defineTool({
   name: "remember",
   description:
-    "记住一条值得长期保留的事实（alex 的偏好、习惯、重要的人/项目/日期）。一句话一条。不要记流水账、临时代号、验证码、一次性口令或本轮任务的中间结果。默认写进全局记忆，所有对话共享。",
+    [
+      "记住一条会改变以后行为的稳定事实，写成「触发 → 动作」：什么情况下做什么。",
+      "例：「说「出方案」= 写技术方案/设计文档」「Ghostty 写 zshrc 会被 sandbox 拒」。",
+      "一句话一条，一条只讲一件事。",
+      "global（默认）每轮都注入，所以它是指引不是档案：只写触发条件 + 动作，细节（路径、配置、多步流程）写 work，" ,
+      "在 global 留一句带 recall 关键词的索引。work 不注入、可以长，靠 recall 搜。",
+      "不要记流水账、临时代号、验证码、一次性口令或本轮任务的中间结果。",
+    ].join(""),
   parameters: obj({
     text: str({ description: "要记住的内容，一句话" }),
     scope: opt(
@@ -60,11 +71,22 @@ const remember = defineTool({
   }),
   execute: async (args, api, context) => {
     const at = new Date().toISOString();
+    const text = args.text.trim();
     // In a guest conversation nothing may be written to the shared memories.
     const policy = await api.snapshot(ChatPolicy, api.conversationId, context).catch(() => undefined);
     const guest = policy?.guest === true;
     const requested = args.scope === "chat" ? "chat" : args.scope === "work" ? "work" : "global";
     const scope = guest && requested !== "chat" ? "chat" : requested;
+    if (scope === "global" && text.length > HARD_LIMIT) {
+      return {
+        output: [
+          {
+            type: "text" as const,
+            text: `没记：这条 ${String(text.length)} 字，全局记忆是索引不是档案。把触发条件 + 动作压成一句放到 global，细节（路径/配置/多步流程）用 scope="work" 再记一条。`,
+          },
+        ],
+      };
+    }
     let total = 0;
     let duplicate = false;
     await api.commit(async (tx) => {
@@ -74,8 +96,8 @@ const remember = defineTool({
           : scope === "work"
             ? await tx.doc(WorkMemory)
             : await tx.doc(ChatMemory, api.conversationId);
-      duplicate = doc.notes.some((note) => note.text.trim() === args.text.trim());
-      if (!duplicate) doc.notes.push({ at, text: args.text.trim() });
+      duplicate = doc.notes.some((note) => note.text.trim() === text);
+      if (!duplicate) doc.notes.push({ at, text });
       total = doc.notes.length;
     }, context);
     return {
@@ -84,7 +106,9 @@ const remember = defineTool({
           type: "text" as const,
           text: duplicate
             ? `这条已经在记忆里了（${scope}，共 ${total} 条）`
-            : `已记住（${scope}，共 ${total} 条）：${args.text}`,
+            : scope === "global" && text.length > INDEX_LIMIT
+              ? `已记住（global，共 ${total} 条），但这条 ${String(text.length)} 字偏长：全局是索引不是档案，细节建议改存 work，global 只留一句带关键词的索引。`
+              : `已记住（${scope}，共 ${total} 条）：${text}`,
         },
       ],
     };
