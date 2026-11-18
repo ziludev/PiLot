@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Renders assets/avatar/pie-state-*.gif from assets/avatar/states.html.
+# Renders assets/legacy-avatar/pie-state-*.gif from assets/legacy-avatar/states.html.
 #
 # The page reads the state and the frame number from its URL hash (#working/7), so every frame is
 # one deterministic screenshot: no screen capture, no timing jitter, and the loop is exact. The
@@ -11,7 +11,7 @@ set -euo pipefail
 
 CHROME=${CHROME:-"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"}
 root=$(cd "$(dirname "$0")/.." && pwd)
-page="file://$root/assets/avatar/states.html"
+page="file://$root/assets/legacy-avatar/states.html"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
@@ -27,8 +27,8 @@ for state in "${STATES[@]}"; do
   done
   ffmpeg -y -v error -framerate 16 -i "$work/$state-%02d.png" \
     -vf "scale=$SIZE:$SIZE:flags=lanczos,split[a][b];[a]palettegen=max_colors=160:stats_mode=diff[p];[b][p]paletteuse=dither=none" \
-    -loop 0 "$root/assets/avatar/pie-state-$state.gif"
-  echo "assets/avatar/pie-state-$state.gif"
+    -loop 0 "$root/assets/legacy-avatar/pie-state-$state.gif"
+  echo "assets/legacy-avatar/pie-state-$state.gif"
 done
 
 # One loop with all four states, for a place that has a single slot.
@@ -41,5 +41,5 @@ for state in "${STATES[@]}"; do
 done
 ffmpeg -y -v error -framerate 16 -i "$work/all-%03d.png" \
   -vf "scale=192:192:flags=lanczos,split[a][b];[a]palettegen=max_colors=160:stats_mode=diff[p];[b][p]paletteuse=dither=none" \
-  -loop 0 "$root/assets/avatar/pie-states-all.gif"
-echo "assets/avatar/pie-states-all.gif"
+  -loop 0 "$root/assets/legacy-avatar/pie-states-all.gif"
+echo "assets/legacy-avatar/pie-states-all.gif"

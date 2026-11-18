@@ -1,4 +1,7 @@
-# Agent avatar
+# Agent avatar (retired)
+
+The pie set below was the identity before the PiLot brand symbol: the rail mark and the Feishu bot
+avatar drew from it. Nothing in the code draws it any more; kept as the record of that identity.
 
 A [open-bot-avatar](https://github.com/DominikScholz/open-bot-avatar) definition: one silhouette plus
 where the eyes sit, and that renderer gives it a soft volume. Ours is the **pie** — the π / pie pun:

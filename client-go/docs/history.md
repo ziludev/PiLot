@@ -47,7 +47,7 @@ BotAvatar 是静态 SVG 而非逐帧动画、Toast 无滑入）。这些都不�
   去掉 `mygo-cli`（那是前端构建工具），`package-lock.json` 同步。
 - i18n 的对照基线从 `client/src/i18n.ts` 搬到 `client-go/internal/i18n/origin/i18n.ts`，
   `TestOriginDictionaryStillMatches` 继续保证「字典与基线同键」。
-- README（中英）与 `assets/avatar/README.md` 改为只描述 Go 客户端；`parity.md` 与
+- README（中英）与 `assets/legacy-avatar/README.md` 改为只描述 Go 客户端；`parity.md` 与
   `ui-motion-todo.md` 保留，但标注基线已删除。
 - 覆盖核对：本文 §1 的每一行在删除前都跑过一次（`go test ./internal/...` 全绿、
   `PITTA_LIVE/PITTA_E2E/PITTA_APPROVAL` 在真实后端通过）。
