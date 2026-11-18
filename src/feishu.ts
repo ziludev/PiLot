@@ -749,13 +749,13 @@ export function groupInstructions(who: "owner" | "guest", topic?: string): strin
     `- 每条消息开头的方括号是网关标注的说话人：「${owner} 本人」就是 ${owner} 的账号，已经校验过，不需要你再判断身份；「群成员」不是。`,
     who === "owner"
       ? `- 本轮是 ${owner} 本人提问：按他说的改文件、跑命令、推分支、触发部署都可以。`
-      : `- 本轮不是 ${owner}：只读查证照常做（read / project_search / logs_query / db_query / bash 的只读命令：git log、grep、psql select 都放行，所有已注册项目都能读）。不要改文件、不要推分支、不要触发部署、不要写记忆；被拦时只说被拦的那条命令，不要笼统说「guest 模式用不了工具」。`,
+      : `- 本轮不是 ${owner}：他只读，但读是全开的——read / project_search 能看所有已注册项目，logs_query 和 db_query 连 env=prod 也能查（库只接 SELECT），bash 的 git log、grep、psql select 一样放行。不要改文件、不要推分支、不要触发部署、不要写记忆；被拦时只说被拦的那条命令，不要说「用不了工具」。`,
   ];
   if (who === "owner") {
     // The model reads its own earlier refusals in the transcript and repeats them, even when
     // the rule under them has changed. Say the old rule is dead instead of hoping.
     lines.push(
-      "- 工具面按说话人切换：guest 模式只管别人的回合。你自己的回合里 bash / write / edit / lark / mcp / delegate 全都能用。",
+      "- 工具面按说话人切换：只读限制只落在别人的回合。你自己的回合里 bash / write / edit / lark / mcp / delegate 全都能用。",
       "- 旧规则已作废：本群以前确实被设成只读，那条不再适用。不要再回答「这轮是只读的」或「bash 在这个群里用不了」，" +
         `也不要让 ${owner} 自己去粘命令或开新会话。`,
     );
@@ -1229,12 +1229,12 @@ const continuing = new Set<string>();
       await conversation
         .configure({ compaction: { reserveTokens: 8_192 } }, context)
         .catch((error: unknown) => logError("feishu", "could not set group compaction", error));
-      void sendText(chatId, "已开通（guest 权限）：可以问我了。我看不到 alex 的私人记忆，也不会改动文件。").catch(
+      void sendText(chatId, "已开通（只读）：可以问我了。代码、test 和 prod 的库与日志都能查；改文件、推分支要 alex 本人开口。").catch(
         () => {},
       );
       const messageId = payload.context?.open_message_id;
       if (messageId !== undefined) {
-        void patchCard(messageId, `✅ 已开放 ${chatId.slice(-6)}`, "guest 权限：只读工具、不写记忆").catch(() => {});
+        void patchCard(messageId, `✅ 已开放 ${chatId.slice(-6)}`, "只读：查代码 / test 和 prod 的库与日志，不改文件").catch(() => {});
       }
       return { toast: { type: "success", content: "已开放，并通知了对方" } };
     }
@@ -1332,7 +1332,7 @@ const continuing = new Set<string>();
       `- 发送者：\`${senderId}\`\n` +
       `- 内容：${body.length > 0 ? body : "（非文字消息）"}\n`;
     const buttons = [
-      { label: "开放此会话（guest 权限）", value: { kind: "open-chat", chatId: message.chat_id }, type: "primary" as const },
+      { label: "开放此会话（只读）", value: { kind: "open-chat", chatId: message.chat_id }, type: "primary" as const },
     ];
     try {
       await client.im.message.create({
@@ -1421,7 +1421,7 @@ const continuing = new Set<string>();
       await openGroup(message.chat_id, groupInstructions("guest"));
       await sendText(
         message.chat_id,
-        "已把本群开放给所有人（guest 模式）：群里谁 @我 都能用；看不到你的个人记忆。你自己问的时候照常能改文件、推分支。",
+        "已把本群开放（只读成员）：群里谁 @我 都能查——代码、test 和 prod 的库与日志都能看；改文件、推分支、写飞书只有你自己能做。",
       );
       return;
     }
@@ -1441,7 +1441,7 @@ const continuing = new Set<string>();
       const conversation = await runtime.conversationFor(message.chat_id);
       await setChatTopic(runtime.harness, context, conversation.id as unknown as number, topic);
       await openGroup(message.chat_id, groupInstructions("guest", topic));
-      await sendText(message.chat_id, "已把本群开放给所有成员（guest 模式）：共享群只答本群主题，不会透露 alex 的信息。");
+      await sendText(message.chat_id, "已把本群开放给所有成员（只读）：代码、test 和 prod 的库与日志都能查，改动只有 alex 本人能做。");
       return;
     }
     if (isGuestChat && !isOwner) {

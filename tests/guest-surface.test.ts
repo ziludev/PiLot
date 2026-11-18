@@ -111,3 +111,14 @@ test("an approval click counts only for a configured owner", () => {
   assert.equal(isOwnerOperator("ou_me", []), false);
   assert.equal(isOwnerOperator("", ["ou_me"]), false);
 });
+
+test("a guest reads test and prod: 只读 is the whole surface, not half of it", () => {
+  // A member who is asked "is this order wrong in prod" has to be able to look. What stays shut
+  // is changing things, not seeing them.
+  for (const args of [{ env: "test", sql: "select 1" }, { env: "prod", sql: "select 1" }]) {
+    assert.equal(blocked("db_query", args), false, JSON.stringify(args));
+  }
+  assert.equal(blocked("logs_query", { env: "prod", query: "severity: ERROR" }), false);
+  const why = guestBlockReason("write", { path: `${PROJECT}/a.ts` }, [WS, PROJECT]) ?? "";
+  assert.match(why, /只读/, why);
+});
