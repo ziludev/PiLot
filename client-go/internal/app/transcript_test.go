@@ -463,29 +463,33 @@ func TestScrollingToTheTopOpensTheRestOfTheHistory(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) { a.main(c) }, 800, 400)
 	tt.Frame()
 	tt.Frame()
-	if a.turnWindow != 60 {
-		t.Fatalf("a fresh chat drew %d turns, want the newest 60", a.turnWindow)
+	if a.stepWindow != stepWindowDefault {
+		t.Fatalf("a fresh chat drew a budget of %d steps, want %d", a.stepWindow, stepWindowDefault)
+	}
+	if a.turnHidden == 0 {
+		t.Fatal("the window drew every turn of a 200-turn chat")
 	}
 	if !tt.HasText(i18n.T("earlierTurns")) {
 		t.Fatalf("nothing offered the earlier turns; texts=%q", tt.Texts())
 	}
+	held := a.turnHidden
 
-	// Scrolling to the top lets the next sixty in.
+	// Scrolling to the top lets the next steps in.
 	tt.Scroll(400, 200, 0, -20000)
 	tt.Frame()
-	if a.turnWindow <= 60 {
-		t.Fatalf("reaching the top opened nothing: window %d", a.turnWindow)
+	if a.turnHidden >= held {
+		t.Fatalf("reaching the top opened nothing: %d held back, was %d", a.turnHidden, held)
 	}
 	// Staying at the top keeps opening, frame by frame, until the chat begins
 	// where it began rather than a press at a time.
-	for i := 0; i < 8 && a.turnWindow < a.turnTotal; i++ {
+	for i := 0; i < 200 && a.turnHidden > 0; i++ {
 		tt.Frame()
 	}
-	if a.turnWindow < a.turnTotal {
-		t.Fatalf("the top of the chat opened %d of %d turns", a.turnWindow, a.turnTotal)
+	if a.turnHidden > 0 {
+		t.Fatalf("the top of the chat still held back %d of %d turns", a.turnHidden, a.turnTotal)
 	}
 	// And once they are all in, the offer goes away.
-	a.turnWindow = len(a.groupedTurns())
+	a.apply(func() { a.stepWindow = a.stepWindow + stepWindowPage })
 	tt.Frame()
 	if tt.HasText(i18n.T("earlierTurns")) {
 		t.Fatalf("the offer stayed after every turn was drawn; texts=%q", tt.Texts())
@@ -554,7 +558,7 @@ func TestStoppingNearTheEndDoesNotYankTheViewBack(t *testing.T) {
 func TestTheHistoryOfferReadsPagesNotTurns(t *testing.T) {
 	i18n.Set(i18n.EN)
 	a := transcriptApp(turnEntries(1, "why is the sky blue", "Rayleigh scattering.")...)
-	a.turnWindow = 60
+	a.stepWindow = stepWindowDefault
 	a.historyMore = true
 	tt := ui.NewTester(func(c *ui.Context) { a.main(c) }, 800, 400)
 	tt.Frame()

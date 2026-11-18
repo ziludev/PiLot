@@ -15,7 +15,7 @@ func TestCmdArrowsPageTheTranscript(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		a.entries = append(a.entries, turnEntries(100+i, "question", "answer")...)
 	}
-	a.turnWindow = 200
+	a.stepWindow = 200
 	tt := ui.NewTester(a.View, 1180, 700)
 	tt.Frame()
 	tt.Frame() // the first frame measures the turns

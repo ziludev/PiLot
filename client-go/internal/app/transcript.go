@@ -28,13 +28,9 @@ func (a *App) transcript(c *ui.Context) {
 	t := theme.Current(c)
 	built := a.groupedTurns()
 	a.turnTotal = len(built)
-	// The window keeps the first frame of a 500-entry chat cheap; the button
-	// opens the rest, as the transcript's TURN_WINDOW does.
-	window := a.turnWindow
-	if window <= 0 || window > len(built) {
-		window = len(built)
-	}
-	start := len(built) - window
+	// The window keeps a frame cheap; the button opens the rest.
+	start := a.windowStart(built)
+	window := len(built) - start
 	// A find hit moves the window instead of the scroll offset: turn heights
 	// vary, so the only reliable way to land on a turn is to draw it.
 	anchor := a.focusedTurn()
@@ -50,6 +46,7 @@ func (a *App) transcript(c *ui.Context) {
 		}
 	}
 	hidden := start
+	a.turnHidden = hidden
 	end := start + window
 	if end > len(built) {
 		end = len(built)
@@ -82,7 +79,7 @@ func (a *App) transcript(c *ui.Context) {
 				ui.Button(c, i18n.T("earlierTurns")).
 					OnClick(func() {
 						a.apply(func() {
-							a.turnWindow += 60
+							a.stepWindow += stepWindowPage
 							a.invalidate()
 						})
 					})
@@ -99,6 +96,35 @@ func (a *App) transcript(c *ui.Context) {
 			}
 		})
 	})
+}
+
+// stepWindowDefault is what a frame draws before the window starts holding
+// turns back, in steps: a step is a tool call or a message, and about a
+// hundred and twenty of them is a frame's budget on a laptop.
+const stepWindowDefault = 120
+
+// stepWindowPage is how much one reach for the top, or one press of the
+// button, adds to the window.
+const stepWindowPage = 120
+
+// windowStart returns the first turn a frame draws. It walks back from the
+// newest turn adding steps until the budget runs out, keeping at least the
+// newest turn so a single huge turn still shows.
+func (a *App) windowStart(built []turns.Turn) int {
+	budget := a.stepWindow
+	if budget <= 0 {
+		budget = stepWindowDefault
+	}
+	steps := 0
+	start := len(built)
+	for i := len(built) - 1; i >= 0; i-- {
+		steps += len(built[i].Steps) + 1
+		if steps > budget && start < len(built) {
+			break
+		}
+		start = i
+	}
+	return start
 }
 
 // groupedTurns groups the entries once per change. Grouping parses every
@@ -1009,15 +1035,9 @@ func (a *App) followScroll() {
 	// a history the reader scrolls through reads as one, and a chat that began
 	// "in the middle" — the window drew the newest sixty and a button held the
 	// rest — begins where it began.
-	if a.scrolledFromTop && state.Y <= 24 {
-		if a.turnWindow < a.turnTotal {
-			a.turnWindow += 60
-			a.invalidate()
-		} else if a.historyMore && !a.historyLoading {
-			// The window already shows everything loaded and the chat has entries
-			// above them: reaching the top is the reader asking for that page.
-			a.loadOlder()
-		}
+	if a.scrolledFromTop && state.Y <= 24 && a.turnHidden > 0 {
+		a.stepWindow += stepWindowPage
+		a.invalidate()
 	}
 	a.scrollY = min(state.Y, state.MaxY)
 	a.scrollMaxY = state.MaxY

@@ -76,10 +76,11 @@ func (a *App) loadOlder() {
 			// laid out moves the offset down by the height it added.
 			a.anchorMaxY, a.anchorArmed = a.transcriptScroll.MaxY, true
 			a.entries = merged
-			// The arrivals sit above the window's start: widen it by a screen's
-			// worth, as the button does, or they stay hidden behind it.
-			a.turnWindow += 60
 			a.turnStale = true
+			// The page lands above the window rather than in it: a chat whose
+			// turns carry forty tool calls each costs about a second a frame
+			// when every one of them is drawn, so what the window shows is the
+			// reader's call, made with the button it already had.
 			a.invalidate()
 		})
 	}()
