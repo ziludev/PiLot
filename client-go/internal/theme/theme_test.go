@@ -17,7 +17,7 @@ func frame(t *testing.T, dark bool) *ui.Tester {
 		tk := Current(c)
 		Apply(c, tk)
 		ui.Column(c).Fill().Children(func() {
-			ui.Text(c, "Pitta").FontSize(13)
+			ui.Text(c, "PiLot").FontSize(13)
 		})
 	}, 200, 120)
 	tt.SetDark(dark)

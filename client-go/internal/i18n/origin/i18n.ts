@@ -312,7 +312,7 @@ const dict = {
     logs: "Logs",
     idle: "idle",
     busy: "working",
-    appName: "Pitta",
+    appName: "PiLot",
     connecting: "connecting…",
     disconnected: "disconnected",
     bridgeFailed: "bridge failed",

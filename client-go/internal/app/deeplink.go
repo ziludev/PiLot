@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// DeepLink is what pitta://chat/123 asks for: a chat, optionally in its own
+// DeepLink is what pilot://chat/123 asks for: a chat, optionally in its own
 // window. The earlier web client had no deep links; a native app can register a
 // scheme, which is how a terminal command or a Feishu message jumps straight
 // to a conversation.
@@ -16,17 +16,17 @@ type DeepLink struct {
 	NewWindow bool
 }
 
-// ParseDeepLink reads a pitta:// URL. Anything else is not ours, and a missing
+// ParseDeepLink reads a pilot:// URL. Anything else is not ours, and a missing
 // or non-numeric chat number is refused rather than guessed.
 func ParseDeepLink(raw string) (DeepLink, bool) {
 	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || !strings.EqualFold(u.Scheme, "pitta") {
+	if err != nil || !strings.EqualFold(u.Scheme, "pilot") {
 		return DeepLink{}, false
 	}
 	if host := strings.ToLower(u.Host); host != "" && host != "chat" {
 		return DeepLink{}, false
 	}
-	// pitta://chat/123 and pitta:///chat/123 are the same link: some tools
+	// pilot://chat/123 and pilot:///chat/123 are the same link: some tools
 	// drop the host.
 	path := strings.Trim(strings.TrimPrefix(strings.Trim(u.Path, "/"), "chat/"), "/")
 	if path == "" {

@@ -77,11 +77,11 @@ func TestLongWaitBlinksInTheTitle(t *testing.T) {
 	a.surfaces = []protocol.Surface{{ConversationID: 5, SurfaceID: "s5", Title: "chat"}}
 	a.current = 5
 	a.approvals = nil
-	if got := a.titleText(); got != "Pitta · chat" {
+	if got := a.titleText(); got != "PiLot · chat" {
 		t.Fatalf("idle title %q", got)
 	}
 	a.approvals = []protocol.PendingApproval{{CallID: "c1", CreatedAt: time.Now().UnixMilli() - 12_000}}
-	if got := a.titleText(); got != "⚠ 12s · Pitta · chat" {
+	if got := a.titleText(); got != "⚠ 12s · PiLot · chat" {
 		t.Fatalf("short wait title %q", got)
 	}
 	a.approvals = []protocol.PendingApproval{{CallID: "c1", CreatedAt: time.Now().UnixMilli() - 420_000}}

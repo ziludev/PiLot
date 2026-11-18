@@ -89,12 +89,12 @@ $ PITTA_APPROVAL=1 go test ./internal/app -run 'TestLiveApprovalDecision' -v
 
 ```
 $ go tool mygo build -skip-dmg
-$ ls -d build/darwin-arm64/Pitta.app     # 12.8MB
-$ rsync -a --delete build/darwin-arm64/Pitta.app ~/Applications/
-$ open ~/Applications/Pitta.app
+$ ls -d build/darwin-arm64/PiLot.app     # 12.8MB
+$ rsync -a --delete build/darwin-arm64/PiLot.app ~/Applications/
+$ open ~/Applications/PiLot.app
 ```
 
-装到 `~/Applications` 而不是 `/Applications`：后者已有一个旧的 mygo webview 版 Pitta（bundleID 同为 `com.example.agent`），不能覆盖。启动后 `logs/agent.log` 出现 `[http] client attached {"conversationId":…}`。
+装到 `~/Applications` 而不是 `/Applications`：后者可能已有一个 bundleID 同为 `com.example.agent` 的旧构建，不能覆盖。启动后 `logs/agent.log` 出现 `[http] client attached {"conversationId":…}`。
 
 - `TestRailSearchIsCentred`：搜索框占位符必须落在框体垂直中线上（±1.5 px），把高度从内容高度硬压到 24 px 会让它偏低 2.5 px——这正是肉眼看到的"文字没上下居中"。
 
@@ -232,20 +232,20 @@ $ grep -rIl -iE "react|vite|tailwind|shadcn|\.tsx" . \
 ### 5. 深链
 
 ```
-$ open "pitta://chat/9753"
+$ open "pilot://chat/9753"
 $ tail -1 ~/learn/pi-durable-agent/logs/agent.log
 [http] client attached {"conversationId":9753}
 ```
 
-`CFBundleURLTypes` 里有 `pitta`（`PlistBuddy -c "Print :CFBundleURLTypes" build/darwin-arm64/Pitta.app/Contents/Info.plist`）。
+`CFBundleURLTypes` 里有 `pilot`（`PlistBuddy -c "Print :CFBundleURLTypes" build/darwin-arm64/PiLot.app/Contents/Info.plist`）。
 
 ### 6. 安装与证据的边界
 
 ```
-$ go tool mygo build -skip-dmg          → build/darwin-arm64/Pitta.app (15 MB)
-$ rsync -a --delete build/darwin-arm64/Pitta.app ~/Applications/
-$ open ~/Applications/Pitta.app
-$ pgrep -f "$HOME/Applications/Pitta.app/Contents/MacOS/Pitta"  → 62937
+$ go tool mygo build -skip-dmg          → build/darwin-arm64/PiLot.app (15 MB)
+$ rsync -a --delete build/darwin-arm64/PiLot.app ~/Applications/
+$ open ~/Applications/PiLot.app
+$ pgrep -f "$HOME/Applications/PiLot.app/Contents/MacOS/PiLot"  → 62937
 $ tail -1 ~/learn/pi-durable-agent/logs/agent.log
 [http] client attached {"conversationId":9753}
 ```
@@ -263,12 +263,12 @@ $ tail -1 ~/learn/pi-durable-agent/logs/agent.log
 ### 7. 装好的那一份（t-ship）
 
 ```
-$ du -sh ~/Applications/Pitta.app                             → 15M
+$ du -sh ~/Applications/PiLot.app                             → 15M
 $ /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" …    → com.example.agent
-$ /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:0:CFBundleURLSchemes:0" … → pitta
-$ ls Contents/Resources                                        → AppIcon.icns  icon.png  pitta-logo-dark.svg
-$ pgrep -f "~/Applications/Pitta.app/Contents/MacOS/Pitta"     → 62937
-$ ls ~/Library/Logs/DiagnosticReports/*Pitta* | wc -l          → 0
+$ /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:0:CFBundleURLSchemes:0" … → pilot
+$ ls Contents/Resources                                        → AppIcon.icns  icon.png  pilot-app-icon.svg
+$ pgrep -f "~/Applications/PiLot.app/Contents/MacOS/PiLot"     → 62937
+$ ls ~/Library/Logs/DiagnosticReports/*PiLot* | wc -l          → 0
 ```
 
 主流程在真实后端的证据分两层，因为屏幕锁着，第二层拿不到"人点窗口"那种证据：

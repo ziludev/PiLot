@@ -2,7 +2,7 @@ package brand
 
 import (
 	"bytes"
-	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -12,97 +12,77 @@ import (
 	"pitta/internal/theme"
 )
 
-// TestMarkupIsTheShippedGlyph pins the two paths to the ones in
-// resources/pitta-logo.svg: the mark is the shipped one, not a re-estimate.
+// TestMarkupIsTheShippedGlyph pins the parts the frames are built from: the four
+// modules, the stem, the arrow the mask cuts out and the square box the mark is
+// padded into.
 func TestMarkupIsTheShippedGlyph(t *testing.T) {
 	markup := frameMarkup(MoodIdle, 0, "#111111")
 	for _, want := range []string{
-		`fill-rule="evenodd"`,
-		flame,
-		hole,
-		stand,
-		`stroke-width="17"`,
-		`viewBox="0 0 256 256"`,
+		`viewBox="0 -31 350 350"`,
+		`id="symbol-arrow-cutout"`,
+		`id="blue-module"`,
+		`id="coral-module"`,
+		`id="purple-module"`,
+		`id="yellow-module"`,
+		`id="pi-stem"`,
+		`fill="#111111"`,
 	} {
 		if !strings.Contains(markup, want) {
 			t.Fatalf("the mark is missing %q", want)
 		}
 	}
-}
-
-// TestOutlineWalksTheFlame checks the walk the pen takes: it starts at the flame's
-// base, moves, and comes back to where it started.
-func TestOutlineWalksTheFlame(t *testing.T) {
-	if len(flameOutline.points) < 100 {
-		t.Fatalf("the flame has %d points: the curves are barely sampled", len(flameOutline.points))
-	}
-	if flameOutline.length < 200 || flameOutline.length > 400 {
-		t.Fatalf("flame length %.1f is not the glyph's", flameOutline.length)
-	}
-	if x, y, ok := flameOutline.at(0); !ok || x != baseX || y != baseY {
-		t.Fatalf("the walk starts at %.1f,%.1f; the flame starts at %.0f,%.0f", x, y, baseX, baseY)
-	}
-	endX, endY, _ := flameOutline.at(1)
-	if endX != baseX || endY != baseY {
-		t.Fatalf("the walk ends at %.1f,%.1f; the flame closes where it started", endX, endY)
-	}
-	if standOutline.length < 100 {
-		t.Fatalf("the stand measures %.1f, too short to be the line under the flame", standOutline.length)
+	if strings.Contains(markup, "__") {
+		t.Fatal("a slot in mark.svg was left unfilled")
 	}
 }
 
-// TestDrawingRevealsTheStroke checks the self-drawing frames: the flame's outline
-// comes first, the stand after it, the filled shape last, and the pen sits on the
-// ink until the shape arrives.
-func TestDrawingRevealsTheStroke(t *testing.T) {
-	offsetAt := func(p float64) float64 {
-		markup := drawingMarkup(p, "#111111")
-		at := strings.Index(markup, "stroke-dashoffset=")
+// TestDrawingLandsTheModules checks the assembling frames: nothing is there at
+// the start, the tiles come before the stem, and the finished drawing is the mark
+// with every module at full strength.
+func TestDrawingLandsTheModules(t *testing.T) {
+	opacity := func(markup, module string) float64 {
+		at := strings.Index(markup, `id="`+module+`" opacity="`)
 		if at < 0 {
-			t.Fatalf("no dash offset at %.2f", p)
+			t.Fatalf("no opacity for %s", module)
 		}
-		var offset float64
-		if _, err := fmt.Sscanf(markup[at:], `stroke-dashoffset="%f"`, &offset); err != nil {
-			t.Fatalf("unreadable dash offset at %.2f: %v", p, err)
+		rest := markup[at+len(`id="`+module+`" opacity="`):]
+		end := strings.IndexByte(rest, '"')
+		v, err := strconv.ParseFloat(rest[:end], 64)
+		if err != nil {
+			t.Fatalf("unreadable opacity for %s: %v", module, err)
 		}
-		return offset
+		return v
 	}
-	if got := offsetAt(0); got < flameOutline.length-0.01 {
-		t.Fatalf("at the start the offset is %.2f, want the whole outline %.2f", got, flameOutline.length)
+	start := drawingMarkup(0, "#111111")
+	for _, name := range []string{"blue-module", "coral-module", "purple-module", "yellow-module", "pi-stem"} {
+		if got := opacity(start, name); got != 0 {
+			t.Fatalf("%s is already at %.2f before the mark starts drawing", name, got)
+		}
 	}
-	if offsetAt(0.4) >= offsetAt(0.1) {
-		t.Fatal("the outline is not drawn a little more as the pen advances")
+	half := drawingMarkup(0.4, "#111111")
+	if opacity(half, "blue-module") == 0 {
+		t.Fatal("the first tile has not landed by the middle of the drawing")
 	}
-	if strings.Contains(drawingMarkup(0.3, "#111111"), `stroke-width="17"`) {
-		t.Fatal("the stand is drawn before the flame has closed")
+	if opacity(half, "pi-stem") != 0 {
+		t.Fatal("the stem lands before the tiles it sits on")
 	}
-	if !strings.Contains(drawingMarkup(0.86, "#111111"), `stroke-width="17"`) {
-		t.Fatal("the stand is not drawn once the flame has closed")
-	}
-	if strings.Contains(drawingMarkup(0.5, "#111111"), `fill-opacity`) {
-		t.Fatal("the shape is filled before the pen has finished")
-	}
-	if !strings.Contains(drawingMarkup(1, "#111111"), `fill-opacity="1.000"`) {
-		t.Fatal("the finished drawing is not the filled mark")
-	}
-	if !strings.Contains(drawingMarkup(0.5, "#111111"), "<circle") {
-		t.Fatal("no pen while the outline is being drawn")
-	}
-	if strings.Contains(drawingMarkup(1, "#111111"), "<circle") {
-		t.Fatal("the pen is still there after the mark is drawn")
+	done := drawingMarkup(1, "#111111")
+	for _, name := range []string{"blue-module", "coral-module", "purple-module", "yellow-module", "pi-stem"} {
+		if got := opacity(done, name); got != 1 {
+			t.Fatalf("%s is at %.2f when the mark is done, want 1", name, got)
+		}
 	}
 }
 
-// TestMoodsMoveTheFlame checks that each mood animates, that they are told apart,
-// and that the stand never moves: it is the floor the flame moves over.
-func TestMoodsMoveTheFlame(t *testing.T) {
-	stand := `d="` + stand + `"`
+// TestMoodsMoveTheMark checks that each mood animates and that they are told
+// apart: the frames are one mark seen moving, not five drawings.
+func TestMoodsMoveTheMark(t *testing.T) {
 	frames := func(mood Mood) map[string]bool {
 		seen := map[string]bool{}
 		for f := 0; f < Frames; f++ {
 			markup := frameMarkup(mood, f, "#111111")
-			if !strings.Contains(markup, stand) {
-				t.Fatalf("mood %d frame %d moved the stand", mood, f)
+			if strings.Count(markup, `id="blue-module"`) != 1 {
+				t.Fatalf("mood %d frame %d drew the mark twice", mood, f)
 			}
 			seen[markup] = true
 		}
@@ -121,17 +101,6 @@ func TestMoodsMoveTheFlame(t *testing.T) {
 	if len(happy) > Frames/2 {
 		t.Fatalf("the beat covers %d of %d frames", len(happy), Frames)
 	}
-}
-
-// TestFlattenRejectsAnUnknownCommand pins the guard: the paths are authored by
-// hand, so a command the walker cannot follow fails loudly.
-func TestFlattenRejectsAnUnknownCommand(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("flatten accepted a command it cannot walk")
-		}
-	}()
-	flatten("M10 10 H20", 4)
 }
 
 // TestInkMatchesTheTheme checks the colour the mark is painted in, since the SVG

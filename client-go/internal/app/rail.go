@@ -701,7 +701,7 @@ func (a *App) railStatus() string {
 // avatarLook picks the face and colour: a running chat makes the bot think, the
 // two and a half seconds after a run finishes it smiles, and the colour says
 // who is working — a delegated task is not the same as this chat answering.
-// markLook is what the app's mark is doing: the flame breathes when the window is
+// markLook is the app's mark's mood: it breathes when the window is
 // quiet, flickers while a turn or a task runs, and beats once when an answer lands.
 // delegated reports that the work is a background task rather than the open chat,
 // which tints the mark so the two are told apart at a glance.

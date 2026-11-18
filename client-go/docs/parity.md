@@ -156,7 +156,7 @@ rail 的外观（头像、状态行、搜索命中）见 `docs/snapshots/rail-{l
 
 ### 7.1 打包应用的真窗口记录
 
-`~/Applications/Pitta.app`（`go tool mygo build -skip-dmg`，12.8MB）启动后连真实后端，截图确认：
+`~/Applications/PiLot.app`（`go tool mygo build -skip-dmg`，12.8MB）启动后连真实后端，截图确认：
 
 | 项目 | 证据 |
 | --- | --- |
@@ -225,7 +225,7 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 | ⌘K 快速切换 | `switcherDialog`：任意聊天按标题/#id 过滤，回车跳转 | 只有 rail 搜索框 |
 | ⌘N / ⌘B | 新建会话 / 收起右栏 | 无快捷键 |
 | Dock 角标 | `syncBadge` → `mygo.App.SetBadgeCount`（待批条数） | 无 |
-| 窗口标题 | `syncTitle`：`Pitta · <会话名>` | `<title>` 固定 |
+| 窗口标题 | `syncTitle`：`PiLot · <会话名>` | `<title>` 固定 |
 
 ### 2026-11 系统集成（第 27 轮）
 
@@ -285,7 +285,7 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 - **附件走系统文件面板**：`SetPicker` + `mygo.Dialog.Open`（`image/*`、多选），保留路径输入框作为无窗口构建的兜底。
 ### 2026-11 标题栏计时、⌘W、多窗口同步（第 37 轮）
 
-- **标题栏带审批计时**：有等待时标题变成 `⚠ 42s · Pitta · <会话>`，每秒刷新（`tickTitle`，而审批轮询是 5 秒）；没有等待但有未读时是 `(2) Pitta · <会话>`。标题栏自绘后看不见，但窗口切换器、Dock 菜单、Mission Control 都读它。
+- **标题栏带审批计时**：有等待时标题变成 `⚠ 42s · PiLot · <会话>`，每秒刷新（`tickTitle`，而审批轮询是 5 秒）；没有等待但有未读时是 `(2) PiLot · <会话>`。标题栏自绘后看不见，但窗口切换器、Dock 菜单、Mission Control 都读它。
 - **⌘W 关窗**：`OnWindowShortcut(ui.Cmd, ui.KeyW)` → `win.Close()`，与红点同一条路径；关闭时 `savePrefsNow()` 同步落盘（最后会话、左右栏宽度、收藏、未读），不依赖「下一帧再写」的惰性写盘。
 - **多窗口同步会话列表**：`internal/app/hub.go` 的 `surfaceHub` 让每个窗口在 `loadState` 后 `broadcastSurfaces`，其他窗口收到后替换 `surfaces` 并刷新标题；窗口关闭时 `unsubscribeSurfaces`。归档/新会话再不会只在一个窗口里生效。
 - 快捷键面板增到 12 条（加 ⌘W）。

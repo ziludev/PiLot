@@ -1,6 +1,8 @@
-# pitta
+# PiLot
 
 **English** · [中文](README.zh-CN.md)
+
+*PiLot: one Pi, a lot of possibilities.*
 
 A personal assistant that runs on [Pi Durable](https://earendil.com/posts/pi-durable/): talk to it in Feishu, watch it work in a desktop app, use it from a terminal — and if the process dies, the conversation does not.
 
@@ -152,7 +154,7 @@ macOS (launchd and the desktop client are macOS-only), Node 22+, `git`. `ffmpeg`
 toolchain is needed to build `toolbox-go/`, which serves the coding tools (or ship a prebuilt binary).
 
 ```bash
-git clone https://github.com/ziludev/pitta.git && cd pitta
+git clone https://github.com/ziludev/PiLot.git && cd PiLot
 ./bin/durable setup
 ```
 
@@ -193,8 +195,8 @@ and each run their own instance; the owner list decides who controls what.
 ```bash
 cd client-go
 go run .                         # the window, connected to the local bridge
-go tool mygo build -skip-dmg     # build/darwin-arm64/Pitta.app
-rsync -a --delete build/darwin-arm64/Pitta.app ~/Applications/   # then `open ~/Applications/Pitta.app`
+go tool mygo build -skip-dmg     # build/darwin-arm64/PiLot.app
+rsync -a --delete build/darwin-arm64/PiLot.app ~/Applications/   # then `open ~/Applications/PiLot.app`
 ```
 
 The window is drawn by mygo/ui from Go: no webview, no front-end build step. Screens, key

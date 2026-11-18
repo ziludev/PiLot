@@ -1,4 +1,4 @@
-// Pitta: a native desktop client for the local pi-durable agent.
+// PiLot: a native desktop client for the local pi-durable agent.
 //
 // The window is drawn by mygo's ui package from Go; there is no web page. The
 // Go side also owns what the web page could not do itself in the earlier client
@@ -34,7 +34,7 @@ func main() {
 		}
 		a := app.New(cfg)
 		win := mygo.NewWindow(mygo.WindowOptions{
-			Title: "Pitta",
+			Title: "PiLot",
 			// The client draws its own header instead of a title bar, so the
 			// traffic lights sit over the rail's top row, as in the native apps
 			// this replaces (see App.View's c.TitleBar() padding).
@@ -106,7 +106,7 @@ func main() {
 				a.OpenFromNotification(chatID)
 			}
 		})
-		// pitta://chat/123 from a terminal, a script or a chat message: the
+		// pilot://chat/123 from a terminal, a script or a chat message: the
 		// scheme is declared in mygo.config.ts.
 		mygo.App.OnOpenURL(func(raw string) {
 			win.Show()
@@ -121,7 +121,7 @@ func main() {
 		app.SetWindowOpener(func(cfg app.Config, client *api.Client, conversationID int) {
 			second := app.NewSecondary(cfg, client, conversationID)
 			win := mygo.NewWindow(mygo.WindowOptions{
-				Title:                "Pitta",
+				Title:                "PiLot",
 				Width:                1180,
 				Height:               820,
 				MinWidth:             720,

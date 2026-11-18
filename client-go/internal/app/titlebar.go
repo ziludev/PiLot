@@ -51,10 +51,10 @@ func (a *App) tickTitle() {
 // chats holding an unseen answer. A wait past five minutes blinks, because a
 // title that has said "300s" for minutes stops being read.
 func (a *App) titleText() string {
-	title := "Pitta"
+	title := "PiLot"
 	for _, surface := range a.surfaces {
 		if surface.ConversationID == a.currentValue() {
-			title = "Pitta · " + surfaceTitle(surface)
+			title = "PiLot · " + surfaceTitle(surface)
 			break
 		}
 	}
