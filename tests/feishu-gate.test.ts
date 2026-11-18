@@ -164,6 +164,23 @@ test("a topic's own messages reach the model as one block", () => {
   );
 });
 
+/** Feishu puts the mention as a token; left alone the digest reads "@_user_1 你再看下". */
+test("a mention in the topic keeps the name, not the token", () => {
+  const items = [
+    {
+      message_id: "om_a",
+      msg_type: "text",
+      body: { content: JSON.stringify({ text: "@_user_1 这个文档也看下" }) },
+      sender: { sender_type: "user", sender_name: "王福发" },
+      mentions: [{ key: "@_user_1", name: "知衡（PiLot）", id: "ou_bot" }],
+    },
+  ];
+  assert.equal(
+    threadDigest(items, { current: "om_b" }),
+    "[话题里最近的 1 条发言]\n王福发: @知衡（PiLot） 这个文档也看下\n[话题结束]\n\n",
+  );
+});
+
 test("a topic with nothing but our own answers adds nothing", () => {
   const items = [{ message_id: "om_a", msg_type: "text", body: { content: JSON.stringify({ text: "好了" }) }, sender: { sender_type: "app", sender_name: "知衡" } }];
   assert.equal(threadDigest(items, { current: "om_b" }), "");

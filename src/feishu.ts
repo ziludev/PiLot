@@ -677,6 +677,8 @@ export function threadDigest(
     create_time?: string;
     body?: { content?: string };
     sender?: { sender_type?: string; sender_name?: string };
+    /** The API hands these over with the open_id as a bare string; quoteText wants it one level down. */
+    mentions?: Array<{ key?: string; name?: string; id?: string }>;
   }>,
   options: { current: string; max?: number },
 ): string {
@@ -686,7 +688,13 @@ export function threadDigest(
     if (id.length === 0 || id === options.current) continue;
     // Our own answers are already in the conversation, in full.
     if (item.sender?.sender_type === "app") continue;
-    const text = quoteText(item.msg_type ?? "", item.body?.content ?? "", [])
+    // Without the mentions the text keeps Feishu's "@_user_1" tokens, which name nobody.
+    const mentions = (item.mentions ?? []).map((mention) => ({
+      key: mention.key,
+      name: mention.name,
+      id: { open_id: mention.id },
+    }));
+    const text = quoteText(item.msg_type ?? "", item.body?.content ?? "", mentions)
       .replace(/\s+/g, " ")
       .trim();
     if (text.length === 0) continue;
