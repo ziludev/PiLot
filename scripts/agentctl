@@ -93,8 +93,9 @@ note_restart() {
   local db; db="$(db_path)"; case "$db" in /*) ;; *) db="$PROJECT/$db" ;; esac
   marker="$(dirname "$db")/restart-pending.json"
   now="$(( $(date +%s) * 1000 ))"
-  prev_at="$(sed -n 's/.*"queuedAt":\([0-9]*\).*/\1/p' "$marker" 2>/dev/null | head -1)"
-  prev_reason="$(sed -n 's/.*"reason":"\([^"]*\)".*/\1/p' "$marker" 2>/dev/null | head -1)"
+  # `|| true`: with no note yet sed exits non-zero and `pipefail` would abort the whole switch.
+  prev_at="$(sed -n 's/.*"queuedAt":\([0-9]*\).*/\1/p' "$marker" 2>/dev/null | head -1 || true)"
+  prev_reason="$(sed -n 's/.*"reason":"\([^"]*\)".*/\1/p' "$marker" 2>/dev/null | head -1 || true)"
   # A queued restart can wait twenty minutes for an idle window; the original queue time is what
   # makes the wait visible, and the fire must keep it instead of overwriting it.
   keep_at="${prev_at:-$now}"
