@@ -186,9 +186,9 @@ case "${1:-status}" in
     echo "queued: restarts once the running turn settles (log: logs/restart-later.log)"
     ;;
   restart-once)
-    # What launchd runs. It unloads itself first so a slow or failed restart cannot
-    # pile up a queue of jobs waiting to do the same thing.
-    launchctl bootout "$DOMAIN" "$AGENTS/$LATER_LABEL.plist" 2>/dev/null || true
+    # What launchd runs, once (KeepAlive is false). It must not unload itself first:
+    # booting out its own label kills this very process, which is how the first
+    # version of this waited for nothing and restarted nothing.
     if ! wait_idle; then
       echo "left the agent alone: still mid-turn"
       exit 1
@@ -197,6 +197,8 @@ case "${1:-status}" in
     rotate_logs
     load "$LABEL" "$AGENTS/$LABEL.plist"
     echo "restarted at $(date '+%Y-%m-%d %H:%M:%S')"
+    # Last, so the next restart-later starts from a clean label.
+    launchctl bootout "$DOMAIN" "$AGENTS/$LATER_LABEL.plist" 2>/dev/null || true
     ;;
   status)
     for label in "$LABEL" "$BACKUP_LABEL"; do
