@@ -38,6 +38,7 @@ func (a *App) rail(c *ui.Context) {
 		if a.conn == ConnDown {
 			a.railDown(c, t)
 		}
+		a.railApproval(c, t)
 		a.projectBar(c, t)
 		a.railSearch(c, t)
 		a.railFilters(c, t)
@@ -112,6 +113,50 @@ func (a *App) railFeishu(c *ui.Context, t theme.Tokens) {
 			ui.Text(c, i18n.T("feishuDown")+" "+itoa(int(a.feishu.DownMs/60_000))+"m").
 				FontSize(10).TextColor(t.Destructive).Grow(1).MaxLines(1)
 		})
+}
+
+// railApprovalLabel names the chip for the test that clicks it.
+const railApprovalLabel = "rail-approval"
+
+// railApproval is the standing way into a call that waits. The approval bar
+// sits in the composer, so a window showing another chat would hide a call that
+// is holding the agent still, and the tray's count would point at nothing.
+// It is under the header rather than in it: the header drags the window, and a
+// click meant for the chip would move the window instead.
+func (a *App) railApproval(c *ui.Context, t theme.Tokens) {
+	waiting := a.trayApprovals()
+	if len(waiting) == 0 {
+		return
+	}
+	target := 0
+	for _, approval := range waiting {
+		if approval.ConversationID != 0 {
+			target = approval.ConversationID
+			break
+		}
+	}
+	ui.Row(c).FillWidth().Padding(4, 10, 2, 10).Children(func() {
+		chip := ui.Row(c).Gap(5).AlignItems(ui.Center).Padding(2, 7).Radius(6).
+			Background(ui.RGBA(245, 158, 11, 0.12)).Border(1, ui.RGBA(245, 158, 11, 0.45)).
+			Label(railApprovalLabel).Transition(motion.Hover())
+		chip.Cursor(ui.CursorPointer)
+		if chip.Hovered() {
+			chip.Background(ui.RGBA(245, 158, 11, 0.22))
+		}
+		chip.OnClick(func() {
+			if target == 0 {
+				return
+			}
+			// The bar lists every pending call, so opening the chat that owns
+			// this one is enough to put the buttons on screen.
+			a.apply(func() { a.selectConversation(target) })
+		})
+		chip.Children(func() {
+			ui.Icon(c, icons.AlertTriangle).Size(10, 10).TextColor(t.Warning)
+			ui.Text(c, itoa(len(waiting))+" "+i18n.T("needsApproval")).
+				FontSize(10).FontWeight(600).TextColor(t.Warning).MaxLines(1)
+		})
+	})
 }
 
 // railSearch filters the list as the user types. The rule lives in

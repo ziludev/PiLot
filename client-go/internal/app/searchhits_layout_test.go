@@ -39,9 +39,15 @@ func TestSearchHitsScrollPastTheCap(t *testing.T) {
 	if row, ok := tt.Find(last); ok && row.W > 0 {
 		t.Fatalf("%q is visible without scrolling", last)
 	}
-	tt.Move(105, 120)
+	// Where the box sits is not fixed: the rail's top area can move it down.
+	box, ok := tt.Find(searchHitsLabel)
+	if !ok {
+		t.Fatal("the results box is not drawn")
+	}
+	x, y := box.X+box.W/2, box.Y+box.H/2
+	tt.Move(x, y)
 	tt.Frame()
-	tt.Scroll(105, 120, 0, 800)
+	tt.Scroll(x, y, 0, 800)
 	tt.Frame()
 	row, ok := tt.Find(last)
 	if !ok || row.W == 0 {
