@@ -2115,10 +2115,12 @@ const continuing = new Set<string>();
     // patched, and settling is a transition rather than "set finished, then remember to check it in
     // every callback that can still fire". A late watcher or heartbeat therefore cannot put
     // "思考中…" back on a finished card, and a new patch site cannot forget the rule.
-    await card.start();
-
     const slot = enqueueTurn(conversation.id as unknown as number);
     if (slot.queued) {
+      // `pi.live` describes one run per conversation — whatever is running now. A card that starts
+      // watching while its own turn is still in line therefore renders the *previous* turn's steps,
+      // and two cards show the same work. A queued card only says it is in line; it starts watching
+      // when its own turn starts.
       card.setStatus(`⏸️ 排队中 · 上一条还在跑`);
       await slot.wait;
       card.clearStatus();
@@ -2138,6 +2140,9 @@ const continuing = new Set<string>();
         (error) => logError("feishu", "could not attach submission", error),
       );
       log("feishu", "submitted", requestId);
+      // Started here, not at card creation: the first snapshot a card sees must belong to its own
+      // submission, otherwise a restart-recovered run leaves its steps on the next card.
+      await card.start();
       const settled = await submission.wait(context);
       const seconds = Math.round((Date.now() - startedAt) / 100) / 10;
       log("feishu", "settled", { status: settled.status, reason: settled.reason ?? null, seconds });
@@ -2708,7 +2713,7 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
       }
       await patchCard(
         card.cardId,
-        `🔁 进程重启过，这条任务已在后台恢复。\n\n开始于 ${startedAt}，已跑 ${elapsed}，结果稍后单独发你。`,
+        `🔁 进程重启过，这条任务已在后台恢复。\n\n开始于 ${startedAt}，已跑 ${elapsed}，结果会写进这张卡片。`,
         `🔁 已恢复 · ${startedAt} 起`,
       ).catch(() => {});
       void (async () => {
@@ -2745,12 +2750,15 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
           log("feishu", "recovered delivery footer", `${startedAt} 起 · ${total}`);
           if (settled.status === "done" && settled.answer !== undefined && conversation !== undefined) {
             const answer = await runtime.answerText(conversation, settled.answer, settled.entry);
-            await replyOrSend(
+            // Into the card that asked, not a second card beside it: one message, one card. Posting
+            // a fresh card left the interrupted one frozen at 处理中 and made the same work appear
+            // twice in the chat.
+            await deliverAnswer(
               card.chatId,
-              card.messageId,
-              card.thread,
+              card.cardId,
               answer.length > 0 ? answer : "（模型没有返回文本）",
               `✅ ${total} · ${startedAt} 起，中途进程重启过`,
+              undefined,
               { template: "green", title: "✅ 答完了（重启后补发）" },
             );
             log("feishu", "recovered answer delivered", { chatId: card.chatId, chars: answer.length, total });
@@ -2760,25 +2768,25 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
               `进程重启过，把上次那条答完了（${startedAt} 起，${total}）`,
             );
           } else {
-            await replyOrSend(
+            await deliverAnswer(
               card.chatId,
-              card.messageId,
-              card.thread,
+              card.cardId,
               settled.reason === "turn_limit"
                 ? `上次那条跑到 ${config.maxTurns} 步上限就停了（工作是接着跑的，进度都在）。回一句「继续」我接着做。`
                 : `上次那条没答出来（${settled.reason ?? "unanswered"}）。回一句「继续」我接着做。`,
               `${startedAt} 起 · ${total}`,
+              undefined,
               standaloneHeader(settled.reason),
             );
           }
         } catch (error) {
           logError("feishu", "could not recover answer", error);
-          await replyOrSend(
+          await deliverAnswer(
             card.chatId,
-            card.messageId,
-            card.thread,
+            card.cardId,
             "上次那条恢复失败，麻烦再发一次。",
             `❌ 恢复失败`,
+            undefined,
             { template: "red", title: "❌ 恢复失败" },
           ).catch(() => {});
         } finally {
