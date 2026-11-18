@@ -6,6 +6,8 @@
 #   ./scripts/agentctl uninstall         # unload both jobs
 #   ./scripts/agentctl start|stop|restart|status   # restart waits for the running turn to settle
 #                                                # (--force kills it; durable storage resumes it)
+#   ./scripts/agentctl restart-later             # same wait, run by launchd as its own one-shot job, so
+#                                                # the caller may be the agent itself (see restart-once)
 #   ./scripts/agentctl logs [n]          # agent log tail
 #   ./scripts/agentctl backup            # run a backup now
 #   ./scripts/agentctl backups           # list snapshots
@@ -20,6 +22,10 @@ LOG_MAX_BYTES="${LOG_MAX_BYTES:-5242880}"   # 5 MB per file, three generations: 
 
 LABEL="com.pitta.agent"
 BACKUP_LABEL="$LABEL.backup"
+# A restart asked for from inside a turn cannot do the bootout itself: the bootout
+# kills the turn mid-sentence. This second job does the waiting instead, and being
+# a job of its own it survives the agent going away.
+LATER_LABEL="$LABEL.restart-later"
 PROJECT="$(cd "$(dirname "$0")/.." && pwd)"
 AGENTS="$HOME/Library/LaunchAgents"
 DOMAIN="gui/$(id -u)"
@@ -99,6 +105,34 @@ wait_idle() {
   return 0
 }
 
+# render_later writes the one-shot restart job. KeepAlive must stay false: on
+# 2026-11-18 a restart submitted through `launchctl submit` was re-run every 25 s
+# (20 s sleep + bootout + bootstrap), which restarted the agent 26 times in eleven
+# minutes and killed the turn that asked for it each time.
+render_later() {
+  mkdir -p "$AGENTS" "$PROJECT/logs"
+  cat > "$AGENTS/$LATER_LABEL.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$LATER_LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>$PROJECT/scripts/agentctl</string>
+    <string>restart-once</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><false/>
+  <key>AbandonProcessGroup</key><true/>
+  <key>StandardOutPath</key><string>$PROJECT/logs/restart-later.log</string>
+  <key>StandardErrorPath</key><string>$PROJECT/logs/restart-later.log</string>
+</dict>
+</plist>
+PLIST
+}
+
 load() {
   local label="$1" plist="$2"
   launchctl bootout "$DOMAIN" "$plist" 2>/dev/null || true
@@ -141,6 +175,28 @@ case "${1:-status}" in
     launchctl bootout "$DOMAIN" "$AGENTS/$LABEL.plist" 2>/dev/null || true
     rotate_logs
     load "$LABEL" "$AGENTS/$LABEL.plist"
+    ;;
+  restart-later)
+    # Queue one restart, run by launchd. Used when the caller is the agent itself:
+    # this process goes away with the bootout, so nothing here can watch the turn end.
+    render_later
+    launchctl bootout "$DOMAIN" "$AGENTS/$LATER_LABEL.plist" 2>/dev/null || true
+    launchctl bootstrap "$DOMAIN" "$AGENTS/$LATER_LABEL.plist"
+    launchctl enable "$DOMAIN/$LATER_LABEL"
+    echo "queued: restarts once the running turn settles (log: logs/restart-later.log)"
+    ;;
+  restart-once)
+    # What launchd runs. It unloads itself first so a slow or failed restart cannot
+    # pile up a queue of jobs waiting to do the same thing.
+    launchctl bootout "$DOMAIN" "$AGENTS/$LATER_LABEL.plist" 2>/dev/null || true
+    if ! wait_idle; then
+      echo "left the agent alone: still mid-turn"
+      exit 1
+    fi
+    launchctl bootout "$DOMAIN" "$AGENTS/$LABEL.plist" 2>/dev/null || true
+    rotate_logs
+    load "$LABEL" "$AGENTS/$LABEL.plist"
+    echo "restarted at $(date '+%Y-%m-%d %H:%M:%S')"
     ;;
   status)
     for label in "$LABEL" "$BACKUP_LABEL"; do
