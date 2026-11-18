@@ -8,8 +8,10 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"reflect"
 	"sync/atomic"
 	"time"
@@ -591,10 +593,22 @@ const healthPoll = 10 * time.Second
 // the answer the footer needs, so it is kept rather than returned.
 func (a *App) loadHealth(ctx context.Context) {
 	health, err := a.api.Health(ctx)
+	if healthUnsupported(err) {
+		// A bridge that predates this client answers 404. That is "no report yet", not
+		// "the agent is gone": saying the agent is unreachable while every other panel
+		// loads fine is a false alarm, and the one that teaches people to ignore the dot.
+		health, err = nil, nil
+	}
 	a.apply(func() {
 		a.health, a.healthErr = health, err
 		a.invalidate()
 	})
+}
+
+// healthUnsupported reports a bridge too old to know /api/health.
+func healthUnsupported(err error) bool {
+	var status *api.StatusError
+	return errors.As(err, &status) && status.Code == http.StatusNotFound
 }
 
 // pollHealth keeps the queue and the uptime honest; a bridge that restarts

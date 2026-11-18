@@ -2,11 +2,13 @@ package app
 
 import (
 	"errors"
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 
+	"pitta/internal/api"
 	"pitta/internal/i18n"
 	"pitta/internal/protocol"
 	"pitta/internal/theme"
@@ -106,5 +108,18 @@ func TestHealthChipTurnsRedOnAFailedRead(t *testing.T) {
 	}
 	if tt.HasText("· " + i18n.T("queueDepth")) {
 		t.Fatalf("footer still shows queue numbers from a dead bridge: %q", tt.Texts())
+	}
+}
+
+// TestHealthUnsupportedIsNotUnreachable: the bridge and the app ship separately, so
+// a new window can outrun the agent it talks to. A 404 means "no report yet"; the red
+// footer is reserved for a bridge that is actually not answering.
+func TestHealthUnsupportedIsNotUnreachable(t *testing.T) {
+	missing := &api.StatusError{Method: "GET", Path: "/api/health", Code: http.StatusNotFound, Status: "Not Found"}
+	if !healthUnsupported(missing) {
+		t.Fatal("404 from an older bridge should read as unsupported")
+	}
+	if healthUnsupported(nil) || healthUnsupported(errors.New("dial tcp: connection refused")) {
+		t.Fatal("a real failure must stay unreachable")
 	}
 }
