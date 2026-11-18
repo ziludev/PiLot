@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
-import { UsageDoc, type Conversation } from "@earendil-works/pi-durable";
+import { UsageDoc, type Conversation, type EntryId } from "@earendil-works/pi-durable";
 import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
 import { getFeishuStatus } from "./feishu.ts";
 import { log, logError } from "./log.ts";
@@ -424,13 +424,28 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         if (conversation === undefined) return send(res, 404, { error: "no such conversation" });
         // Newest N, then flipped: `limit` must cut the tail, not the head.
         const limit = Math.min(Number(url.searchParams.get("limit") ?? 100) || 100, 500);
-        const page = await conversation.entries({ order: "descending" }, limit, undefined, context);
-        const newestFirst = [...page.items].reverse();
+        // `before` pages backwards: the client reads a chat in pages of entries,
+        // oldest page last, instead of a chat always ending at its 200th entry.
+        const before = Number(url.searchParams.get("before") ?? 0);
+        // One entry past the page says whether another page waits behind it;
+        // the extra entry is dropped below, so `limit` still means `limit`.
+        const page = await conversation.entries(
+          before > 0
+            ? { order: "descending", maxEntryId: (before - 1) as unknown as EntryId }
+            : { order: "descending" },
+          limit + 1,
+          undefined,
+          context,
+        );
+        const hasMore = page.items.length > limit;
+        const newestFirst = [...page.items.slice(0, limit)].reverse();
         const agent = await conversation.agent(context).catch(() => undefined);
         const waits = await runtime.approvalWaits(conversation.id as unknown as number).catch(() => []);
         const spend = await usageOf(conversation.id as unknown as number).catch(() => ({ cost: 0, tokens: 0 }));
         return send(res, 200, {
           conversationId: conversation.id as unknown as number,
+          // Another page waits behind this one: the client offers to read it.
+          hasMore,
           approvalWaits: waits,
           usage: { ...spend, turns: await countTurns(conversation.id as unknown as number) },
           model: agent?.model ?? null,

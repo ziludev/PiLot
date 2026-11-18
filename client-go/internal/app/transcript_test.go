@@ -547,3 +547,29 @@ func TestStoppingNearTheEndDoesNotYankTheViewBack(t *testing.T) {
 		t.Fatalf("the end did not re-attach the following: stick=%v atBottom=%v", a.stickToBottom, a.atBottom)
 	}
 }
+
+// TestTheHistoryOfferReadsPagesNotTurns: when every loaded turn is drawn and the
+// bridge still holds entries above them, the button reads the next page instead
+// of opening a window that has nothing behind it.
+func TestTheHistoryOfferReadsPagesNotTurns(t *testing.T) {
+	i18n.Set(i18n.EN)
+	a := transcriptApp(turnEntries(1, "why is the sky blue", "Rayleigh scattering.")...)
+	a.turnWindow = 60
+	a.historyMore = true
+	tt := ui.NewTester(func(c *ui.Context) { a.main(c) }, 800, 400)
+	tt.Frame()
+	tt.Frame()
+	if !tt.HasText(i18n.T("olderMessages")) {
+		t.Fatalf("a chat with entries above it offered no page; texts=%q", tt.Texts())
+	}
+	if tt.HasText(i18n.T("earlierTurns")) {
+		t.Fatalf("a chat that draws every loaded turn offered turns; texts=%q", tt.Texts())
+	}
+
+	// Once the page is in, the offer goes away.
+	a.apply(func() { a.historyMore = false })
+	tt.Frame()
+	if tt.HasText(i18n.T("olderMessages")) {
+		t.Fatalf("the offer stayed after the chat began where it begins; texts=%q", tt.Texts())
+	}
+}

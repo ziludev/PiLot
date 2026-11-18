@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"reflect"
 	"sync/atomic"
 	"time"
 
@@ -113,6 +114,17 @@ type App struct {
 	// parses every entry, and a frame that only scrolls parses nothing.
 	turnCache []turns.Turn
 	turnStale bool
+
+	// The chat's history is longer than the first page: historyMore says the
+	// bridge still holds entries older than the ones loaded, historyLoading
+	// stops a second request while one is in flight.
+	historyMore    bool
+	historyLoading bool
+	// anchorMaxY is the scroll range before older entries were put above the
+	// view; the frame after they are laid out moves the offset down by the
+	// difference, so the reader stays on the turn they were reading.
+	anchorMaxY  float32
+	anchorArmed bool
 
 	// M2 layout: the side panel and the file view share the middle pane.
 	sideOpen  bool
@@ -564,6 +576,23 @@ func (a *App) init() {
 	}
 	a.openDefaultConversation()
 	go a.pollApprovals()
+	go a.pollSurfaces()
+}
+
+// surfacePoll is how often the rail re-reads the bridge. A chat started in
+// Feishu or from the terminal is written by another process and nothing pushes
+// it here, so without a poll the rail is a snapshot of the moment the app
+// started.
+const surfacePoll = 8 * time.Second
+
+// pollSurfaces keeps the rail honest while other surfaces write conversations.
+func (a *App) pollSurfaces() {
+	ctx := context.Background()
+	for {
+		time.Sleep(surfacePoll)
+		// A bridge that is down says so on the socket; a failed poll is not news.
+		_ = a.loadState(ctx)
+	}
 }
 
 // pollApprovals keeps the pending list fresh: a tool call can wait for the
@@ -620,16 +649,31 @@ func (a *App) loadState(ctx context.Context) error {
 	}
 	a.apply(func() {
 		a.noteTaskFinish(a.tasks, st.Tasks)
+		// A poll that brings the same list costs no frame and no tray rebuild;
+		// apply runs on the window's thread asynchronously, so the comparison
+		// and everything that follows it live in this one closure.
+		if a.sameState(st) {
+			return
+		}
 		a.surfaces = st.Surfaces
 		a.tasks = st.Tasks
 		a.projects = st.Projects
 		a.feishu = st.Feishu
+		// The menu bar shows what is running, so the trays do not go stale.
+		a.publishTray()
+		// The other windows share the client, so they share this list too.
+		broadcastSurfaces(a, st.Surfaces)
+		a.invalidate()
 	})
-	// The menu bar shows what is running, so the trays do not go stale.
-	a.publishTray()
-	// The other windows share the client, so they share this list too.
-	broadcastSurfaces(a, st.Surfaces)
 	return nil
+}
+
+// sameState says the poll brought nothing the rail draws differently.
+func (a *App) sameState(st *protocol.State) bool {
+	return reflect.DeepEqual(a.surfaces, st.Surfaces) &&
+		reflect.DeepEqual(a.tasks, st.Tasks) &&
+		reflect.DeepEqual(a.projects, st.Projects) &&
+		reflect.DeepEqual(a.feishu, st.Feishu)
 }
 
 // reloadConversation loads the open conversation and (re)subscribes its socket.
@@ -694,6 +738,9 @@ func (a *App) reloadConversation(current int) {
 	}
 	a.apply(func() {
 		a.entries = conv.Entries
+		a.historyMore = conv.HasMore
+		a.historyLoading = false
+		a.anchorArmed = false
 		a.turnStale = true
 		a.model = conv.Model
 		a.thinking = conv.ThinkingLevel

@@ -297,3 +297,47 @@ func TestLiveMarkdownRender(t *testing.T) {
 }
 
 var _ = protocol.Entry{}
+
+// TestLiveOlderPagesLoad walks a real chat back past its first page: the client
+// asks the bridge for the entries above the oldest one it holds, and what comes
+// back lands above them, once, in the chat's order.
+func TestLiveOlderPagesLoad(t *testing.T) {
+	if os.Getenv("PITTA_LIVE") == "" {
+		t.Skip("set PITTA_LIVE=1 to read the real bridge")
+	}
+	a := New(liveConfig())
+	a.previewImage = -1
+	a.init()
+	conversationID := 512
+	if value := os.Getenv("PITTA_CONV"); value != "" {
+		conversationID = atoi(value)
+	}
+	loadEntries(t, a, conversationID)
+	first, oldest := len(a.entries), a.oldestEntryID()
+	a.apply(func() { a.historyMore = true })
+	if first == 0 {
+		t.Skipf("conversation %d has no entries", conversationID)
+	}
+
+	a.loadOlder()
+	// The request runs in a goroutine; without a window it hands the page back
+	// inline, so a short wait is enough for the handler to land.
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if len(a.entries) > first || !a.historyMore {
+			break
+		}
+	}
+	if len(a.entries) <= first {
+		t.Fatalf("a page of older entries added nothing: %d entries", len(a.entries))
+	}
+	if a.entries[len(a.entries)-first].ID != oldest {
+		t.Fatalf("the page was not put above the transcript: %d entries", len(a.entries))
+	}
+	for index := 1; index < len(a.entries); index++ {
+		if a.entries[index].ID <= a.entries[index-1].ID {
+			t.Fatalf("entry %d is out of order: %d after %d", index, a.entries[index].ID, a.entries[index-1].ID)
+		}
+	}
+	t.Logf("conversation %d: %d entries after one page, oldest %d, more=%v",
+		conversationID, len(a.entries), a.entries[0].ID, a.historyMore)
+}
