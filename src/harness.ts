@@ -23,7 +23,7 @@ import { titleExtension } from "./title.ts";
 import { contextGuardExtension } from "./context-guard.ts";
 import { ChatMemory, GlobalMemory, memoryExtension, type Note } from "./memory.ts";
 import type { ToolStep } from "./details.ts";
-import { answerTextInTx } from "./answer.ts";
+import { answerBlocksInTx, answerTextInTx, type AnswerBlock } from "./answer.ts";
 import { reminderExtension } from "./reminders.ts";
 import { guardExtension } from "./approval.ts";
 import { diagnosticsExtension } from "./diagnostics.ts";
@@ -140,6 +140,8 @@ export type AgentRuntime = {
    * the run; without it only the final answer entry is read. See src/answer.ts.
    */
   answerText(conversation: Conversation, answerId: EntryId, fromId?: EntryId): Promise<string>;
+  /** The same run as blocks, each with the tool calls it was followed by, for composing a card. */
+  answerBlocks(conversation: Conversation, answerId: EntryId, fromId?: EntryId): Promise<AnswerBlock[]>;
   /** Tool calls of one run, in order, with short output previews. */
   turnSteps(conversation: Conversation, from: number, to: number): Promise<ToolStep[]>;
   budget(surfaceId: string): Promise<BudgetCheck>;
@@ -556,6 +558,10 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     return conversation.commit((tx) => answerTextInTx(tx, conversation.id, answerId, fromId), context);
   }
 
+  async function answerBlocks(conversation: Conversation, answerId: EntryId, fromId?: EntryId): Promise<AnswerBlock[]> {
+    return conversation.commit((tx) => answerBlocksInTx(tx, conversation.id, answerId, fromId), context);
+  }
+
   log("agent", `mcp: ${mcp.serverCount} servers, ${mcp.toolCount} tools`);
 
   const runtime: AgentRuntime = {
@@ -595,6 +601,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     recordMessage: recordMessageFor,
     turnSteps,
     answerText,
+    answerBlocks,
     memories: async (conversation) => ({
       global: (await harness.snapshot(GlobalMemory, context))?.notes ?? [],
       chat: (await harness.snapshot(ChatMemory, conversation.id, context))?.notes ?? [],

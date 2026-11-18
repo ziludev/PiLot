@@ -7,6 +7,7 @@ import { config, requireFeishuCredentials, requireFeishuOwner } from "./config.t
 import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
 import { watchLive, type LiveSnapshot } from "./live.ts";
 import { advance, renderSteps, stepCount, type Trail } from "./steps.ts";
+import { composeAnswer, type AnswerBlock } from "./answer.ts";
 import { setApprovalDecider, setNotifier, type ApprovalRequest } from "./channel.ts";
 import { log, logError } from "./log.ts";
 import { record } from "./audit.ts";
@@ -2063,10 +2064,13 @@ const continuing = new Set<string>();
             );
           }
         }
+        const blocks = await runtime
+          .answerBlocks(conversation, settled.answer, settled.entry)
+          .catch(() => [] as AnswerBlock[]);
         await deliverAnswer(
           chatId,
           cardId,
-          answer || "（模型没有返回文本）",
+          blocks.length > 0 ? composeAnswer(blocks) : answer || "（模型没有返回文本）",
           meta,
           undefined,
           claim === undefined ? { template: "green", title: "✅ 答完了" } : doneVerdict(claim),
