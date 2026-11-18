@@ -86,6 +86,11 @@ func (a *App) transcript(c *ui.Context) {
 							a.invalidate()
 						})
 					})
+			} else if a.historyMore {
+				// Every loaded turn is drawn and the chat still has entries above
+				// them: this button is what reads further back.
+				ui.Button(c, i18n.T("olderMessages")).
+					OnClick(func() { a.loadOlder() })
 			}
 			for i := start; i < end; i++ {
 				turn := &built[i]
@@ -957,6 +962,16 @@ func (a *App) followScroll() {
 		}
 		a.pageGliding = false
 	}
+	if a.anchorArmed {
+		// Older entries landed above the view: hold the reader on the turn they
+		// were reading by moving the offset down by the height that arrived.
+		a.anchorArmed = false
+		if !a.stickToBottom {
+			if grown := state.MaxY - a.anchorMaxY; grown > 0 {
+				state.Y += grown
+			}
+		}
+	}
 	if state.MaxY <= 0 {
 		// Content that fits the pane cannot be scrolled away from.
 		a.atBottom, a.stickToBottom, a.newMessages = true, true, 0
@@ -994,9 +1009,15 @@ func (a *App) followScroll() {
 	// a history the reader scrolls through reads as one, and a chat that began
 	// "in the middle" — the window drew the newest sixty and a button held the
 	// rest — begins where it began.
-	if a.scrolledFromTop && state.Y <= 24 && a.turnWindow < a.turnTotal {
-		a.turnWindow += 60
-		a.invalidate()
+	if a.scrolledFromTop && state.Y <= 24 {
+		if a.turnWindow < a.turnTotal {
+			a.turnWindow += 60
+			a.invalidate()
+		} else if a.historyMore && !a.historyLoading {
+			// The window already shows everything loaded and the chat has entries
+			// above them: reaching the top is the reader asking for that page.
+			a.loadOlder()
+		}
 	}
 	a.scrollY = min(state.Y, state.MaxY)
 	a.scrollMaxY = state.MaxY

@@ -150,7 +150,10 @@ type ApprovalWait struct {
 
 // Conversation is GET /api/conversation.
 type Conversation struct {
-	Entries       []Entry        `json:"entries"`
+	Entries []Entry `json:"entries"`
+	// HasMore says the chat holds entries older than the ones returned, so the
+	// transcript can offer to read further back.
+	HasMore       bool           `json:"hasMore"`
 	Model         *ModelRef      `json:"model"`
 	ThinkingLevel string         `json:"thinkingLevel"`
 	ApprovalWaits []ApprovalWait `json:"approvalWaits"`

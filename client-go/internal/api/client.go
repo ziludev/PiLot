@@ -107,10 +107,27 @@ func (c *Client) State(ctx context.Context) (*protocol.State, error) {
 	return &state, nil
 }
 
-// Conversation reads the newest 200 entries of one chat.
+// Conversation reads the newest page of one chat.
 func (c *Client) Conversation(ctx context.Context, conversationID int) (*protocol.Conversation, error) {
+	return c.conversation(ctx, conversationID, 0)
+}
+
+// ConversationBefore reads the page that ends just before entry `before`, so a
+// chat longer than one page can be read back to its first message.
+func (c *Client) ConversationBefore(ctx context.Context, conversationID, before int) (*protocol.Conversation, error) {
+	return c.conversation(ctx, conversationID, before)
+}
+
+// conversationPage is how many entries one request asks for: enough turns to
+// fill the transcript's window, few enough that the frame stays cheap.
+const conversationPage = 200
+
+func (c *Client) conversation(ctx context.Context, conversationID, before int) (*protocol.Conversation, error) {
 	var conversation protocol.Conversation
-	path := fmt.Sprintf("/api/conversation?id=%d&limit=200", conversationID)
+	path := fmt.Sprintf("/api/conversation?id=%d&limit=%d", conversationID, conversationPage)
+	if before > 0 {
+		path += fmt.Sprintf("&before=%d", before)
+	}
 	if err := c.get(ctx, path, &conversation); err != nil {
 		return nil, err
 	}
