@@ -3,6 +3,9 @@ package app
 import (
 	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
+
+	"pitta/internal/motion"
+	"pitta/internal/theme"
 )
 
 // panelGlass is the material of the layers that float over the client: the same
@@ -21,12 +24,23 @@ func pillGlass() ui.Material { return glass.Glass{Clarity: 0.6} }
 // the earlier client: one line over whatever is under it, instead of the theme's opaque
 // inverse pill mygo draws when the view builds no viewport.
 func (a *App) toasts(c *ui.Context) {
+	t := theme.Current(c)
 	ui.ToastViewportBase(c, func(viewport ui.Element, toasts []ui.Toast) {
 		viewport.Bottom(24).AlignItems(ui.Center).Gap(8)
 		for _, toast := range toasts {
 			parts := ui.ToastBase(c, toast)
-			parts.Root.Row().AlignItems(ui.Center).Gap(8).Padding(10, 14).
-				Radius(12).MaxWidth(420).Material(panelGlass())
+			// ToastBase gives the pill a key of its own (ts.key), so the
+			// transition below has an identity to play against and the exit
+			// ghost matches the node it replaced. Adding a Key here would
+			// replace that key and break both.
+			pill := parts.Root.Row().AlignItems(ui.Center).Gap(8).Padding(10, 14).
+				Radius(12).MaxWidth(420).Material(panelGlass()).
+				Transition(motion.ToastEnter())
+			// ToastBase draws a status box, not its title: the theme's own
+			// toasts fill the pill, so this one has to as well.
+			pill.Children(func() {
+				ui.Text(c, toast.Title).FontSize(13).TextColor(t.Foreground).MaxLines(2)
+			})
 		}
 	})
 }

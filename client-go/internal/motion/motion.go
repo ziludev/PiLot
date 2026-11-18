@@ -33,6 +33,9 @@ const (
 	// EmptyState is the 350 ms fade-and-rise a screen that has nothing to
 	// show comes in with (#072).
 	EmptyState = 350 * time.Millisecond
+	// ToastSlideTime is how long a toast takes to come in from the right, and
+	// to go back out on the same path.
+	ToastSlideTime = 350 * time.Millisecond
 )
 
 // Offsets, in DIPs.
@@ -45,6 +48,15 @@ const (
 	EmptyRise = 8
 	// ContentRise is how far a swapped-in panel rises.
 	ContentRise = 8
+	// ToastSlide is how far a toast comes in from, off the right edge.
+	ToastSlide = 240
+)
+
+// Offset and lifetime numbers that tie two motions together.
+const (
+	// ToastLife is how long a toast stays before it slides out: 1.8 s, which
+	// is also how long its drain bar takes to empty.
+	ToastLife = 1800 * time.Millisecond
 )
 
 // Lift is the animation a hovered row moves by.
@@ -88,5 +100,19 @@ func FadeIn() ui.ElementTransition {
 		Duration: Tabs,
 		Ease:     EaseOutCubic,
 		Enter:    &ui.Motion{Y: ContentRise, Opacity: 0},
+	}
+}
+
+// ToastEnter is how a toast arrives and leaves: it starts 240 px past the
+// right edge, faded out, and settles in over 350 ms; it leaves by the same path
+// over the same time, as sonner's toasts do in the earlier client.
+func ToastEnter() ui.ElementTransition {
+	return ui.ElementTransition{
+		Duration:     ToastSlideTime,
+		Ease:         EaseOutCubic,
+		ExitDuration: ToastSlideTime,
+		ExitEase:     EaseInOutCubic,
+		Enter:        &ui.Motion{X: ToastSlide, Opacity: 0},
+		Exit:         &ui.Motion{X: ToastSlide, Opacity: 0},
 	}
 }
