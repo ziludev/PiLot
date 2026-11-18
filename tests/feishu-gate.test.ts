@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { levelOf, type ChatLevel } from "../src/access.ts";
-import { rejectionReason, type Gate } from "../src/feishu.ts";
+import { rejectionReason, threadDigest, type Gate } from "../src/feishu.ts";
 
 /**
  * One level per chat decides who gets an answer: `closed` answers nobody, `owner` answers only
@@ -146,4 +146,25 @@ test("an @ in a group answers in a topic, a plain message answers inline", async
 
   const direct = event("oc_owner", "ou_owner", { chatType: "p2p", mentions: [{ key: "@_user_1" }] });
   assert.equal(wantsThread(messageOf(direct)), false, "p2p never threads");
+});
+
+/** A topic writes no events for messages we are not mentioned in, and has no per-message quote. */
+test("a topic's own messages reach the model as one block", () => {
+  const items = [
+    { message_id: "om_a", msg_type: "text", body: { content: JSON.stringify({ text: "这个接口是哪个服务的" }) }, sender: { sender_type: "user", sender_name: "王福发" } },
+    { message_id: "om_b", msg_type: "text", body: { content: JSON.stringify({ text: "语音代回任务那块" }) }, sender: { sender_type: "user", sender_name: "熊菲" } },
+    // our own answer is already in the conversation, in full
+    { message_id: "om_c", msg_type: "text", body: { content: JSON.stringify({ text: "在 dora-service" }) }, sender: { sender_type: "app", sender_name: "知衡" } },
+    // the message being answered right now
+    { message_id: "om_d", msg_type: "text", body: { content: JSON.stringify({ text: "@知衡 你再看下" }) }, sender: { sender_type: "user", sender_name: "王福发" } },
+  ];
+  assert.equal(
+    threadDigest(items, { current: "om_d" }),
+    "[话题里最近的 2 条发言]\n王福发: 这个接口是哪个服务的\n熊菲: 语音代回任务那块\n[话题结束]\n\n",
+  );
+});
+
+test("a topic with nothing but our own answers adds nothing", () => {
+  const items = [{ message_id: "om_a", msg_type: "text", body: { content: JSON.stringify({ text: "好了" }) }, sender: { sender_type: "app", sender_name: "知衡" } }];
+  assert.equal(threadDigest(items, { current: "om_b" }), "");
 });
