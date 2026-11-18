@@ -8,6 +8,10 @@ export type LiveSnapshot = {
   tools: string[];
   /** Tail of the running tool's output: this is what makes progress visible. */
   activity?: string;
+  /** Identities of the calls in this round: two `bash` rounds in a row differ here, not by name. */
+  callIds?: string[];
+  /** Tool rounds the run has taken so far, as the engine counts them. */
+  turns?: number;
   busy: boolean;
 };
 
@@ -39,6 +43,7 @@ function readLive(view: unknown): LiveSnapshot {
   const text = textOfMessage(generation?.["message"]);
 
   const tools: string[] = [];
+  const callIds: string[] = [];
   let activity: string | undefined;
   const slots = live["tools"];
   if (Array.isArray(slots)) {
@@ -47,6 +52,8 @@ function readLive(view: unknown): LiveSnapshot {
       const name = record?.["name"];
       if (typeof name !== "string") continue;
       tools.push(name);
+      const callId = record?.["callId"];
+      if (typeof callId === "string") callIds.push(callId);
       if (record?.["status"] !== "running") continue;
       const output = record?.["output"];
       if (typeof output !== "string") continue;
@@ -59,7 +66,16 @@ function readLive(view: unknown): LiveSnapshot {
     }
   }
 
-  return { text, tools, activity, busy: live["run"] !== undefined };
+  const run = asRecord(live["run"]);
+  const turns = run?.["turns"];
+  return {
+    text,
+    tools,
+    callIds,
+    ...(typeof turns === "number" ? { turns } : {}),
+    activity,
+    busy: run !== undefined,
+  };
 }
 
 type LiveWatcher = { stop(): Promise<void> };
