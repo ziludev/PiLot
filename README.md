@@ -26,7 +26,9 @@ Six steps, then it runs — [Install](#install) has the details and the two thin
 - **Storage** — one SQLite file (`.data/agent.sqlite`), one writer process, restored as-is on restart.
 - **Three surfaces** — a Feishu app (long connection: no public IP, domain or certificate), a native macOS desktop app (`client-go/`: Go + mygo/ui on Metal, no webview), and the `durable` CLI.
 
-![Three surfaces, one process, one SQLite file](assets/readme/architecture.svg)
+![Three surfaces, one process, one SQLite file](assets/readme/architecture.png)
+
+![One turn, and what survives a kill -9: a message becomes a durable task, a tool call either answers or waits for approval, and the loop runs until the card closes](assets/readme/turn.png)
 
 ## What it does
 

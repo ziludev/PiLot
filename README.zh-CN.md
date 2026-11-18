@@ -23,7 +23,9 @@
   - `client-go/`：原生 macOS 桌面 app（Go + mygo/ui，Metal 直绘，无 webview）
   - `durable`：CLI
 
-![三个入口，一个进程，一份 SQLite](assets/readme/architecture.svg)
+![三个入口，一个进程，一份 SQLite](assets/readme/architecture.png)
+
+![一轮的生死：消息落成一个 durable task，工具调用要么直接出答案、要么等审批，循环到卡片收尾；kill -9 之后从最后一个 checkpoint 续跑](assets/readme/turn.png)
 
 ---
 
