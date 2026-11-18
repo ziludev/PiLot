@@ -349,7 +349,7 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 	// belonged to one chat would otherwise stay on whichever row took its
 	// place after a scroll.
 	line := ui.Row(c).FillWidth().Height(railRowHeight).PaddingX(6).Gap(4).Radius(6).
-		Key(s.ConversationID).Cursor(ui.CursorPointer)
+		Key(s.ConversationID).Cursor(ui.CursorPointer).Transition(motion.Hover())
 	if row.topic {
 		// A fork sits under the chat it forked from, as the rail indents
 		// it, so the nesting reads without opening anything.

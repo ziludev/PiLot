@@ -1,7 +1,7 @@
 # React 客户端的 UI/UX 与动效：在 mygo 上复刻到什么程度
 
 对照对象：被删除的 React 客户端的 `index.css`、`lib/motion.ts`、各组件里的 Tailwind 类与 Framer Motion 用法（记录留档，见 `docs/history.md`）。
-mygo 版本：v0.9.1（`go.mod`）。结论先行：**动效本身 mygo 完全接得住**（`Transition`、`AnimateTo`、弹簧 `Smooth/Snappy/Bouncy`、`CubicBezier`、`Enter`/`Exit` 的 `Motion{Collapse,Opacity,X,Y}`），**接不住的是"背景模糊"这一类合成效果**（`backdrop-filter`）。
+mygo 版本：v0.10.0（`go.mod`，见 `docs/mygo-version.md` §5）。结论先行：**动效本身 mygo 完全接得住**（`Transition`、`AnimateTo`、弹簧 `Smooth/Snappy/Bouncy`、`CubicBezier`、`Enter`/`Exit` 的 `Motion{Collapse,Opacity,X,Y}`），**接不住的是"背景模糊"这一类合成效果**（`backdrop-filter`）。
 
 曲线与时长已按 React 的 `motion.ts` 原值搬到 `internal/motion/motion.go`（`EaseInOutCubic`/`EaseOutCubic`、`Accordion 350ms`、`Popover 280/150ms`、`Tabs 250ms`、`HoverLift 300ms`、`EmptyState 350ms`、位移 2/6/8 px），并有 `internal/motion/motion_test.go` 钉住端点与单调性。
 
@@ -9,10 +9,10 @@ mygo 版本：v0.9.1（`go.mod`）。结论先行：**动效本身 mygo 完全�
 
 | React | 做法 | 这里 |
 | --- | --- | --- |
-| `Rail.tsx` 行 hover 上浮 | `hover:-translate-y-[2px] hover:shadow-[0_6px_14px_-6px_rgba(0,0,0,.45)]`，300 ms easeOutCubic | `internal/app/rail.go` 的 `railRow`：`AnimateTo("lift")` 驱动 `Translate(0,-2)`（300 ms easeOutCubic）；阴影即时切换——**`Transition` 不能挂在 `ui.List` 的行上**：行会先被画进图层再合成，实测整栏出现重复行与白色块（`docs/snapshots/rail-dark.png` 曾出现），所以行内的颜色/阴影过渡暂缓，见 §4 |
+| `Rail.tsx` 行 hover 上浮 | `hover:-translate-y-[2px] hover:shadow-[0_6px_14px_-6px_rgba(0,0,0,.45)]`，300 ms easeOutCubic | `internal/app/rail.go` 的 `railRow`：`AnimateTo("lift")` 驱动 `Translate(0,-2)`（300 ms easeOutCubic），颜色与阴影交给行上的 `Transition(motion.Hover())`（v0.9.1 挂在 `ui.List` 行上会画出重复行与白色块，v0.10.0 修掉了，见 `docs/mygo-version.md` §5） |
 | `TurnRail.tsx` 折叠展开 | 350 ms easeInOutCubic 高度过渡 | `transcript.go` 的 `stepRow`：输出块带 `motion.AccordionTransition()`（`Size` + `Enter/Exit Collapse`）；`TestSnapshotStepExpanded` 存了折叠/半程/落定三帧，半程能看到卡片长到一半（无图层错位） |
 | `empty-state.tsx` 空态 | 350 ms 淡入并上浮 8 px | `transcript.go` 空会话块、`railEmpty` 用 `motion.FadeIn()` |
-| `bg-accent/10`、`hover:bg-*` 等颜色切换 | `transition-colors` 100–200 ms | **尚未挂**：`motion.Hover()` 已写好（颜色+阴影过渡），但行在 `ui.List` 里不能带 `Transition`（见上一行），剩下的按钮都在行内。需要时只给不在列表里的控件挂 |
+| `bg-accent/10`、`hover:bg-*` 等颜色切换 | `transition-colors` 100–200 ms | 会话行在 v0.10.0 后挂上 `motion.Hover()`（见上一行）；图标按钮、消息操作按钮、命中回合边框同样用它 |
 | `shadow-sm/lg/2xl` | shadcn 阴影 token | `ui.Shadow(x,y,blur,spread,color)` 手写等效值 |
 | `prefers-reduced-motion` | `@media` 关掉动画 | mygo 自带 `Preferences.ReduceMotion`：`Transition`/弹簧自动改为瞬时，`AnimateTo` 用 `Animation{NonMotion:true}` 保留淡入 |
 
