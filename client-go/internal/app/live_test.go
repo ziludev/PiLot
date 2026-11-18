@@ -35,7 +35,7 @@ func TestLiveBridgeWindow(t *testing.T) {
 	tt := ui.NewTester(a.View, 1180, 820)
 	tt.Frame()
 	tt.Image()
-	if !tt.HasText("Pitta") {
+	if !tt.HasText("PiLot") {
 		t.Fatalf("rail title missing; texts=%q", tt.Texts())
 	}
 	f, err := os.Create("/tmp/pitta-live.png")

@@ -16,9 +16,9 @@ const (
 	drawHold  = 600 * time.Millisecond
 )
 
-// drawnLogo is the thinking state: the app's mark penning itself, the pen running
-// the flame's outline while the ink follows it, then the stand and the filled shape
-// arriving as the line closes. It stands where a spinner said only "busy".
+// drawnLogo is the thinking state: the app's mark assembling itself, the four
+// tiles landing one after another and the stem last, with the arrow cut through
+// them as they arrive. It stands where a spinner said only "busy".
 func drawnLogo(c *ui.Context, size int, ink string) ui.Element {
 	// The frame goes inside the box, not beside it: a box and an image returned
 	// together are two layout children, so the row took the box's width as a gap

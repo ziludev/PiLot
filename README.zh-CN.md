@@ -1,6 +1,8 @@
-# pitta
+# PiLot
 
 [English](README.md) · **中文**
+
+*PiLot：一个 Pi，无限可能。*
 
 跑在 [Pi Durable](https://earendil.com/posts/pi-durable/) 上的个人助理：飞书里聊、桌面上看、终端里也能用，进程挂了不丢对话。
 
@@ -168,7 +170,7 @@ macOS（launchd 与桌面端只做了 macOS），Node 22+，`git`。`ffmpeg`、`
 语音转写、语音消息、飞书原生工具。
 
 ```bash
-git clone https://github.com/ziludev/pitta.git && cd pitta
+git clone https://github.com/ziludev/PiLot.git && cd PiLot
 ./bin/durable setup
 ```
 
@@ -202,8 +204,8 @@ durable doctor            # 同一套读回校验，随时可跑
 ```bash
 cd client-go
 go run .                         # 直接连本地桥，开窗
-go tool mygo build -skip-dmg     # 产出 build/darwin-arm64/Pitta.app
-rsync -a --delete build/darwin-arm64/Pitta.app ~/Applications/   # 然后 open ~/Applications/Pitta.app
+go tool mygo build -skip-dmg     # 产出 build/darwin-arm64/PiLot.app
+rsync -a --delete build/darwin-arm64/PiLot.app ~/Applications/   # 然后 open ~/Applications/PiLot.app
 ```
 
 窗口由 mygo/ui 在 Metal 上直绘：没有 webview，也没有前端构建步骤。功能对照、快捷键与旧

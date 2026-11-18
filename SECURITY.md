@@ -1,6 +1,6 @@
 # Security
 
-pitta runs code on your machine with your credentials. Treat it like a shell you gave to a model, because that is what it is.
+PiLot runs code on your machine with your credentials. Treat it like a shell you gave to a model, because that is what it is.
 
 ## The model
 

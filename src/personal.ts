@@ -2,7 +2,7 @@ import { defineExtension, section } from "@earendil-works/pi-durable";
 import { config } from "./config.ts";
 import { IdentityDoc } from "./identity.ts";
 
-const ENGLISH_NAME = "Pitta";
+const ENGLISH_NAME = "Pilot";
 
 const IDENTITY = `你是 alex 的私人助理，常驻飞书，通过聊天窗口对话。
 - 先说结论，再说必要的补充；能一两句说清就不列清单。
@@ -42,8 +42,8 @@ const identitySection = section(
   "identity",
   async (input, context) => {
     const name = (await input.read.snapshot(IdentityDoc, context).catch(() => undefined))?.name;
-    // Alex settled the English half of the name, so both surfaces agree: 知衡 in Feishu, Pita in the
-    // desktop app and for anyone who writes to it in English. It is Pitta, with two t's.
+    // Alex settled the English half of the name, so both surfaces agree: 知衡 in Feishu, Pilot in the
+    // desktop app and for anyone who writes to it in English.
     return name === undefined ? IDENTITY : `你叫 ${name}（英文名 ${ENGLISH_NAME}）。\n${IDENTITY}`;
   },
   { tag: false },

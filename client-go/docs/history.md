@@ -29,7 +29,7 @@ React 行为在 Go 侧都有落点，括号里是测试或证据的位置。
 | composer 输入历史（↑/↓ 召回） | `internal/app/history.go` |
 | 文件预览按类型上色（Go/TS/Python/Rust…） | `internal/side/highlight.go` |
 | 通知点击落到对应会话 | `internal/notify` + `main.go` 的 `OnNotificationClick` |
-| 深链 `pitta://chat/123[?window=new]` | `internal/app/deeplink.go` + `mygo.config.ts` 的 `urlSchemes` |
+| 深链 `pilot://chat/123[?window=new]` | `internal/app/deeplink.go` + `mygo.config.ts` 的 `urlSchemes` |
 | 自绘标题栏、Dock 角标、托盘（含待批条目）、菜单栏 | `main.go`、`internal/app/menu.go` |
 | Liquid Glass 的浮层（菜单、错误胶囊、跳转条、toast） | `internal/app/glass.go` |
 | 代码块语法高亮（React 客户端只有等宽 `<pre>`） | mygo `ui/markdown` |

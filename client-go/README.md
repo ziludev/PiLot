@@ -1,4 +1,4 @@
-# Pitta（Go + mygo）
+# PiLot（Go + mygo）
 
 pi-durable-agent 的桌面客户端，用 Go 和 [mygo](https://github.com/egoist/mygo) 的 `ui` 包原生渲染（GPU，Metal），不走 webview。渲染基于 `github.com/egoist/mygo` **v0.9.1**（`go.mod:5`；为什么不是 0.6.4 见 `docs/mygo-version.md`）。
 功能对齐基线是它替换掉的那个 webview 客户端（已删除，覆盖核对与差异记录在 [docs/history.md](docs/history.md)，原始对照表保留在 [docs/parity.md](docs/parity.md)）。
@@ -6,16 +6,16 @@ pi-durable-agent 的桌面客户端，用 Go 和 [mygo](https://github.com/egois
 ## 构建与运行
 
 ```sh
-go tool mygo build -skip-dmg     # → build/darwin-arm64/Pitta.app
-open build/darwin-arm64/Pitta.app
+go tool mygo build -skip-dmg     # → build/darwin-arm64/PiLot.app
+open build/darwin-arm64/PiLot.app
 ```
 
-装到用户目录（与 `/Applications` 里同名的 mygo webview 版 Pitta 分开，别覆盖它）：
+装到用户目录（不覆盖 `/Applications` 里的任何构建）：
 
 ```sh
-pkill -f "$HOME/Applications/Pitta.app/Contents/MacOS/Pitta"
-rsync -a --delete build/darwin-arm64/Pitta.app "$HOME/Applications/"
-open "$HOME/Applications/Pitta.app"
+pkill -f "$HOME/Applications/PiLot.app/Contents/MacOS/PiLot"
+rsync -a --delete build/darwin-arm64/PiLot.app "$HOME/Applications/"
+open "$HOME/Applications/PiLot.app"
 ```
 
 `go tool mygo` 由 go.mod 的 `tool` 指令提供（`go get -tool github.com/egoist/mygo/cmd/mygo`）。
@@ -33,8 +33,9 @@ open "$HOME/Applications/Pitta.app"
 
 ## 图标
 
-`resources/icon.png`（1024×1024）由 `resources/pitta-logo-dark.svg` 渲染而来——就是 pitta-gpui 用的那套 logo（深色底 + 白色鸟形）。
-重跑 `./scripts/render-icon.sh` 刷新，`go tool mygo build` 会把它打成 `AppIcon.icns`。
+`resources/icon.png`（1024×1024）由 `resources/pilot-app-icon.svg` 渲染而来——就是 PiLot 品牌资产里的 app icon（`#182235` 圆角底 + 五色模块与白箭头）。
+托盘图标 `resources/tray.png` 由 `resources/pilot-mark.svg`（单色 mono symbol）渲染，是模板图标，菜单栏按自己的配色上色。
+重跑 `./scripts/render-icon.sh` 刷新，`go tool mygo build` 会把它打成 `AppIcon.icns`。脚本要求 Chrome（`CHROME` 可覆盖路径）与 python3 + Pillow。
 
 ## 目录
 

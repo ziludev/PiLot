@@ -21,7 +21,7 @@ const (
 	paletteExport    = "Export this chat as Markdown"
 	paletteSettings  = "Settings…"
 	paletteLogs      = "Open the agent's logs"
-	paletteQuit      = "Quit Pitta"
+	paletteQuit      = "Quit PiLot"
 	paletteNewWindow = "Open in a new window"
 	paletteHint      = "Run a command…  (⌫ to search chats)"
 )

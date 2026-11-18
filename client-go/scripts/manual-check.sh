@@ -10,7 +10,7 @@ out=${1:-docs/manual-checks}
 mkdir -p "$out"
 
 window_rect() {
-  osascript -e 'tell application "System Events" to tell process "Pitta" to get {position, size} of window 1' \
+  osascript -e 'tell application "System Events" to tell process "PiLot" to get {position, size} of window 1' \
     2>/dev/null | tr -d ' ' | awk -F, '{print $1","$2","$3","$4}'
 }
 
@@ -18,7 +18,7 @@ shot() {
   local name=$1 rect
   rect=$(window_rect)
   if [ -z "$rect" ]; then
-    echo "cannot find the Pitta window; open ~/Applications/Pitta.app first" >&2
+    echo "cannot find the PiLot window; open ~/Applications/PiLot.app first" >&2
     exit 1
   fi
   sleep 0.6
@@ -41,8 +41,8 @@ step() {
   shot "$name"
 }
 
-echo "This writes into $out and takes four screenshots of the Pitta window."
-echo "Keep the Pitta window visible; do not type into the terminal during a step."
+echo "This writes into $out and takes four screenshots of the PiLot window."
+echo "Keep the PiLot window visible; do not type into the terminal during a step."
 : >"$out/results.txt"
 
 step 1-ime "在输入框里用中文输入法打 'nihao'，让候选框弹出、先不要上屏；按 Enter 一次（应既不发送也不换行，拼音仍在候选状态）；再按空格上屏，然后按 ⌘Enter 发送。"

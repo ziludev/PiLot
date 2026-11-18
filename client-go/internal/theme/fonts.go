@@ -20,7 +20,7 @@ var GeistTTF []byte
 // Geist here: without it, a Chinese title in the rail draws as empty boxes,
 // because Geist carries no CJK glyphs and mygo does not fall back across
 // families.
-const FontFamily = "Pitta Sans"
+const FontFamily = "PiLot Sans"
 
 // cjkFonts are tried in order; the first one present on disk joins the family.
 // They are read from the system rather than embedded: they are 20 MB and
