@@ -17,6 +17,7 @@ import { branches, commitDiff, commitLog, compareUrl, pushBranch, remoteInfo } f
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { ChatMemory, GlobalMemory, WorkMemory } from "./memory.ts";
+import { healthReport } from "./health.ts";
 
 /**
  * Local HTTP + WebSocket bridge so a desktop client is just another watcher.
@@ -134,6 +135,9 @@ function conversationIdOf(value: Json): number | undefined {
 }
 
 type AgentServer = { port: number; close(): Promise<void> };
+
+/** When this bridge started answering: what an uptime is measured from. */
+const BRIDGE_STARTED_AT = Date.now();
 
 export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServer> {
   const { port, host } = config.http;
@@ -309,6 +313,11 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
           })),
           usage,
         });
+      }
+
+      if (req.method === "GET" && path === "/api/health") {
+        // Never 5xx: the client reads a failed health check as "the agent is gone".
+        return send(res, 200, await healthReport(runtime, context, BRIDGE_STARTED_AT));
       }
 
       if (req.method === "GET" && path === "/api/projects") {

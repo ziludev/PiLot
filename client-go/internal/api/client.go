@@ -107,6 +107,16 @@ func (c *Client) State(ctx context.Context) (*protocol.State, error) {
 	return &state, nil
 }
 
+// Health asks the bridge how it is. The error is the answer that matters most:
+// a failed request is how the footer learns the agent is not there.
+func (c *Client) Health(ctx context.Context) (*protocol.Health, error) {
+	var health protocol.Health
+	if err := c.get(ctx, "/api/health", &health); err != nil {
+		return nil, err
+	}
+	return &health, nil
+}
+
 // Conversation reads the newest page of one chat.
 func (c *Client) Conversation(ctx context.Context, conversationID int) (*protocol.Conversation, error) {
 	return c.conversation(ctx, conversationID, 0)

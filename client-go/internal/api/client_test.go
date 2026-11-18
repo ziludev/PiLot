@@ -60,6 +60,9 @@ const (
 
 	taskBody = `{"id":1084,"kind":"app.usage-sampler","conversationId":1,"owner":null,"background":true,` +
 		`"abortRequested":false,"status":"sleeping","phase":null,"until":1794819765170,"input":null,"outcome":null,"retries":0}`
+
+	healthBody = `{"pid":39217,"startedAt":"2026-11-18T02:05:11.412Z","uptimeMs":11520000,"version":"0.4.2",` +
+		`"queueDepth":2,"runningTurns":1,"conversations":7,"somethingNew":true}`
 )
 
 func TestClientGET(t *testing.T) {
@@ -89,6 +92,22 @@ func TestClientGET(t *testing.T) {
 				}
 				if state.Feishu == nil || !state.Feishu.Ready || state.Feishu.DownMs != 0 {
 					t.Fatalf("feishu = %+v", state.Feishu)
+				}
+			},
+		},
+		{
+			name: "health", path: "/api/health", body: healthBody,
+			call: func(c *Client) (any, error) { return c.Health(ctx) },
+			check: func(t *testing.T, got any) {
+				health := got.(*protocol.Health)
+				if health.PID != 39217 || health.Version != "0.4.2" {
+					t.Fatalf("health = %+v", health)
+				}
+				if health.QueueDepth != 2 || health.Running != 1 || health.Chats != 7 {
+					t.Fatalf("counts = %+v", health)
+				}
+				if health.UptimeMS != 11520000 || health.StartedAt != "2026-11-18T02:05:11.412Z" {
+					t.Fatalf("uptime = %+v", health)
 				}
 			},
 		},
