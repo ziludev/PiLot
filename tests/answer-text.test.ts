@@ -118,3 +118,38 @@ test("a one-line ending keeps the analysis above it", () => {
   assert.ok(text.includes("已部署到 release/test。"));
   assert.ok(!text.includes("_过程"), text);
 });
+
+test("a long narration line ends on a sentence, not mid-parenthesis", () => {
+  const blocks = answerBlocksOf([
+    narration(
+      "查到了，就是刚才 20:10:53 那一次。**这次转换失败的原因是调用 ElevenLabs 转换接口时 HTTP 请求超时（8 秒上限），重试一次就过了，所以既不是稳定复现的 bug，也不是音色数据的问题，而是超时阈值太紧。**除此之外没有任何报错。",
+      "report_done",
+    ),
+    narration("两点补充说明，方便你直接回复熊非：超时阈值改到 20s 并加一次重试；陪陪那边不用重新录制，任务已经关闭。"),
+  ]);
+  const text = composeAnswer(blocks);
+  assert.match(text, /_过程：_/, "one narration block needs no segment count");
+  const line = text.split("\n").find((item) => item.startsWith("· ")) ?? "";
+  assert.ok(!line.includes("**"), line);
+  assert.ok(line.includes("20:10:53 那一次。"), line);
+  assert.ok(
+    !/（[^（）]*…$/.test(line.replace(/（report_done）$/, "")),
+    `the cut is not inside a parenthesis: ${line}`,
+  );
+});
+
+test("a narration with no sentence inside the limit cuts on a clause", () => {
+  const blocks = answerBlocksOf([
+    narration(
+      "先把数据库里那条 submission 的账查清楚，再看 bridge 的重启记录，然后把两条日志对齐逐个时间点比对，最后确认是投递重复而不是回合重跑，顺带把 accepted 计数也拉出来核对一遍。",
+      "bash",
+    ),
+    narration(
+      "结论：重复投递来自 ack 时机——SDK 要等 handler resolve 才确认，而 handler 等整个回合，于是同一批消息被投了三次。已改成 handler 立即返回，ops 那侧的计数也一起改了。",
+    ),
+  ]);
+  const text = composeAnswer(blocks);
+  const line = (text.split("\n").find((item) => item.startsWith("· ")) ?? "").replace(/（bash）$/, "");
+  assert.ok(line.endsWith("…") || line.endsWith("。"), line);
+  assert.ok(line.includes("，"), "the visible part is whole clauses, not a chopped word");
+});

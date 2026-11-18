@@ -57,11 +57,25 @@ export function answerBlocksOf(entries: readonly AnswerEntry[]): AnswerBlock[] {
   return blocks;
 }
 
-/** First line of a block, without the colon it was about to explain. */
-function headline(text: string, limit = 70): string {
-  const line = text.split("\n").map((item) => item.trim()).find((item) => item.length > 0) ?? "";
+/**
+ * First line of a block, without the colon it was about to explain.
+ *
+ * A hard cut at 70 characters ended mid-sentence — "…超时（8 秒上限…" with the bold marker left
+ * dangling — which reads as broken output rather than a summary. So emphasis is stripped first and
+ * the cut lands on a sentence end when the line has one, otherwise on the last clause boundary.
+ */
+function headline(text: string, limit = 120): string {
+  const plain = text.replace(/\*\*/g, "").replace(/`/g, "");
+  const line = plain.split("\n").map((item) => item.trim()).find((item) => item.length > 0) ?? "";
   const bare = line.replace(/[：:]$/, "");
-  return bare.length > limit ? `${bare.slice(0, limit - 1)}…` : bare;
+  if (bare.length <= limit) return bare;
+  // A sentence that ends in the first ~two thirds is the whole point of the line; keep it intact.
+  const sentences = [...bare.matchAll(/[。！？!?]/g)].map((hit) => hit.index ?? 0);
+  const inside = sentences.filter((at) => at + 1 <= limit && at + 1 >= limit / 3).pop();
+  if (inside !== undefined) return bare.slice(0, inside + 1);
+  const clause = [...bare.slice(0, limit).matchAll(/[，、；,;]/g)].map((hit) => hit.index ?? 0).pop();
+  const cut = clause !== undefined && clause >= limit / 2 ? clause : limit - 1;
+  return `${bare.slice(0, cut)}…`;
 }
 
 /**
@@ -87,7 +101,9 @@ export function composeAnswer(blocks: readonly AnswerBlock[]): string {
     const did = block.tools.length > 0 ? `（${block.tools.join(" / ")}）` : "";
     return `· ${headline(block.text)}${did}`;
   });
-  return `${last.text}\n\n_过程 ${narration.length} 段：_\n${lines.join("\n")}`;
+  // "过程 1 段：" in front of a single line is a header for nothing.
+  const label = narration.length === 1 ? "_过程：_" : `_过程 ${narration.length} 段：_`;
+  return `${last.text}\n\n${label}\n${lines.join("\n")}`;
 }
 
 /** Every text block of a run, oldest first, blank line between blocks. */
