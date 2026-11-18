@@ -8,7 +8,7 @@ require (
 	// docs/mygo-version.md: 0.6.4 commits the in-progress IME composition
 	// before it handles Enter, so a half-typed pinyin leaked into the sent
 	// message. Nothing else in the app needs a post-0.6.4 API.
-	github.com/egoist/mygo v0.9.1
+	github.com/egoist/mygo v0.10.0
 )
 
 require (

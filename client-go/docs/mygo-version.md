@@ -65,3 +65,28 @@ go build ./... && go vet ./... && go test ./internal/... -count=1
 - 若将来必须回到 0.6.4（例如上游把 0.9 的 API 收回），需要同时做三件事：按上表补回四个替代，
   在 `internal/app` 层禁止组词期间用键盘发送（或改成只能点 Send 按钮），并把
   `TestIMECompositionDoesNotSend` 的期望改成「组词期间 Enter 不发送」的降级断言。
+
+## 5. 2026-11-18：v0.9.1 → v0.10.0
+
+升到 `github.com/egoist/mygo v0.10.0`（`go.mod`）。v0.9.1…v0.10.0 之间 48 个 commit，没有破坏性 API
+变化：`go build ./...`、`go vet ./...`、`go test ./...` 一次通过，没有任何一行调用需要改。
+
+和这个客户端相关的几条：
+
+| commit | 对我们的意义 |
+| --- | --- |
+| `#1921` capture paints again after another window moved the shared atlas | 带 `Transition` 的列表行曾画出重复行与白色块（§4 的阻塞项），可疑成因就在共享 atlas 的捕获；v0.10.0 下已复现不出来（见下） |
+| `#1928` lay out a tree with fewer reads of its elements | 布局少读元素属性，2000 行大文件的首帧开销测试仍在阈值内（62 ms 那次是并行跑测试的噪声，单独跑稳定通过） |
+| `#1904` `ListState.MoveAnimation` | 行进出、换位时的滑行交给 `ui.List` 自己做。我们的会话栏不做重排动画，暂时不用；将来要做「归档后行自动收拢」时先看它 |
+| `#1975` read a child a container walks in four lines of the element | 内部实现变化，无迁移成本 |
+
+### 顺带解掉的阻塞：会话行的颜色过渡
+
+`docs/ui-motion-todo.md` §4 记着「行内颜色/阴影过渡挂在 `ui.List` 行上会出现重复行与白色块，暂不做」。
+升到 v0.10.0 后给 `railRow` 加回 `Transition(motion.Hover())`，悬停、滚动中途各截一帧，都是干净的
+（`/tmp/pitta-motion-row-hover.png`、`pitta-motion-row-scroll.png`），所以这一项补上了：
+
+- 颜色从 `250,250,250` 经 `245,245,246`（30 ms）滑到 `233,233,236`，不是一帧跳过去；
+- 测试 `internal/app/motion_row_test.go:TestRailRowColourGlides` 采样行内留白的像素来判定，
+  去掉 `Transition` 后必然失败（已做变异验证）；
+- 行本身的 2px 抬升仍然由 app 侧 `AnimateTo` 管，框架只管颜色和阴影，两者不打架。
