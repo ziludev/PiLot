@@ -102,10 +102,16 @@ type App struct {
 	prefs         prefs
 	md            markdown.Options
 	steer         bool
-	turnWindow    int
-	// turnTotal is how many turns the transcript has to draw, so reaching the top
-	// knows whether the window is still holding some back.
-	turnTotal int
+	// stepWindow bounds what a frame draws. Turns are not a size: one turn can
+	// carry forty tool calls, and forty of those turns is a second a frame, so
+	// the window counts steps and the transcript stops adding turns to it when
+	// the budget runs out.
+	stepWindow int
+	// turnTotal is how many turns the transcript has to draw, and turnHidden how
+	// many of them the window is holding back, so reaching the top knows whether
+	// there is more to open.
+	turnTotal  int
+	turnHidden int
 	// scrolledFromTop says the view has been somewhere below the top, so reaching
 	// the top is the reader asking for what the window holds back — not a chat
 	// that simply opened there.
@@ -374,7 +380,7 @@ func New(cfg Config) *App {
 		previewImage:  -1,
 		seenApprovals: map[string]bool{},
 		previewScale:  1,
-		turnWindow:    60,
+		stepWindow:    stepWindowDefault,
 		commitDiffs:   map[string]string{},
 		modelsFav:     p.Favorites,
 		modelsRecent:  p.Recents,
