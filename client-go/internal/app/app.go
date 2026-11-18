@@ -99,6 +99,10 @@ type App struct {
 	// Layout and widget state: UI thread only, never read from a goroutine.
 	railWidth     float32
 	railListState ui.ListState
+	// railLeaving holds the chats the rail is still folding out, with the
+	// deadline for each: an archived row stays in the list for motion.RowLeave
+	// so it can collapse instead of vanishing between two frames.
+	railLeaving map[int]bool
 	rows          []railRow
 	prefs         prefs
 	md            markdown.Options
