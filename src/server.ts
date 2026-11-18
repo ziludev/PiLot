@@ -7,6 +7,7 @@ import { getFeishuStatus } from "./feishu.ts";
 import { log, logError } from "./log.ts";
 import { config } from "./config.ts";
 import { subAgentActivity } from "./activity.ts";
+import { lastStops } from "./turn-status.ts";
 import { collectChanges, commitChanges, ensureRepo } from "./changes.ts";
 import { mergeWorktree } from "./worktree.ts";
 import { listApprovals, resolveApproval } from "./approvals.ts";
@@ -224,6 +225,13 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
           return {} as Record<string, ThreadInfo>;
         });
         const entries = Object.entries(chats?.chats ?? {});
+        // Read before the surfaces are built: one query serves all of them.
+        const stops = lastStops(config.dbPath, [
+          ...entries.map(([, conversationId]) => Number(conversationId)),
+          ...Object.entries(threads)
+            .filter(([, info]) => info.surfaceId !== undefined)
+            .map(([conversationId]) => Number(conversationId)),
+        ]);
         const surfaces = await Promise.all(
           entries.map(async ([surfaceId, conversationId]) => {
             const kind = surfaceId.startsWith("oc_") ? "feishu" : surfaceId.startsWith("client:") ? "client" : "other";
@@ -258,6 +266,7 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
               title: own?.title ?? title,
               archived: own?.archived === true,
               projectId: await runtime.projectOfConversation(conversationId as unknown as number).catch(() => undefined),
+              lastStop: stops.get(conversationId as unknown as number),
             };
           }),
         );
@@ -295,6 +304,7 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
             title: title.length > 0 ? title : `话题 ${info.key.slice(-6)}`,
             archived: own?.archived === true,
             projectId: await runtime.projectOfConversation(conversationId).catch(() => undefined),
+            lastStop: stops.get(conversationId),
           });
         }
 
