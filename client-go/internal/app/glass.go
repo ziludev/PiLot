@@ -20,6 +20,29 @@ func panelGlass() ui.Material { return glass.Glass{} }
 // its contrast against the pane rather than the page.
 func pillGlass() ui.Material { return glass.Glass{Clarity: 0.6} }
 
+// drainBar is the hairline along the bottom of a toast that counts its life
+// down: full width when the toast arrives, nothing when it leaves, at a steady
+// rate so the bar and the toast run out together.
+func drainBar(c *ui.Context, parts ui.ToastParts, t theme.Tokens) {
+	fill := float32(1)
+	// Left is the time the toast has left at this frame's clock; it stops when
+	// the viewport is hovered, exactly as the toast's own timer does, so the bar
+	// never promises a departure that has been held back. Asking for a frame
+	// keeps that clock moving while nothing else on screen does.
+	if left := parts.Left(); left > 0 {
+		fill = float32(left) / float32(motion.ToastLife)
+		if fill > 1 {
+			fill = 1
+		}
+		c.AnimationFrame()
+	}
+	// Absolute, so the hairline sits on the pill's edge instead of taking a row
+	// of its own; it covers only the 2 px of padding the title leaves free.
+	ui.Row(c).Absolute().Left(0).Bottom(0).WidthPercent(100).Height(2).Children(func() {
+		ui.Row(c).Height(2).WidthPercent(fill * 100).Background(t.Foreground)
+	})
+}
+
 // toasts draws the client's toasts on glass, as sonner's sit on `.glass` in
 // the earlier client: one line over whatever is under it, instead of the theme's opaque
 // inverse pill mygo draws when the view builds no viewport.
@@ -34,12 +57,13 @@ func (a *App) toasts(c *ui.Context) {
 			// ghost matches the node it replaced. Adding a Key here would
 			// replace that key and break both.
 			pill := parts.Root.Row().AlignItems(ui.Center).Gap(8).Padding(10, 14).
-				Radius(12).MaxWidth(420).Material(panelGlass()).
+				Radius(12).MaxWidth(420).Material(panelGlass()).Clip().
 				Transition(motion.ToastEnter())
 			// ToastBase draws a status box, not its title: the theme's own
 			// toasts fill the pill, so this one has to as well.
 			pill.Children(func() {
 				ui.Text(c, toast.Title).FontSize(13).TextColor(t.Foreground).MaxLines(2)
+				drainBar(c, parts, t)
 			})
 		}
 	})
