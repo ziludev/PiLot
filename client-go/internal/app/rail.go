@@ -459,7 +459,7 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 		if s.Archived {
 			title.Strikethrough().TextColor(t.MutedFg)
 		}
-		drawRailMark(c, t, a.railMarkFor(s.ConversationID, selected), rise)
+		a.railMarkView(c, t, s.ConversationID, a.railMarkFor(s.ConversationID, selected), rise)
 		if s.Cost >= 0.005 {
 			// Under half a cent the number is noise, as in the rail view.
 			rise(ui.Text(c, railCost(s.Cost)).FontSize(10).TextColor(t.MutedFg).MaxLines(1))
@@ -557,25 +557,71 @@ func (a *App) railTasks(c *ui.Context, t theme.Tokens) {
 	if len(tasks) == 0 {
 		return
 	}
+	// No heading: the filter row above already counts the running jobs, and the
+	// footer says it again. A third "Running" only costs the list its room.
 	ui.Divider(c)
-	ui.Row(c).FillWidth().Padding(5, 10).Children(func() {
-		ui.Text(c, i18n.T("running")).FontSize(10).FontWeight(600).TextColor(t.MutedFg)
-	})
+	a.noteTaskAges(tasks)
 	ui.Scroll(c).FillWidth().Height(40).Padding(0, 6).Children(func() {
 		ui.Column(c).FillWidth().Children(func() {
 			for _, task := range tasks {
 				task := task
+				right := a.taskRightLabel(task)
 				ui.Row(c).FillWidth().Height(18).PaddingX(4).Gap(5).
 					AlignItems(ui.Center).OnClick(func() { a.openTask(task.ID) }).Children(func() {
 					ui.Box(c).Size(6, 6).Radius(3).AlignSelf(ui.Center).
 						Background(railTaskColor(t, task.State))
 					ui.Text(c, railTaskTitle(task)).FontSize(10).TextColor(t.SidebarFg).
 						Grow(1).MaxLines(1)
-					ui.Text(c, railTaskState(task.State)).FontSize(9).TextColor(t.MutedFg)
+					ui.Text(c, right).FontSize(9).TextColor(t.MutedFg)
 				})
 			}
+			// A job that has run for four minutes and one that has run for forty
+			// look the same without a clock, and the difference is the whole
+			// question of whether it is working or stuck. Five seconds is the
+			// cheapest tick that keeps the number from looking frozen: every tick
+			// rebuilds the whole window, transcript included.
+			ui.Row(c).Height(0).Loop("elapsed", 5*time.Second, ui.Linear)
 		})
 	})
+}
+
+// noteTaskAges remembers when each live job first showed up, which is the only
+// start time the client has: protocol.Task carries no timestamp of its own.
+func (a *App) noteTaskAges(tasks []protocol.Task) {
+	if len(tasks) == 0 {
+		a.taskSince = nil
+		return
+	}
+	now := time.Now()
+	next := make(map[int]time.Time, len(tasks))
+	for _, task := range tasks {
+		if !taskUnfinished(task.State) {
+			continue
+		}
+		if since, ok := a.taskSince[task.ID]; ok {
+			next[task.ID] = since
+			continue
+		}
+		next[task.ID] = now
+	}
+	a.taskSince = next
+}
+
+// taskRightLabel is what sits at the right end of a job's row: how long it has
+// been going while it goes, and what it is waiting for when it is not.
+func (a *App) taskRightLabel(task protocol.Task) string {
+	if !taskUnfinished(task.State) || task.State == "waiting" || task.State == "blocked" {
+		return railTaskState(task.State)
+	}
+	since, ok := a.taskSince[task.ID]
+	if !ok {
+		return railTaskState(task.State)
+	}
+	elapsed := time.Since(since).Milliseconds()
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	return turns.Clock(elapsed)
 }
 
 // railFooter is the rail's last line: the settings panel's button, the log, and
@@ -771,8 +817,43 @@ func (a *App) archiveSurface(s protocol.Surface) {
 			a.fail("archive chat %d: %v", s.ConversationID, err)
 			return
 		}
-		a.apply(func() { a.markArchived(s.ConversationID, archived) })
+		a.apply(func() {
+			a.markArchived(s.ConversationID, archived)
+			if archived {
+				a.afterArchive(s.ConversationID)
+			}
+		})
 	}()
+}
+
+// afterArchive queues the toast that makes archiving undoable. The row folds out
+// and the chat's only other way back is the archived filter, which nobody opens
+// on purpose; the toast is the way back that does not need a search.
+func (a *App) afterArchive(conversationID int) {
+	a.toast(ui.Toast{
+		ID:       "archived-" + itoa(conversationID),
+		Title:    i18n.T("archive") + " · " + a.surfaceTitleByID(conversationID),
+		Action:   i18n.T("undo"),
+		OnAction: func() { a.unarchive(conversationID) },
+		Timeout:  motion.ToastLife,
+	})
+}
+
+// unarchive puts the chat back after its toast's undo was pressed. The row the
+// toast was raised for is already folded out, so this reloads the rail rather
+// than patching the list it drew.
+func (a *App) unarchive(conversationID int) {
+	archived := false
+	a.goLoad(func() error {
+		if err := a.api.SetSurfaceMeta(contextBG(), api.SurfaceMeta{
+			ConversationID: conversationID,
+			Archived:       &archived,
+		}); err != nil {
+			return err
+		}
+		a.apply(func() { a.markArchived(conversationID, false) })
+		return a.loadState(contextBG())
+	})
 }
 
 // markArchived is the rail side of the archive toggle: the chat drops the
@@ -798,6 +879,9 @@ func (a *App) markArchived(conversationID int, archived bool) {
 func (a *App) foldRowOut(conversationID int) {
 	if a.railLeaving == nil {
 		a.railLeaving = map[int]bool{}
+	}
+	if a.railMarks == nil {
+		a.railMarks = map[int]railMark{}
 	}
 	a.railLeaving[conversationID] = true
 	time.AfterFunc(motion.RowLeave, func() {

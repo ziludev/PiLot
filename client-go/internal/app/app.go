@@ -103,6 +103,16 @@ type App struct {
 	// deadline for each: an archived row stays in the list for motion.RowLeave
 	// so it can collapse instead of vanishing between two frames.
 	railLeaving map[int]bool
+	// railMarks is the last mark each chat showed, so a row whose mark goes away
+	// can fade the one it had instead of blinking out.
+	railMarks map[int]railMark
+	// failureSeen holds the chats whose failed turn the reader has already
+	// opened, and taskSince when each running task was first seen.
+	failureSeen map[int]bool
+	taskSince   map[int]time.Time
+	// pendingToasts are toasts raised off the frame — by a poll, by a job
+	// finishing — which need a context of their own to reach the viewport.
+	pendingToasts []ui.Toast
 	rows          []railRow
 	prefs         prefs
 	md            markdown.Options
@@ -822,6 +832,12 @@ func (a *App) currentValue() int {
 func (a *App) setCurrent(conversationID int) {
 	a.current = conversationID
 	a.currentID.Store(int64(conversationID))
+	if a.failureSeen == nil {
+		a.failureSeen = map[int]bool{}
+	}
+	// Opening the chat is reading its failure: the warning triangle is there to
+	// bring the reader back to a turn that ended badly, not to stay for days.
+	a.failureSeen[conversationID] = true
 }
 
 // goLoad runs one loader in a goroutine and reports its failure in the panel.
@@ -1067,6 +1083,7 @@ func (a *App) View(c *ui.Context) {
 	a.imageDialog(c, t)
 	a.previewDialog(c, t)
 	a.errorPanel(c, t)
+	a.flushToasts(c)
 	a.toasts(c)
 	// The split writes the dragged width into railWidth; keep a copy once it
 	// settles, so the next launch opens the same size.

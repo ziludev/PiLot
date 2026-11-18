@@ -77,6 +77,37 @@ func Answer(chatName, text string, chatID int) {
 	}()
 }
 
+// Task posts a notification for a background job that is over. The rail can say
+// a job is running, and a job that ends drops out of it in silence; if the window
+// is in the background that silence is the whole report, so the job's name is
+// announced the same way an answer is.
+func Task(chatName, taskName string, chatID int) {
+	taskName = strings.Join(strings.Fields(taskName), " ")
+	if taskName == "" {
+		return
+	}
+	title := Agent + " · " + Title
+	if name := strings.TrimSpace(chatName); name != "" && name != Agent {
+		title = clip(name, nameLimit) + " · " + Title
+	}
+	body := "✓ " + clip(taskName, 120)
+	id := IDFor(chatID)
+	go func() {
+		if Sender != nil {
+			if err := Sender(id, title, body); err == nil {
+				return
+			} else {
+				log.Printf("notify: %v", err)
+				record(err)
+			}
+		}
+		script := "display notification " + quote(body) + " with title " + quote(title)
+		if err := exec.Command("osascript", "-e", script).Run(); err != nil {
+			log.Printf("notify: osascript: %v", err)
+		}
+	}()
+}
+
 // clip shortens text to n runes, marking the cut.
 func clip(text string, n int) string {
 	runes := []rune(text)

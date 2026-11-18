@@ -77,6 +77,9 @@ func TestOriginDictionaryStillMatches(t *testing.T) {
 		// Ours: the footer segment that says the bridge is alive, and how much
 		// is waiting behind it.
 		"queueDepth": true, "agentUnreachable": true,
+		// Ours: archiving a chat is undoable from the toast that says it
+		// happened, and a turn that ended on an error says so on the row.
+		"undo": true, "turnFailed": true, "finished": true,
 	}
 	for lang, keys := range origin {
 		if len(keys) == 0 {

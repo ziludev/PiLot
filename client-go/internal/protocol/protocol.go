@@ -28,6 +28,10 @@ type Surface struct {
 	Title          string  `json:"title"`
 	Archived       bool    `json:"archived"`
 	ProjectID      string  `json:"projectId"`
+	// LastStop is how the chat's newest assistant reply ended when that was an
+	// error or an abort. A finished answer leaves it empty, which is what tells a
+	// row that needs its owner apart from one that merely answered.
+	LastStop string `json:"lastStop"`
 }
 
 // Health is GET /api/health: what the bridge says about itself. The footer

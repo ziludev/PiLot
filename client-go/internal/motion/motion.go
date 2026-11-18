@@ -87,6 +87,18 @@ func Hover() ui.ElementTransition {
 // to run an exit motion on (v0.10.0 still behaves this way).
 const RowLeave = 220 * time.Millisecond
 
+// MarkFade is how long a rail row's status mark takes to arrive or leave. The
+// mark says what the chat is doing, so it must not blink on and off between two
+// polls: it fades in when the work starts and out when it is done.
+const MarkFade = 200 * time.Millisecond
+
+// Breathe is the period of the ring that marks a chat as working. A ring that
+// sits still reads as "state"; one that breathes reads as "still going".
+const Breathe = 1300 * time.Millisecond
+
+// MarkIn is the animation a status mark appears and disappears with.
+var MarkIn = ui.Animation{Duration: MarkFade, Ease: EaseOutCubic}
+
 // Fold is the animation a rail row closes with when its chat is archived.
 var Fold = ui.Animation{Duration: RowLeave, Ease: EaseInOutCubic}
 

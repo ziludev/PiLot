@@ -163,12 +163,28 @@ func TestRailListsTheOwnersTasks(t *testing.T) {
 		{ID: 2, Kind: "app.usage-sampler", State: "sleeping"},
 	}
 	tt := railTest(t, a)
-	if !tt.HasText("Ship the rail") || !tt.HasText("running") {
-		t.Fatalf("rail is missing the running task, shows %q", tt.Texts())
+	if !tt.HasText("Ship the rail") {
+		t.Fatalf("rail is missing the running job, shows %q", tt.Texts())
+	}
+	// The row says how long the job has been going instead of repeating the
+	// word the filter row already carries: a job four minutes in and one forty
+	// minutes in read the same without a clock.
+	if clock := taskClock(tt.Texts()); clock == "" {
+		t.Fatalf("the running job's row carries no clock, shows %q", tt.Texts())
 	}
 	if tt.HasText("app.usage-sampler") {
 		t.Fatalf("rail lists the bridge's own task, shows %q", tt.Texts())
 	}
+}
+
+// taskClock is the elapsed time in a rail job's row, or "" when there is none.
+func taskClock(texts []string) string {
+	for _, text := range texts {
+		if text != "" && (strings.HasSuffix(text, "ms") || strings.HasSuffix(text, "s")) && text[0] >= '0' && text[0] <= '9' {
+			return text
+		}
+	}
+	return ""
 }
 
 // TestRailFoldsOtherProjects keeps the chats of the other projects behind one

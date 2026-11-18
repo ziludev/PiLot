@@ -84,6 +84,26 @@ func (a *App) isRunning(conversationID int) bool {
 	return false
 }
 
+// chatFailed reports whether the chat's last turn ended without an answer. The
+// client only holds entries for the chat it has open, so the answer comes from
+// the bridge, which reads it from the newest assistant entry of every listed
+// conversation in one query.
+func (a *App) chatFailed(conversationID int) bool {
+	if a.isRunning(conversationID) {
+		// A new turn in flight has already replaced the failure.
+		return false
+	}
+	if a.failureSeen[conversationID] {
+		return false
+	}
+	for _, surface := range a.surfaces {
+		if surface.ConversationID == conversationID {
+			return surface.LastStop != ""
+		}
+	}
+	return false
+}
+
 // chatSleeping reports whether the chat has work parked until a time of its own.
 func (a *App) chatSleeping(conversationID int) bool {
 	for _, task := range a.tasks {
