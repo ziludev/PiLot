@@ -18,24 +18,28 @@ const MAX_CONVERSATIONS = 12;
 const MAX_ENTRIES = 60;
 const MAX_CHARS_PER_CONVERSATION = 4000;
 
-const PROMPT = `你在整理一个私人助理的长期记忆。输入是最近若干段对话的摘要。
+export const CURATOR_PROMPT = `你在整理一个私人助理的长期记忆。输入是最近若干段对话的摘要。
 
-只抽取"会影响以后对话的稳定事实"：
+只抽取"会影响以后对话的稳定事实"，按价值从高到低：
+- 踩过的坑与修法（最值钱）：什么症状 → 什么做法。报错原文、走错的弯路、最后生效的那条命令
+- 可复用的位置与入口：仓库/配置文件在哪、job 叫什么、日志怎么查
 - alex 的偏好、习惯、表达方式、忌讳
-- 稳定的环境事实（机器、路径、账号、常用工具与约定）
+- 稳定的环境事实（机器、账号、常用工具与约定）
 - 已经拍板的决定、约定、时间点
 
 不要抽取：
+- 对话的总结、进展叙述（"这次我们重构了 X"）——那不是记忆，是一条没有触发条件的摘要
 - 一次性任务、临时结论、调试过程中的猜测
 - 验证码、随机串、一次性的编号
 - 已经存在于"现有记忆"中的内容（哪怕换了说法）
 - 任何凭据、密钥、密码
 
 输出严格 JSON，不要解释、不要代码块：
-{"add":[{"text":"一句话事实","scope":"work","reason":"为什么值得记"}]}
+{"add":[{"text":"触发 → 动作","scope":"work","reason":"为什么值得记"}]}
 
 scope 只用 "work"（项目/环境细节，注入时不出现）或 "chat"（只对这一条对话有用）。
-没有值得记的就输出 {"add":[]}。最多 8 条，每条不超过 80 字。`;
+没有值得记的就输出 {"add":[]}。最多 8 条，每条不超过 80 字，一条只讲一件事：
+一份好的记忆读起来像一张索引卡（"X 报错 → 改 Y"），不是一段总结。`;
 
 function textOfEntry(model: unknown): string {
   const messages = Array.isArray(model) ? (model as Array<Record<string, unknown>>) : [];
@@ -146,7 +150,7 @@ export async function curateMemory(
     if (model === undefined) return { suggestions: [], scanned, tokens: 0, error: "no model" };
 
     const answer = await models.complete(model, {
-      systemPrompt: PROMPT,
+      systemPrompt: CURATOR_PROMPT,
       messages: [
         {
           role: "user",
