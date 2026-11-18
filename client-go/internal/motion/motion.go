@@ -57,6 +57,12 @@ const (
 	// ToastLife is how long a toast stays before it slides out: 1.8 s, which
 	// is also how long its drain bar takes to empty.
 	ToastLife = 1800 * time.Millisecond
+	// Pulse is how long a running step's dot takes to breathe in and out once,
+	// and PulseLow how faint it gets at the bottom of that breath. The dot is
+	// the one mark that says a step is still going, so it fades between two
+	// tones of its own colour rather than moving and dragging the row with it.
+	Pulse    = 1400 * time.Millisecond
+	PulseLow = 0.35
 )
 
 // Lift is the animation a hovered row moves by.

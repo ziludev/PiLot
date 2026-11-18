@@ -462,7 +462,14 @@ func (a *App) stepRow(c *ui.Context, t theme.Tokens, step turns.Step, live bool)
 		// One line per step: a dot, the chevron that says it opens, the label.
 		// All three centre on the same baseline as the transcript's StepRow.
 		ui.Row(c).Gap(6).AlignItems(ui.Center).PaddingY(1).Children(func() {
-			ui.Row(c).Size(5, 5).Radius(3).Background(stepColor(step, t))
+			dot := ui.Row(c).Size(5, 5).Radius(3).Background(stepColor(step, t))
+			if live {
+				// The running step's dot breathes between two tones of its own
+				// colour: the timeline then says where the turn has got to
+				// without a spinner on every row.
+				beat := dot.Loop("pulse", motion.Pulse, ui.Bounce(ui.EaseInOut))
+				dot.Background(stepColor(step, t).Alpha(motion.PulseLow + (1-motion.PulseLow)*beat))
+			}
 			chevron := icons.ChevronRight
 			if open {
 				chevron = icons.ChevronDown
