@@ -1157,6 +1157,95 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     });
   });
 
+  /**
+   * The living half of a card a run is filling: the step trail, the clock in the subtitle, and the
+   * patches that carry them. Both the message path and the continue button own one — the continue
+   * button used to patch "继续中…" once and then sit blank for seven minutes, because the only
+   * thing that knew how to draw progress was inlined in the other path.
+   */
+  function liveCard(
+    conversation: Awaited<ReturnType<AgentRuntime["conversationFor"]>>,
+    cardId: string,
+    digest: string,
+    startedAt: number,
+  ) {
+    // The card's clock: seconds since the turn started, the same number /status would show.
+    const age = (): string => `${Math.round((Date.now() - startedAt) / 1000)}s`;
+    let phase: CardPhase = "live";
+    let last: LiveSnapshot | undefined;
+    let trail: Trail = { rounds: [], since: Date.now() };
+    // A subtitle someone else is writing: queued, stalled. Empty means "show the working line".
+    let status = "";
+    let timer: ReturnType<typeof setInterval> | undefined;
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    let watcher: Awaited<ReturnType<typeof watchLive>> | undefined;
+    let streamErrors = 0;
+    let finished = false;
+    const tools = new Set<string>();
+
+    const body = (): string => {
+      if (last !== undefined) return renderLive(last, { digest }, trail);
+      return digest.length === 0 ? "🤔 思考中…" : `> ${digest}\n\n🤔 思考中…`;
+    };
+    // How far the turn got, in the subtitle: "3 步完成 · 2m18s" beats a bare clock.
+    const working = (): string => {
+      const { done, running } = stepCount(trail);
+      if (done === 0) return `▶️ 处理中 · ${age()}`;
+      return `▶️ 处理中 · ${done} 步完成${running ? " · 正在跑" : ""} · ${age()}`;
+    };
+    const paint = (): void => {
+      if (phase !== "live") return;
+      void patchCard(cardId, body(), status === "" ? working() : status, undefined, WORKING_HEADER).catch((error) => {
+        if (streamErrors < 3) {
+          streamErrors += 1;
+          logError("feishu", "stream patch failed", error);
+        }
+      });
+    };
+
+    return {
+      /** Open the tap: steps land as they happen, and the clock ticks even when nothing does. */
+      async start(): Promise<void> {
+        watcher = await watchLive(conversation, (live) => {
+          if (phase !== "live") return;
+          last = live;
+          trail = advance(trail, live, Date.now());
+          for (const tool of live.tools) tools.add(tool);
+          paint();
+        });
+        // A silent model or a long tool round writes no commits, so tick the card ourselves; the
+        // body is re-rendered from the last snapshot because the running step's clock lives there.
+        timer = setInterval(paint, 20_000);
+      },
+      /** Say something instead of the working line — queued, stalled — until it is cleared. */
+      setStatus(text: string): void {
+        status = text;
+        paint();
+      },
+      clearStatus(): void {
+        status = "";
+        paint();
+      },
+      /** Warn once if the run looks stuck, without cutting it. */
+      stall(afterMs: number): void {
+        watchdog = setTimeout(() => {
+          status = `⏳ ${age()} · 超过 ${Math.round(afterMs / 60_000)} 分钟，可 /stop 中断`;
+          paint();
+        }, afterMs);
+      },
+      tools,
+      /** The run settled: freeze the card so nothing rewrites it under the answer. */
+      async finish(): Promise<void> {
+        if (finished) return;
+        finished = true;
+        phase = "delivering";
+        if (timer !== undefined) clearInterval(timer);
+        if (watchdog !== undefined) clearTimeout(watchdog);
+        await watcher?.stop();
+      },
+    };
+  }
+
 /** Cards with a continue already running, so a double tap cannot start two turns at once. */
 const continuing = new Set<string>();
 
@@ -1169,6 +1258,7 @@ const continuing = new Set<string>();
     if (continuing.has(cardId)) return;
     continuing.add(cardId);
     const startedAt = Date.now();
+    let card: ReturnType<typeof liveCard> | undefined;
     try {
       // The index knows which conversation answered this message; a topic's fork is not the chat's
       // own conversation, so a missing entry is the only case that falls back to the chat.
@@ -1176,12 +1266,17 @@ const continuing = new Set<string>();
       const indexed =
         hit === undefined ? undefined : await runtime.harness.conversation(hit.conversationId as never, context);
       const conversation = indexed ?? (await runtime.conversationFor(chatId));
-      await patchCard(cardId, "▶️ 继续中…", "从卡片继续这一轮", undefined, WORKING_HEADER).catch(() => {});
+      // Same living card as a fresh turn: resuming an 80-step run behind a frozen "继续中…" hides the
+      // seven minutes it takes, which is exactly when someone is watching for progress.
+      card = liveCard(conversation, cardId, "", startedAt);
+      card.stall(300_000);
+      await card.start();
       const submission = await conversation.submit(
         { type: "continue", requestId: `continue-card:${cardId}:${startedAt}` },
         context,
       );
       const settled = await submission.wait(context);
+      await card.finish();
       const seconds = Math.round((Date.now() - startedAt) / 100) / 10;
       log("feishu", "card continue settled", { status: settled.status, seconds });
       if (settled.status === "done" && settled.answer !== undefined) {
@@ -1216,6 +1311,9 @@ const continuing = new Set<string>();
         { template: "red", title: "❌ 出错了" },
       );
     } finally {
+      // An error still has to stop the clock: a live card keeps patching and would paint over
+      // the failure answer a moment after it lands.
+      await card?.finish();
       continuing.delete(cardId);
     }
   }
@@ -1886,69 +1984,20 @@ const continuing = new Set<string>();
     );
 
     // If the run stalls (provider hang, restart mid-run), say so instead of spinning forever.
-    // One subtitle, rewritten by whoever has the most to say: the heartbeat below must not put
-    // "进行中" back over the stall warning a moment after it appears.
-    let subtitle = "";
-    const watchdog = setTimeout(() => {
-      if (phase !== "live") return;
-      subtitle = `⏳ ${elapsed()} · 超过 5 分钟，可 /stop 中断`;
-      void patchCard(cardId, body, subtitle, undefined, WORKING_HEADER).catch(() => {});
-    }, 300_000);
+    const card = liveCard(conversation, cardId, digest, startedAt);
+    card.stall(300_000);
 
-    let streamErrors = 0;
-    // The card's own life, as one value instead of a flag per concern: only a `live` card may be
-    // patched, and settling is a transition rather than "set finished, then remember to check it
-    // in every callback that can still fire". A late watcher or heartbeat therefore cannot put
+    // The card's own life, as one value instead of a flag per concern: only a live card may be
+    // patched, and settling is a transition rather than "set finished, then remember to check it in
+    // every callback that can still fire". A late watcher or heartbeat therefore cannot put
     // "思考中…" back on a finished card, and a new patch site cannot forget the rule.
-    let phase: CardPhase = "live";
-    let body = digest.length === 0 ? "🤔 思考中…" : `> ${digest}\n\n🤔 思考中…`;
-    const trace: CardTrace = { digest };
-    let trail: Trail = { rounds: [], since: Date.now() };
-    // How far along the turn is, in the subtitle: "3 步完成 · 2m18s" beats a bare clock, because the
-    // clock says nothing about whether anything happened.
-    const working = (): string => {
-      const { done, running } = stepCount(trail);
-      if (done === 0) return `▶️ 处理中 · ${elapsed()}`;
-      return `▶️ 处理中 · ${done} 步完成${running ? " · 正在跑" : ""} · ${elapsed()}`;
-    };
-    const toolsUsed = new Set<string>();
-    let lastLive: LiveSnapshot | undefined;
-    const watcher = await watchLive(conversation, (live) => {
-      if (phase !== "live") return;
-      lastLive = live;
-      trail = advance(trail, live, Date.now());
-      body = renderLive(live, trace, trail);
-      for (const tool of live.tools) toolsUsed.add(tool);
-      void patchCard(cardId, body, working(), undefined, WORKING_HEADER).catch((error) => {
-        if (streamErrors < 3) {
-          streamErrors += 1;
-          logError("feishu", "stream patch failed", error);
-        }
-      });
-    });
-
-    // A silent model or a long tool round produces no commits, so tick the card
-    // ourselves: the user should never have to ask "is it still working?". The body is re-rendered
-    // from the last snapshot, because the running step's clock lives in the body and would freeze.
-    const heartbeat = setInterval(() => {
-      if (phase !== "live") return;
-      if (lastLive !== undefined) body = renderLive(lastLive, trace, trail);
-      void patchCard(
-        cardId,
-        body,
-        subtitle === "" ? working() : subtitle,
-        undefined,
-        WORKING_HEADER,
-      ).catch(() => {});
-    }, 20_000);
+    await card.start();
 
     const slot = enqueueTurn(conversation.id as unknown as number);
     if (slot.queued) {
-      subtitle = `⏸️ 排队中 · 上一条还在跑`;
-      void patchCard(cardId, body, subtitle, undefined, WORKING_HEADER).catch(() => {});
+      card.setStatus(`⏸️ 排队中 · 上一条还在跑`);
       await slot.wait;
-      subtitle = "";
-      void patchCard(cardId, body, working(), undefined, WORKING_HEADER).catch(() => {});
+      card.clearStatus();
     }
 
     try {
@@ -2005,10 +2054,7 @@ const continuing = new Set<string>();
       }
 
       // Freeze live output first, then write the answer.
-      phase = "delivering";
-      clearInterval(heartbeat);
-      clearTimeout(watchdog);
-      await watcher.stop();
+      await card.finish();
       if (settled.entry !== undefined) {
         // Remember where this message landed so a later reply can fork at it. The card is
         // indexed too: people reply to the answer, not to their own question, and a thread
@@ -2030,7 +2076,7 @@ const continuing = new Set<string>();
         // real model: the refusal gave way and the file was edited.
         // ... and only when it did not actually edit anything this turn: a real fix that happens
         // to mention the word 只读 must not be thrown away.
-        const edited = toolsUsed.has("write") || toolsUsed.has("edit");
+        const edited = card.tools.has("write") || card.tools.has("edit");
         if (isOwner && isGuestChat && !edited && looksLikeReadOnlyRefusal(answer)) {
           log("feishu", "owner turn answered as read-only, correcting once", { chatId });
           const retry = await conversation
@@ -2064,7 +2110,7 @@ const continuing = new Set<string>();
         }
         const agentPlan = await conversation.agent(context).catch(() => undefined);
         const meta = turnMeta({
-          tools: toolsUsed.size,
+          tools: card.tools.size,
           tokens: Math.max(0, tokensAfter.total - tokensBefore.total),
           costUsd: cost,
           model: modelUsed,
@@ -2133,7 +2179,7 @@ const continuing = new Set<string>();
           const cost = after === undefined ? 0 : Math.max(0, after.spentToday - budget.spentToday);
           const total = Math.round((Date.now() - startedAt) / 100) / 10;
           // Same rule as turnMeta: the ping below carries the duration, so this line does not.
-          const meta = `✅${toolsUsed.size > 0 ? ` · ${toolsUsed.size} 个工具` : ""}${
+          const meta = `✅${card.tools.size > 0 ? ` · ${card.tools.size} 个工具` : ""}${
             cost > 0.00005 ? ` · $${cost.toFixed(4)}` : ""
           } · 到 ${config.maxTurns} 步后续跑 1 次`;
           await deliverAnswer(
@@ -2202,9 +2248,7 @@ const continuing = new Set<string>();
       );
     } finally {
       slot.done();
-      clearTimeout(watchdog);
-      clearInterval(heartbeat);
-      await watcher.stop();
+      await card.finish();
       await clearCardPending(runtime.harness, context, requestId).catch(() => {});
     }
   }
