@@ -1,6 +1,9 @@
 package motion
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // TestCurvesAreEasings pins the two curves to the shape they stand for: both
 // end where they started and finish, and EaseOutCubic is the faster of the two
@@ -42,5 +45,26 @@ func TestTransitionsCarryTheOldNumbers(t *testing.T) {
 	}
 	if Lift.Duration != HoverLift || FadeIn().Enter == nil {
 		t.Fatalf("Lift = %+v, FadeIn = %+v", Lift, FadeIn())
+	}
+}
+
+// TestToastComesInFromTheEdge pins the toast slide: 240 px off the right edge
+// and faded out on both ends, over 350 ms each way.
+func TestToastComesInFromTheEdge(t *testing.T) {
+	tr := ToastEnter()
+	if tr.Duration != 350*time.Millisecond || tr.ExitDuration != 350*time.Millisecond {
+		t.Fatalf("toast slide takes %v in, %v out, want 350 ms each", tr.Duration, tr.ExitDuration)
+	}
+	if tr.Enter == nil || tr.Exit == nil {
+		t.Fatalf("toast slide = %+v, want both ends", tr)
+	}
+	if tr.Enter.X != 240 || tr.Exit.X != 240 {
+		t.Fatalf("toast slides from x=%v in, %v out, want 240", tr.Enter.X, tr.Exit.X)
+	}
+	if tr.Enter.Opacity != 0 || tr.Exit.Opacity != 0 {
+		t.Fatalf("toast is %v opaque in, %v out, want 0", tr.Enter.Opacity, tr.Exit.Opacity)
+	}
+	if tr.Enter.Y != 0 || tr.Enter.Scale != 0 {
+		t.Fatalf("toast moves on x only: %+v", tr.Enter)
 	}
 }
