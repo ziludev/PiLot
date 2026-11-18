@@ -72,15 +72,12 @@ func (a *App) loadOlder() {
 				a.invalidate()
 				return
 			}
-			// The page is drawn above what is on screen, so the frame after it is
-			// laid out moves the offset down by the height it added.
-			a.anchorMaxY, a.anchorArmed = a.transcriptScroll.MaxY, true
+			// The page lands above the view, and the list holds the reader's
+			// place by the row they are on rather than by an offset, so nothing
+			// has to be moved by hand. Only the rows in view are built, so the
+			// page costs the next frame nothing it was not already paying.
 			a.entries = merged
 			a.turnStale = true
-			// The page lands above the window rather than in it: a chat whose
-			// turns carry forty tool calls each costs about a second a frame
-			// when every one of them is drawn, so what the window shows is the
-			// reader's call, made with the button it already had.
 			a.invalidate()
 		})
 	}()

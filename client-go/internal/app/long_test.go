@@ -58,8 +58,6 @@ func TestLiveLongConversation(t *testing.T) {
 		}
 	}
 
-	// Window to the newest turns so one frame stays cheap on a 500-entry chat.
-	a.stepWindow = 120
 	tt := ui.NewTester(a.View, 1180, 820)
 	started := time.Now()
 	tt.Frame()
@@ -164,7 +162,6 @@ func TestLivePatchRender(t *testing.T) {
 		for _, entry := range a.entries {
 			a.stepOpen[entry.ID] = true
 		}
-		a.stepWindow = 120
 	})
 	tt := ui.NewTester(a.View, 1180, 820)
 	tt.Frame()

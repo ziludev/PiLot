@@ -187,14 +187,11 @@ func TestTranscriptFollowsNewestTurn(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) { a.main(c) }, 800, 400)
 	tt.Frame()
 	tt.Frame()
-	if a.transcriptScroll.MaxY <= 0 {
-		t.Fatalf("the transcript did not scroll at all: %+v", a.transcriptScroll)
+	if !a.atBottom || !a.turnList.FollowEnd {
+		t.Fatalf("a fresh chat is not at its end: atBottom=%v followEnd=%v", a.atBottom, a.turnList.FollowEnd)
 	}
-	if !a.atBottom || !a.stickToBottom {
-		t.Fatalf("a fresh chat is not at its end: y=%.1f maxY=%.1f", a.transcriptScroll.Y, a.transcriptScroll.MaxY)
-	}
-	if a.transcriptScroll.MaxY-a.transcriptScroll.Y > 24 {
-		t.Fatalf("the view sits %.1f DIPs from the end", a.transcriptScroll.MaxY-a.transcriptScroll.Y)
+	if !a.turnList.AtEnd() {
+		t.Fatal("the list does not show its last row")
 	}
 
 	// A streamed answer arrives while following: still at the end, nothing
@@ -206,16 +203,16 @@ func TestTranscriptFollowsNewestTurn(t *testing.T) {
 	if a.newMessages != 0 {
 		t.Fatalf("following the stream counted %d unseen entries", a.newMessages)
 	}
-	if a.transcriptScroll.MaxY-a.transcriptScroll.Y > 24 {
-		t.Fatalf("the view stopped following: %.1f DIPs from the end", a.transcriptScroll.MaxY-a.transcriptScroll.Y)
+	if !a.atBottom {
+		t.Fatal("the view stopped following the stream")
 	}
 
 	// The user scrolls up, then two turns arrive: they are counted and the bar
 	// offers to jump to them.
-	a.transcriptScroll.Y = 40
+	tt.Scroll(400, 200, 0, -400)
 	tt.Frame()
 	tt.Frame()
-	if a.stickToBottom {
+	if a.atBottom {
 		t.Fatal("scrolling up did not stop the view from following")
 	}
 	a.growEntries(append(a.entries, protocol.Entry{ID: 9003, Kind: "pi.user"},
@@ -231,8 +228,8 @@ func TestTranscriptFollowsNewestTurn(t *testing.T) {
 	// Jumping back re-sticks the view to the end.
 	a.scrollToNewest()
 	tt.Frame()
-	if !a.stickToBottom || !a.atBottom {
-		t.Fatalf("jump to latest left stick=%v atBottom=%v", a.stickToBottom, a.atBottom)
+	if !a.atBottom {
+		t.Fatal("jump to latest left the view away from the end")
 	}
 }
 
@@ -257,7 +254,7 @@ func TestTranscriptEmptyStateAndJumpBar(t *testing.T) {
 	if err := bar.Click("3 " + i18n.T("newMessages")); err != nil {
 		t.Fatalf("click the jump bar: %v", err)
 	}
-	if a.newMessages != 0 || !a.stickToBottom {
-		t.Fatalf("after the jump: newMessages=%d stick=%v", a.newMessages, a.stickToBottom)
+	if a.newMessages != 0 || !a.turnList.FollowEnd {
+		t.Fatalf("after the jump: newMessages=%d followEnd=%v", a.newMessages, a.turnList.FollowEnd)
 	}
 }
