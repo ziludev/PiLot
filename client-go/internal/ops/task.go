@@ -82,6 +82,15 @@ func TaskDialog(c *ui.Context, p TaskProps) {
 					ui.Text(c, asked).FontSize(10).TextColor(t.MutedFg).Wrap()
 				})
 			}
+			if len(task.SubAgents) > 0 {
+				caption(c, t, i18n.T("subAgents"))
+				ui.Column(c).FillWidth().Padding(6, 8).Radius(8).Gap(4).
+					Background(t.Background).Border(1, t.Border).Children(func() {
+					for _, agent := range task.SubAgents {
+						subAgentRow(c, t, agent)
+					}
+				})
+			}
 			if outcome := prettyJSON(task.Outcome); outcome != "" {
 				caption(c, t, i18n.T("logs"))
 				ui.Scroll(c).FillWidth().MaxHeight(90).Padding(6, 8).Radius(8).
@@ -105,6 +114,30 @@ func TaskDialog(c *ui.Context, p TaskProps) {
 	if !open {
 		notifyClose()
 	}
+}
+
+// subAgentRow is one child conversation: what it was asked to be, how far it
+// got, and the last tool it reached for. A live pipeline keeps its dot amber, so
+// a task that has produced no outcome yet still shows where the work is.
+func subAgentRow(c *ui.Context, t theme.Tokens, agent protocol.TaskSubAgent) {
+	dot := t.MutedFg
+	if agent.Live {
+		dot = t.Warning
+	}
+	role := agent.Role
+	if role == "" {
+		role = "#" + strconv.Itoa(agent.ConversationID)
+	}
+	meta := strconv.Itoa(agent.Steps) + " " + i18n.T("stepsCount")
+	if agent.Tool != "" {
+		meta += " · " + agent.Tool
+	}
+	ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).Children(func() {
+		ui.Box(c).Size(6, 6).Radius(3).Background(dot)
+		ui.Text(c, role).FontSize(11).TextColor(t.Foreground).MaxLines(1)
+		ui.Spacer(c)
+		ui.Text(c, meta).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
+	})
 }
 
 // taskMeta is the state line under the title: where the task lives, what phase

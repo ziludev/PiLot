@@ -349,6 +349,18 @@ type TaskDetail struct {
 	Title          string          `json:"title"`
 	Input          json.RawMessage `json:"input"`
 	Outcome        json.RawMessage `json:"outcome"`
+	SubAgents      []TaskSubAgent  `json:"subAgents"`
+}
+
+// TaskSubAgent is one child conversation of a task: a build_feature pipeline's
+// designer, implementer or tester, with how far it has got. A task with no
+// children (an ordinary chat task) has none.
+type TaskSubAgent struct {
+	ConversationID int    `json:"conversationId"`
+	Role           string `json:"role"`
+	Steps          int    `json:"steps"`
+	Tool           string `json:"tool"`
+	Live           bool   `json:"live"`
 }
 
 // MemorySuggestion is one candidate line from /api/memory/curate.

@@ -342,6 +342,33 @@ func TestTaskDialogShowsTaskAndCloses(t *testing.T) {
 	savePNG(t, frame(t, 720, 720, func(c *ui.Context) { TaskDialog(c, p) }), "/tmp/pitta-ops-task.png")
 }
 
+// TestTaskDialogShowsSubAgentProgress covers the case the outcome cannot: a
+// pipeline that is still running. The dialog has to show where the work is
+// instead of an empty LOGS box.
+func TestTaskDialogShowsSubAgentProgress(t *testing.T) {
+	p := taskFixture()
+	p.Task.Status = "running"
+	p.Task.Outcome = nil
+	p.Task.SubAgents = []protocol.TaskSubAgent{
+		{ConversationID: 60833, Role: "写技术设计文档", Steps: 419, Tool: "bash", Live: false},
+		{ConversationID: 63983, Role: "为已实现的代码写测试用例", Steps: 152, Tool: "go test", Live: true},
+	}
+
+	tt := frame(t, 720, 720, func(c *ui.Context) { TaskDialog(c, p) })
+	for _, want := range []string{
+		"SUB-AGENTS",
+		"写技术设计文档",
+		"419 steps · bash",
+		"为已实现的代码写测试用例",
+		"152 steps · go test",
+	} {
+		if !tt.HasText(want) {
+			t.Errorf("running task dialog is missing %q; it painted %v", want, tt.Texts())
+		}
+	}
+	savePNG(t, frame(t, 720, 760, func(c *ui.Context) { TaskDialog(c, p) }), "/tmp/pitta-task-subagents.png")
+}
+
 // TestPanelsPaint puts all four panels in one frame so a human can check the
 // token-set look at a glance.
 func TestPanelsPaint(t *testing.T) {

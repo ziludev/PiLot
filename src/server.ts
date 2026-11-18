@@ -6,6 +6,7 @@ import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
 import { getFeishuStatus } from "./feishu.ts";
 import { log, logError } from "./log.ts";
 import { config } from "./config.ts";
+import { subAgentActivity } from "./activity.ts";
 import { collectChanges, commitChanges, ensureRepo } from "./changes.ts";
 import { mergeWorktree } from "./worktree.ts";
 import { listApprovals, resolveApproval } from "./approvals.ts";
@@ -770,6 +771,9 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
           title: taskTitle(record.kind, record.input),
           input: record.input ?? null,
           outcome: (record as unknown as { outcome?: unknown }).outcome ?? null,
+          // A running task has no outcome yet; its children are where the work (and any sign of life)
+          // actually is.
+          subAgents: subAgentActivity(config.dbPath, id),
         });
       }
 

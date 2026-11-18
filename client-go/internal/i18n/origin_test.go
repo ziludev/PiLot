@@ -50,6 +50,9 @@ func TestOriginDictionaryStillMatches(t *testing.T) {
 		// Ours: a native window has no clipboard image paste, so the picture
 		// picker names itself.
 		"attachImage": true, "attachImageHint": true, "attach": true,
+		// Ours: a task's child conversations (designer, implementer, tester) are
+		// where a background pipeline's progress actually shows.
+		"subAgents": true,
 		// Ours: the React client left report_done as a tool result, the native
 		// one draws it as the turn's verdict and needs the words for it.
 		"goalMet": true, "goalNotMet": true,
