@@ -1615,6 +1615,13 @@ const continuing = new Set<string>();
   async function handle(event: IncomingMessage): Promise<void> {
     const message = event.message;
     if (message?.message_id === undefined || message.chat_id === undefined) return;
+    // First thing: the same message must never start two turns, however often it is delivered.
+    if (handled.has(message.message_id)) {
+      console.log(`[feishu] duplicate delivery msg=${message.message_id}, ignored`);
+      return;
+    }
+    handled.add(message.message_id);
+    if (handled.size > 1_000) handled.delete(handled.values().next().value as string);
     /** Command answers belong in the topic the command was typed in, not at the group's root. */
     const say = (text: string): Promise<void> =>
       replyText(message.message_id as string, text, { thread: threadFor(message) });
@@ -1721,13 +1728,6 @@ const continuing = new Set<string>();
         text.slice(0, 60),
       )}`,
     );
-    if (handled.has(message.message_id)) {
-      console.log(`[feishu] duplicate delivery msg=${message.message_id}, ignored`);
-      return;
-    }
-    handled.add(message.message_id);
-    if (handled.size > 1_000) handled.delete(handled.values().next().value as string);
-
     const chatId = message.chat_id;
     const startedAt = Date.now();
     /** Seconds since the turn started, for progress lines. */
@@ -2578,9 +2578,12 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
   }
 
   const eventDispatcher = new Lark.EventDispatcher({}).register({
-    "im.message.receive_v1": async (data: IncomingMessage) => {
-      // Never let a bad event take down the long connection.
-      await handle(data).catch((error) => console.error("[feishu] handler failed", error));
+    "im.message.receive_v1": (data: IncomingMessage) => {
+      // Ack before the turn, not after it. The SDK answers Feishu only once this handler resolves,
+      // and a turn takes minutes — every event that waited for one was redelivered by Feishu, so
+      // nearly every message arrived twice and the second copy was dropped by the in-memory set.
+      // Never let a bad event take down the long connection either.
+      void handle(data).catch((error) => console.error("[feishu] handler failed", error));
     },
     "card.action.trigger": async (data: CardAction) => {
       try {
@@ -2649,7 +2652,15 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
     // observed as ENETUNREACH to Feishu's IPs for minutes, until the process was restarted.
     if (restarts % 3 === 0) {
       logError("feishu", `long connection down ${Math.round(down / 1000)}s, rebuilding the client`, undefined);
+      // Retire the old client first: a half-open socket still counts as a listener, and two
+      // connections on one app make Feishu push every event to both.
+      const stale = wsClient;
       wsClient = makeWSClient();
+      try {
+        stale.close({ force: true });
+      } catch {
+        // already torn down
+      }
     } else {
       logError("feishu", `long connection down ${Math.round(down / 1000)}s, restarting it`, undefined);
     }
