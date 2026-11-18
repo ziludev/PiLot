@@ -817,12 +817,28 @@ export function groupInstructions(who: "owner" | "guest", topic?: string): strin
   return lines.join("\n");
 }
 
+/**
+ * Is this group message addressed to us? A group talks to itself all day — "@郁斐凡 可以去掉" carries a
+ * mention and still names nobody on this side, and answering it turned the bot into a chorus.
+ */
+export function mentionsUs(
+  mentions: Array<{ id?: { open_id?: string } }> | undefined,
+  botId: string | undefined = botOpenId,
+): boolean {
+  if ((mentions ?? []).length === 0) return false;
+  // Identity unknown (the bot info call failed): fall back to "somebody was mentioned", which is
+  // what this gate did before — silence would be the worse failure of the two.
+  if (botId === undefined) return true;
+  return (mentions ?? []).some((mention) => mention.id?.open_id === botId);
+}
+
 export function rejectionReason(
   event: IncomingMessage,
   parsedContent: ParsedContent,
   level: ChatLevel = "closed",
   isOwner = false,
   policy: Gate = config.feishu,
+  botId: string | undefined = botOpenId,
 ): string | undefined {
   const message = event.message;
   const content = parsedContent;
@@ -839,7 +855,7 @@ export function rejectionReason(
   // (with the guest surface for whoever is not the owner).
   if (level === "closed") return "chat-not-allowed";
   if (level === "owner" && !isOwner) return "owner-only";
-  if (policy.mentionsOnly && message?.chat_type === "group" && (message.mentions ?? []).length === 0) {
+  if (policy.mentionsOnly && message?.chat_type === "group" && !mentionsUs(message.mentions, botId)) {
     return "group-message-without-mention";
   }
   return undefined;
@@ -1572,6 +1588,30 @@ const continuing = new Set<string>();
   const threadFor = (message: NonNullable<IncomingMessage["message"]>): boolean =>
     wantsThread(message, topicChats.get(message.chat_id ?? "") === true);
 
+  /** Parent messages already checked for "was this a reply to us", keyed by message id. */
+  const quotedFromUs = new Map<string, boolean>();
+  /**
+   * A reply to one of our own messages is somebody talking to us; in a group that is how people
+   * answer without re-typing an @. Only a real quote reply has a parent (in a topic the parent is
+   * the topic root), so this stays a cheap check.
+   */
+  async function quoteIsOurs(parentId: string | undefined): Promise<boolean> {
+    if (parentId === undefined || botOpenId === undefined) return false;
+    const known = quotedFromUs.get(parentId);
+    if (known !== undefined) return known;
+    let ours = false;
+    try {
+      const response = await client.im.message.get({ path: { message_id: parentId } });
+      const sender = response?.data?.items?.[0]?.sender as { id?: string; open_id?: string } | undefined;
+      ours = (sender?.id ?? sender?.open_id) === botOpenId;
+    } catch {
+      return false;
+    }
+    if (quotedFromUs.size > 200) quotedFromUs.clear();
+    quotedFromUs.set(parentId, ours);
+    return ours;
+  }
+
   async function handle(event: IncomingMessage): Promise<void> {
     const message = event.message;
     if (message?.message_id === undefined || message.chat_id === undefined) return;
@@ -1593,7 +1633,11 @@ const continuing = new Set<string>();
       await rememberChatInfo(message.chat_id).catch(() => {});
     }
     const isGuestChat = isGuestLevel(level);
-    const reason = rejectionReason(event, parsed, level, isOwner);
+    let reason = rejectionReason(event, parsed, level, isOwner);
+    // Quoting our answer is a person addressing us, in a group too — no second @ needed.
+    if (reason === "group-message-without-mention" && (await quoteIsOurs(message.parent_id))) {
+      reason = undefined;
+    }
     // Where to send "someone is asking" — the stranger's chat cannot be the address. The owner's
     // own DM is level owner from its first message, so a card always has somewhere to go.
     if (isOwner && message.chat_type === "p2p") {

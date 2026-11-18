@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { levelOf, type ChatLevel } from "../src/access.ts";
-import { rejectionReason, threadDigest, type Gate } from "../src/feishu.ts";
+import { mentionsUs, rejectionReason, threadDigest, type Gate } from "../src/feishu.ts";
 
 /**
  * One level per chat decides who gets an answer: `closed` answers nobody, `owner` answers only
@@ -49,6 +49,29 @@ test("an opened group answers every member, no per-person authorization", () => 
 test("a guest group still requires the @", () => {
   const without = event("oc_group", "ou_colleague", { chatType: "group" });
   assert.equal(rejectionReason(without, parsed, "group", false, policy), "group-message-without-mention");
+});
+
+/** A group @'s its own members all day. That is not somebody talking to the bot. */
+test("a mention of a colleague does not address us", () => {
+  const ofColleague = event("oc_group", "ou_colleague", {
+    chatType: "group",
+    mentions: [{ key: "@_user_1", name: "郁斐凡", id: { open_id: "ou_yufan" } }],
+  });
+  assert.equal(rejectionReason(ofColleague, parsed, "group", false, policy, "ou_bot"), "group-message-without-mention");
+  assert.equal(mentionsUs([{ id: { open_id: "ou_yufan" } }], "ou_bot"), false);
+
+  const ofUs = event("oc_group", "ou_colleague", {
+    chatType: "group",
+    mentions: [{ key: "@_user_1", name: "知衡", id: { open_id: "ou_bot" } }],
+  });
+  assert.equal(rejectionReason(ofUs, parsed, "group", false, policy, "ou_bot"), undefined);
+  assert.equal(mentionsUs([{ id: { open_id: "ou_bot" } }], "ou_bot"), true);
+});
+
+/** Without the bot's own id the old rule (any mention) stays: silence is the worse failure. */
+test("an unknown bot identity falls back to any mention", () => {
+  assert.equal(mentionsUs([{ id: { open_id: "ou_yufan" } }], undefined), true);
+  assert.equal(mentionsUs([], "ou_bot"), false);
 });
 
 test("empty content and unsupported types are named separately", () => {
