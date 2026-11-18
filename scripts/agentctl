@@ -189,10 +189,19 @@ case "${1:-status}" in
     # What launchd runs, once (KeepAlive is false). It must not unload itself first:
     # booting out its own label kills this very process, which is how the first
     # version of this waited for nothing and restarted nothing.
-    if ! wait_idle; then
-      echo "left the agent alone: still mid-turn"
-      exit 1
-    fi
+    # One idle window often loses the race: other chats keep starting turns, so a single 180s wait
+    # expires while the agent is doing real work. Keep knocking instead of asking again by hand.
+    attempts="${RESTART_ATTEMPTS:-6}"
+    attempt=1
+    until wait_idle; do
+      if [ "$attempt" -ge "$attempts" ]; then
+        echo "left the agent alone: still mid-turn after $attempts attempts"
+        exit 1
+      fi
+      attempt=$((attempt + 1))
+      echo "attempt $((attempt - 1)) lost the race; trying again in 60s"
+      sleep 60
+    done
     launchctl bootout "$DOMAIN" "$AGENTS/$LABEL.plist" 2>/dev/null || true
     rotate_logs
     load "$LABEL" "$AGENTS/$LABEL.plist"
