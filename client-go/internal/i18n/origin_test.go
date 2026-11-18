@@ -71,6 +71,9 @@ func TestOriginDictionaryStillMatches(t *testing.T) {
 		// line that counts steps rather than tool calls, so it needs the bare
 		// noun to put after the number.
 		"stepsCount": true,
+		// Ours: the footer segment that says the bridge is alive, and how much
+		// is waiting behind it.
+		"queueDepth": true, "agentUnreachable": true,
 	}
 	for lang, keys := range origin {
 		if len(keys) == 0 {

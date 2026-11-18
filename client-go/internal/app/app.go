@@ -312,6 +312,10 @@ type App struct {
 
 	approvals []protocol.PendingApproval
 	waits     []protocol.ApprovalWait
+	// health is the bridge's own report, and healthErr is what a failed read
+	// means: the agent is not there. The footer shows one or the other.
+	health    *protocol.Health
+	healthErr error
 	memory    protocol.Memory
 	changes   *protocol.Changes
 	git       *protocol.Git
@@ -572,9 +576,35 @@ func (a *App) init() {
 		a.reloadConversation(a.currentValue())
 		return
 	}
+	a.loadHealth(ctx)
 	a.openDefaultConversation()
 	go a.pollApprovals()
 	go a.pollSurfaces()
+	go a.pollHealth()
+}
+
+// healthPoll is how often the footer's uptime and queue are refreshed. The
+// numbers move slowly; the socket's reconnect is separate and unchanged.
+const healthPoll = 10 * time.Second
+
+// loadHealth reads the bridge's own numbers for the footer. A failed read is
+// the answer the footer needs, so it is kept rather than returned.
+func (a *App) loadHealth(ctx context.Context) {
+	health, err := a.api.Health(ctx)
+	a.apply(func() {
+		a.health, a.healthErr = health, err
+		a.invalidate()
+	})
+}
+
+// pollHealth keeps the queue and the uptime honest; a bridge that restarts
+// changes both, and nothing else in the window notices.
+func (a *App) pollHealth() {
+	ctx := context.Background()
+	for {
+		time.Sleep(healthPoll)
+		a.loadHealth(ctx)
+	}
 }
 
 // surfacePoll is how often the rail re-reads the bridge. A chat started in

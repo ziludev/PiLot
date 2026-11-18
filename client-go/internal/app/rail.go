@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"pitta/internal/motion"
 	"pitta/internal/protocol"
 	"pitta/internal/theme"
+	"pitta/internal/turns"
 )
 
 // railRowHeight is one chat's box: a single line of 11.5 px text, with the room
@@ -577,9 +579,62 @@ func (a *App) railFooter(c *ui.Context, t theme.Tokens) {
 		})
 		railIconAction(c, i18n.T("logs"), icons.FileIcon, func() { a.apply(func() { a.toggleLogs(); a.invalidate() }) })
 		ui.Row(c).Grow(1).Children(func() {})
+		a.healthChip(c, t)
+		ui.Row(c).Width(5).Children(func() {})
 		ui.Text(c, shortPath(a.cfg.Home)).FontSize(9.5).TextColor(t.MutedFg).
 			MaxLines(1).TruncateMiddle()
 	})
+}
+
+// healthChip is the bridge's own state, beside the workspace path.
+//
+// The bridge reconnects on its own, so a dead agent used to look exactly like
+// an idle one; the dot and the queue are what tell them apart, and the tooltip
+// carries the pid and version needed to tell which bridge is answering.
+func (a *App) healthChip(c *ui.Context, t theme.Tokens) {
+	if a.health == nil && a.healthErr == nil {
+		return // nothing read yet: a dot about nothing is noise
+	}
+	// The chip keeps its width; the workspace path is the one that gives way.
+	chip := ui.Row(c).Gap(3).AlignItems(ui.Center).Padding(0, 3).Radius(3).Shrink(0)
+	if a.healthErr != nil || a.health == nil {
+		chip.Tooltip(a.healthErrText())
+		chip.Children(func() {
+			ui.Text(c, "●").FontSize(8).TextColor(t.Destructive)
+			ui.Text(c, i18n.T("agentUnreachable")).FontSize(9.5).TextColor(t.Destructive).MaxLines(1)
+		})
+		return
+	}
+	health := a.health
+	chip.Tooltip(fmt.Sprintf("pid %d · v%s", health.PID, health.Version))
+	chip.Children(func() {
+		ui.Text(c, "●").FontSize(8).TextColor(t.Primary)
+		ui.Text(c, uptime(health)+" · "+i18n.T("queueDepth")+" "+itoa(health.QueueDepth)).
+			FontSize(9.5).TextColor(t.MutedFg).MaxLines(1)
+	})
+}
+
+func (a *App) healthErrText() string {
+	if a.healthErr == nil {
+		return i18n.T("agentUnreachable")
+	}
+	return a.healthErr.Error()
+}
+
+// uptime is worked out from the bridge's start time on every frame, so a window
+// left open overnight still counts; a bridge that restarted drops back to zero.
+func uptime(health *protocol.Health) string {
+	started, err := time.Parse(time.RFC3339, health.StartedAt)
+	if err != nil {
+		return turns.Clock(health.UptimeMS)
+	}
+	elapsed := time.Since(started).Milliseconds()
+	if elapsed < int64(time.Hour/time.Millisecond) {
+		return turns.Clock(elapsed)
+	}
+	hours := elapsed / int64(time.Hour/time.Millisecond)
+	minutes := (elapsed % int64(time.Hour/time.Millisecond)) / int64(time.Minute/time.Millisecond)
+	return fmt.Sprintf("%dh%dm", hours, minutes)
 }
 
 // railAction is one of the footer's ghost buttons: an icon and the name of what

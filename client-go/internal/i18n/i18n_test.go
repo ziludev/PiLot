@@ -16,9 +16,10 @@ import (
 // turn ends on, which the React client drew as a tool result instead; close and
 // logsEmpty are ours, for the log viewer that reads the file in the window;
 // toolCallsCount is ours, for the line a run of tool calls folds into;
-// stepsCount is ours, for the line a whole long turn folds into.
-// TestOriginDictionaryStillMatches keeps that line.
-const wantKeys = 199
+// stepsCount is ours, for the line a whole long turn folds into; queueDepth and
+// agentUnreachable are ours too, for the footer's health segment.
+// TestOriginDictionaryStillMatches keeps those lines.
+const wantKeys = 201
 
 // useLang switches the package language for one test and restores it after.
 func useLang(t *testing.T, l Lang) {

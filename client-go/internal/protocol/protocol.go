@@ -30,6 +30,19 @@ type Surface struct {
 	ProjectID      string  `json:"projectId"`
 }
 
+// Health is GET /api/health: what the bridge says about itself. The footer
+// shows it next to the workspace path, so that a bridge which died and came
+// back is something the user can see instead of guess at.
+type Health struct {
+	PID        int    `json:"pid"`
+	StartedAt  string `json:"startedAt"` // ISO
+	UptimeMS   int64  `json:"uptimeMs"`
+	Version    string `json:"version"`
+	QueueDepth int    `json:"queueDepth"`
+	Running    int    `json:"runningTurns"`
+	Chats      int    `json:"conversations"`
+}
+
 // Task is a background or sleeping task the agent runs.
 type Task struct {
 	ID             int    `json:"id"`
