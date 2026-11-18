@@ -6,6 +6,7 @@ import { UsageDoc } from "@earendil-works/pi-durable";
 import { config, requireFeishuCredentials, requireFeishuOwner } from "./config.ts";
 import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
 import { watchLive, type LiveSnapshot } from "./live.ts";
+import { advance, renderSteps, stepCount, type Trail } from "./steps.ts";
 import { setApprovalDecider, setNotifier, type ApprovalRequest } from "./channel.ts";
 import { log, logError } from "./log.ts";
 import { record } from "./audit.ts";
@@ -419,23 +420,32 @@ export function digestOf(text: string): string {
   return oneLine.length <= 28 ? oneLine : `${oneLine.slice(0, 28)}…`;
 }
 
-/** What a card needs to say more than "处理中": whose turn it is, and how long this step has run. */
-type CardTrace = { digest: string; stepKey?: string; stepSince: number };
+/** What a card needs to say more than "处理中": whose turn it is. */
+type CardTrace = { digest: string };
 
-function renderLive(live: LiveSnapshot, trace?: CardTrace): string {
+/**
+ * The running turn, as a card body: the user's line, then what has already been done, then what is
+ * running now (with its age, the only signal a hanging round gives), then the answer as it streams.
+ * The step trail is why a five-minute turn no longer reads `bash · 0s` and nothing else.
+ */
+function renderLive(live: LiveSnapshot, trace?: CardTrace, trail?: Trail): string {
   const body = live.text.trim();
-  let inner: string;
-  if (body.length > 0) {
-    inner = clip(body);
+  const steps = trail === undefined ? "" : renderSteps(trail, Date.now());
+  const parts: string[] = [];
+  if (steps.length > 0) {
+    parts.push(steps);
+    if (live.activity !== undefined && live.activity.length > 0) parts.push(`_${live.activity}_`);
+    if (body.length > 0) parts.push(clip(body));
+    else if (live.tools.length === 0) parts.push("🤔 思考中…");
+  } else if (body.length > 0) {
+    parts.push(clip(body));
   } else if (live.tools.length > 0) {
-    const key = live.tools.join(" · ");
-    // A tool round that hangs says nothing on its own; its age is the only signal that it is
-    // still the same round and not a dead one.
-    const head = trace === undefined ? `⚙️ ${key}` : `⚙️ ${key} · ${duration(Date.now() - trace.stepSince)}`;
-    inner = live.activity === undefined ? head : `${head}\n\n_${live.activity}_`;
+    parts.push(`⚙️ ${live.tools.join(" · ")}`);
+    if (live.activity !== undefined && live.activity.length > 0) parts.push(`_${live.activity}_`);
   } else {
-    inner = "🤔 思考中…";
+    parts.push("🤔 思考中…");
   }
+  const inner = parts.join("\n\n");
   return trace === undefined || trace.digest.length === 0 ? inner : `▸ ${trace.digest}\n\n${inner}`;
 }
 
@@ -1871,18 +1881,24 @@ const continuing = new Set<string>();
     // "思考中…" back on a finished card, and a new patch site cannot forget the rule.
     let phase: CardPhase = "live";
     let body = digest.length === 0 ? "🤔 思考中…" : `> ${digest}\n\n🤔 思考中…`;
-    const trace: CardTrace = { digest, stepSince: Date.now() };
+    const trace: CardTrace = { digest };
+    let trail: Trail = { rounds: [], since: Date.now() };
+    // How far along the turn is, in the subtitle: "3 步完成 · 2m18s" beats a bare clock, because the
+    // clock says nothing about whether anything happened.
+    const working = (): string => {
+      const { done, running } = stepCount(trail);
+      if (done === 0) return `▶️ 处理中 · ${elapsed()}`;
+      return `▶️ 处理中 · ${done} 步完成${running ? " · 正在跑" : ""} · ${elapsed()}`;
+    };
     const toolsUsed = new Set<string>();
+    let lastLive: LiveSnapshot | undefined;
     const watcher = await watchLive(conversation, (live) => {
       if (phase !== "live") return;
-      const stepKey = live.tools.join(" · ");
-      if (stepKey !== trace.stepKey) {
-        trace.stepKey = stepKey;
-        trace.stepSince = Date.now();
-      }
-      body = renderLive(live, trace);
+      lastLive = live;
+      trail = advance(trail, live, Date.now());
+      body = renderLive(live, trace, trail);
       for (const tool of live.tools) toolsUsed.add(tool);
-      void patchCard(cardId, body, `▶️ 处理中 · ${elapsed()}`, undefined, WORKING_HEADER).catch((error) => {
+      void patchCard(cardId, body, working(), undefined, WORKING_HEADER).catch((error) => {
         if (streamErrors < 3) {
           streamErrors += 1;
           logError("feishu", "stream patch failed", error);
@@ -1891,17 +1907,19 @@ const continuing = new Set<string>();
     });
 
     // A silent model or a long tool round produces no commits, so tick the card
-    // ourselves: the user should never have to ask "is it still working?".
+    // ourselves: the user should never have to ask "is it still working?". The body is re-rendered
+    // from the last snapshot, because the running step's clock lives in the body and would freeze.
     const heartbeat = setInterval(() => {
       if (phase !== "live") return;
+      if (lastLive !== undefined) body = renderLive(lastLive, trace, trail);
       void patchCard(
         cardId,
         body,
-        subtitle === "" ? `⏳ ${elapsed()} · 进行中` : subtitle,
+        subtitle === "" ? working() : subtitle,
         undefined,
         WORKING_HEADER,
       ).catch(() => {});
-    }, 60_000);
+    }, 20_000);
 
     const slot = enqueueTurn(conversation.id as unknown as number);
     if (slot.queued) {
@@ -1909,7 +1927,7 @@ const continuing = new Set<string>();
       void patchCard(cardId, body, subtitle, undefined, WORKING_HEADER).catch(() => {});
       await slot.wait;
       subtitle = "";
-      void patchCard(cardId, body, `▶️ 处理中 · ${elapsed()}`, undefined, WORKING_HEADER).catch(() => {});
+      void patchCard(cardId, body, working(), undefined, WORKING_HEADER).catch(() => {});
     }
 
     try {
