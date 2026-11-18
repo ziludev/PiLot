@@ -989,5 +989,7 @@ func (a *App) copyText(c *ui.Context, text string) {
 		transfer.Bytes(transfer.Markdown, []byte(text)),
 	))
 	c.Services().WriteClipboardData(data)
-	c.Toast(i18n.T("copied"))
+	// 1.8 s is the toast's own life (motion.ToastLife): short enough for a
+	// confirmation that needs no reading twice, and the drain bar's countdown.
+	c.AddToast(ui.Toast{ID: "copied", Title: i18n.T("copied"), Timeout: motion.ToastLife})
 }
