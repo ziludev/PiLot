@@ -8,6 +8,7 @@ import (
 
 	"pitta/internal/i18n"
 	"pitta/internal/icons"
+	"pitta/internal/motion"
 	"pitta/internal/protocol"
 	"pitta/internal/theme"
 )
@@ -319,6 +320,7 @@ const (
 	railRunningMark
 	railUnreadMark
 	railSleepingMark
+	railFailedMark
 )
 
 // railMarkFor is the mark the chat's row shows. A task that waits for its owner
@@ -331,6 +333,10 @@ func (a *App) railMarkFor(conversationID int, selected bool) railMark {
 		return railNeedsYouMark
 	case a.isRunning(conversationID):
 		return railRunningMark
+	case a.chatFailed(conversationID):
+		// A turn that ended on an error left the reader something to decide, so it
+		// outranks the dot that only says "there is an answer".
+		return railFailedMark
 	case !selected && a.isUnread(conversationID):
 		return railUnreadMark
 	case a.chatSleeping(conversationID):
@@ -339,21 +345,70 @@ func (a *App) railMarkFor(conversationID int, selected bool) railMark {
 	return railNoMark
 }
 
-// drawRailMark draws that mark: a red dot for a task that waits, a ring for work in
-// flight (its outline keeps it apart from the unread dot's fill), and a dot for
-// an answer that arrived while nobody was looking.
-func drawRailMark(c *ui.Context, t theme.Tokens, mark railMark, rise func(ui.Element) ui.Element) {
+// railMarkView draws the chat's mark in a slot that is always there, so the row's
+// title and cost do not shift by the width of a dot whenever a chat starts or
+// stops working. The mark fades in and out over motion.MarkFade, and the ring of
+// a chat that is working breathes: a status change is something the row does,
+// not something that happens between two frames.
+func (a *App) railMarkView(c *ui.Context, t theme.Tokens, conversationID int, mark railMark, rise func(ui.Element) ui.Element) {
+	if a.railMarks == nil {
+		a.railMarks = map[int]railMark{}
+	}
+	slot := rise(ui.Box(c).Width(railMarkWidth).Height(11).
+		AlignItems(ui.Center).Justify(ui.Center))
+	target := float32(0)
+	if mark != railNoMark {
+		a.railMarks[conversationID] = mark
+		target = 1
+	}
+	vis := slot.AnimateTo("mark", target, motion.MarkIn)
+	if vis <= 0.01 {
+		// Done fading: the column stays empty, which is the only frame on which
+		// the row has no mark at all.
+		slot.Opacity(0)
+		return
+	}
+	// Named so the tests can measure the one column a row gives to its state.
+	slot.Label(railMarkLabelPrefix + itoa(conversationID))
+	if mark == railRunningMark {
+		// Breathing says the work is still going; the fade alone would say only
+		// that it was going.
+		vis *= 0.55 + 0.45*slot.Loop("breathe", motion.Breathe, ui.EaseInOut)
+	}
+	slot.Opacity(vis)
+	shown := mark
+	if shown == railNoMark && a.railMarks != nil {
+		// The chat stopped working; the mark that is leaving is the one it had.
+		shown = a.railMarks[conversationID]
+	}
+	slot.Children(func() { drawRailMark(c, t, shown) })
+}
+
+// railMarkLabelPrefix names the column a row keeps for its mark.
+const railMarkLabelPrefix = "rail-mark-"
+
+// railMarkWidth is the column the mark keeps, wide enough for the ring so the
+// three marks share one left edge.
+const railMarkWidth = 11
+
+// drawRailMark draws a mark in the slot: a red dot for a task that waits, a ring
+// for work in flight (its outline keeps it apart from the unread dot's fill),
+// and a dot for an answer that arrived while nobody was looking.
+func drawRailMark(c *ui.Context, t theme.Tokens, mark railMark) {
 	switch mark {
 	case railNeedsYouMark:
-		rise(ui.Box(c).Width(6).Height(6).Radius(3).AlignSelf(ui.Center).Background(t.Destructive))
+		ui.Box(c).Width(6).Height(6).Radius(3).Background(t.Destructive)
 	case railRunningMark:
-		rise(ui.Box(c).Width(8).Height(8).Radius(4).AlignSelf(ui.Center).
-			BorderWidth(1.5).BorderColor(t.Primary))
+		ui.Box(c).Width(8).Height(8).Radius(4).BorderWidth(1.5).BorderColor(t.Primary)
 	case railUnreadMark:
-		rise(ui.Box(c).Width(5).Height(5).Radius(3).AlignSelf(ui.Center).Background(t.Primary))
+		ui.Box(c).Width(5).Height(5).Radius(3).Background(t.Primary)
 	case railSleepingMark:
 		// A clock rather than a dot: the chat is not doing anything now, and it
 		// will, which a coloured dot cannot say.
-		rise(ui.Icon(c, icons.Clock).Size(11, 11).TextColor(t.MutedFg).AlignSelf(ui.Center))
+		ui.Icon(c, icons.Clock).Size(11, 11).TextColor(t.MutedFg)
+	case railFailedMark:
+		// A warning triangle, not a dot: a dot says an answer is waiting, and this
+		// says the turn ended without one.
+		ui.Icon(c, icons.AlertTriangle).Size(11, 11).TextColor(t.Destructive)
 	}
 }

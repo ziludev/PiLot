@@ -351,6 +351,7 @@ func (a *App) archiveChat(archived bool) {
 			// gone from the list before it could close.
 			if archived {
 				a.markArchived(conversationID, true)
+				a.afterArchive(conversationID)
 			}
 		})
 		return a.loadState(context.Background())

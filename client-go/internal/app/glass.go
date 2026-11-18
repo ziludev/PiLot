@@ -43,6 +43,23 @@ func drainBar(c *ui.Context, parts ui.ToastParts, t theme.Tokens) {
 	})
 }
 
+// toast queues a toast raised off the frame. UI thread.
+func (a *App) toast(t ui.Toast) {
+	a.pendingToasts = append(a.pendingToasts, t)
+}
+
+// flushToasts hands the queued toasts to the viewport, which is the only place
+// that has a context to add one with.
+func (a *App) flushToasts(c *ui.Context) {
+	if len(a.pendingToasts) == 0 {
+		return
+	}
+	for _, toast := range a.pendingToasts {
+		c.AddToast(toast)
+	}
+	a.pendingToasts = nil
+}
+
 // toasts draws the client's toasts on glass, as sonner's sit on `.glass` in
 // the earlier client: one line over whatever is under it, instead of the theme's opaque
 // inverse pill mygo draws when the view builds no viewport.
@@ -63,6 +80,18 @@ func (a *App) toasts(c *ui.Context) {
 			// toasts fill the pill, so this one has to as well.
 			pill.Children(func() {
 				ui.Text(c, toast.Title).FontSize(13).TextColor(t.Foreground).MaxLines(2)
+				if toast.Action != "" {
+					// The action is the reason the toast exists — undo an archive,
+					// open the job that just finished — so it takes the room the
+					// title does not.
+					action := parts.ActionButton().Padding(2, 6).Radius(6).Gap(2).
+						AlignItems(ui.Center).Cursor(ui.CursorPointer).
+						Transition(motion.Hover())
+					action.Label(toast.Action)
+					action.Children(func() {
+						ui.Text(c, toast.Action).FontSize(12).FontWeight(600).TextColor(t.Primary)
+					})
+				}
 				drainBar(c, parts, t)
 			})
 		}

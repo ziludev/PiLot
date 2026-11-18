@@ -2,7 +2,13 @@ package app
 
 import (
 	"sort"
+	"strings"
 
+	"github.com/egoist/mygo/ui"
+
+	"pitta/internal/i18n"
+	"pitta/internal/motion"
+	"pitta/internal/notify"
 	"pitta/internal/protocol"
 )
 
@@ -73,6 +79,48 @@ func (a *App) noteTaskFinish(previous, current []protocol.Task) {
 		}
 		a.markUnread(id)
 	}
+	a.announceFinished(previous, still)
+}
+
+// announceFinished says which background jobs are over. A dot on the row is not
+// enough for the jobs that run for minutes: the reader has gone to do something
+// else by the time one lands, so the toast names it and the notification reaches
+// past the window when the window is not the thing being looked at.
+func (a *App) announceFinished(previous []protocol.Task, still map[int]bool) {
+	done := map[int][]string{}
+	for _, task := range previous {
+		if !taskUnfinished(task.State) || still[task.ConversationID] || !appJob(task) {
+			continue
+		}
+		if task.ConversationID == a.currentValue() && a.focused {
+			continue
+		}
+		done[task.ConversationID] = append(done[task.ConversationID], railTaskTitle(task))
+	}
+	ids := make([]int, 0, len(done))
+	for id := range done {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+	for _, id := range ids {
+		names := done[id]
+		a.toast(ui.Toast{
+			ID:       "finished-" + itoa(id),
+			Title:    strings.Join(names, ", ") + " · " + i18n.T("finished"),
+			Action:   i18n.T("open"),
+			OnAction: func() { a.selectConversation(id) },
+			Timeout:  motion.ToastLife,
+		})
+		if !a.focused {
+			notify.Task(a.surfaceTitleByID(id), strings.Join(names, ", "), id)
+		}
+	}
+}
+
+// appJob reports whether a task is one of the jobs the rail lists. The rail's
+// own filter answers it, so a job cannot be announced here and missing there.
+func appJob(task protocol.Task) bool {
+	return len(railLiveTasks([]protocol.Task{task})) > 0
 }
 
 // unreadFromPrefs restores the dots a previous run left behind.
