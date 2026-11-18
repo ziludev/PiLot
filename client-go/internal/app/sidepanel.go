@@ -81,20 +81,47 @@ func (a *App) sideTabs(c *ui.Context, t theme.Tokens) {
 		{SideAccess, i18n.T("access"), icons.ShieldCheck},
 		{SideUsage, i18n.T("usage"), icons.Clock},
 	}
-	ui.Row(c).FillWidth().Padding(4, 6).Gap(2).Background(t.Sidebar).Children(func() {
-		for _, entry := range tabs {
-			entry := entry
-			active := a.sideTab == entry.tab
-			ui.Button(c, entry.label).FontSize(10).Padding(4, 8).
-				Background(map[bool]ui.Color{true: t.SidebarAccent, false: t.Sidebar}[active]).
-				TextColor(map[bool]ui.Color{true: t.SidebarFg, false: t.MutedFg}[active]).
-				OnClick(func() { a.openSideTab(entry.tab) })
-		}
-		ui.Row(c).Grow(1)
-		ui.Button(c, "").Padding(3, 5).Children(func() {
-			ui.Icon(c, icons.X).Size(10, 10)
-		}).OnClick(func() {
-			a.apply(func() { a.sideOpen = false; a.invalidate() })
+	strip := ui.Column(c).FillWidth().Background(t.Sidebar)
+	// The marker under the tabs needs to know where the tab it marks ended up,
+	// which is last frame's layout: the buttons keep their places across a
+	// switch, so their bounds are the new tab's as well as the old one's.
+	var marked ui.Element
+	strip.Children(func() {
+		ui.Row(c).FillWidth().Padding(4, 6).Gap(2).Children(func() {
+			for _, entry := range tabs {
+				entry := entry
+				active := a.sideTab == entry.tab
+				tab := ui.Button(c, entry.label).FontSize(10).Padding(4, 8).
+					Background(map[bool]ui.Color{true: t.SidebarAccent, false: t.Sidebar}[active]).
+					TextColor(map[bool]ui.Color{true: t.SidebarFg, false: t.MutedFg}[active]).
+					OnClick(func() { a.openSideTab(entry.tab) })
+				if active {
+					marked = tab
+				}
+			}
+			ui.Row(c).Grow(1)
+			ui.Button(c, "").Padding(3, 5).Children(func() {
+				ui.Icon(c, icons.X).Size(10, 10)
+			}).OnClick(func() {
+				a.apply(func() { a.sideOpen = false; a.invalidate() })
+			})
+		})
+		ui.Row(c).FillWidth().Height(2).Children(func() {
+			// Both ends move: the gap before the marker and its width, so the
+			// underline travels to a tab of a different width instead of
+			// stretching out of the old one.
+			origin := strip.Bounds()
+			target := marked.Bounds()
+			if origin.W == 0 || target.W == 0 {
+				// The strip's first frame: nothing has been laid out yet, so
+				// there is nowhere to mark. Measuring from a zero origin would
+				// start the marker at the left edge and let it slide in.
+				return
+			}
+			gap := ui.Row(c).Height(2)
+			bar := ui.Row(c).Height(2).Radius(1).Background(t.SidebarFg)
+			gap.Width(gap.AnimateTo("tabX", target.X-origin.X, motion.TabSlide))
+			bar.Width(bar.AnimateTo("tabW", target.W, motion.TabSlide))
 		})
 	})
 }

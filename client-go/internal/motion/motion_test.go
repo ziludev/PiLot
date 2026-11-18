@@ -68,3 +68,19 @@ func TestToastComesInFromTheEdge(t *testing.T) {
 		t.Fatalf("toast moves on x only: %+v", tr.Enter)
 	}
 }
+
+// TestPanelAndTabNumbers pins the side panel's two motions: its content comes in
+// 24 px from the right in 200 ms, and the marker under the tabs moves over the
+// strip's own 250 ms.
+func TestPanelAndTabNumbers(t *testing.T) {
+	in := PanelEnter()
+	if in.Duration != 200*time.Millisecond || in.Enter == nil || in.Exit != nil {
+		t.Fatalf("panel enter = %+v, want 200 ms in and nothing out", in)
+	}
+	if in.Enter.X != 24 || in.Enter.Opacity != 0 || in.Enter.Y != 0 {
+		t.Fatalf("panel comes in as %+v, want 24 px from the right, faded", in.Enter)
+	}
+	if TabSlide.Duration != Tabs || TabSlide.Ease == nil {
+		t.Fatalf("tab marker = %+v, want the strip's %v", TabSlide, Tabs)
+	}
+}
