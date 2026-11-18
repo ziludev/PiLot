@@ -908,7 +908,11 @@ export const getFeishuStatus = (): FeishuStatus & { started: boolean; downMs: nu
   downMs: feishuStatus.ready ? 0 : Date.now() - feishuStatus.since,
 });
 
-type FeishuBridge = { stop(): void };
+type FeishuBridge = {
+  stop(): void;
+  /** Boot-time news has no turn to answer, so it goes straight to the owner's chat. */
+  notifyOwner(text: string): Promise<void>;
+};
 
 export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBridge> {
   const { appId, appSecret } = requireFeishuCredentials();
@@ -2785,6 +2789,15 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
   })();
 
   return {
+    async notifyOwner(text: string): Promise<void> {
+      const chat = await ownerChatId(runtime.harness, context).catch(() => undefined);
+      if (chat === undefined) {
+        // Before the owner has ever written, there is no chat to send to; the log is the only trace.
+        log("feishu", "boot notice dropped: owner chat unknown");
+        return;
+      }
+      await sendNotice(chat, text);
+    },
     stop() {
       clearInterval(supervisor);
       // Every waiter is told no and no timer survives; the registry is the only place that knows
