@@ -9,7 +9,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -59,16 +58,6 @@ func main() {
 				}
 				tray.SetTitle(title)
 			}
-		})
-		app.SetSaver(func(name string, data []byte) error {
-			path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
-				Title:       "Export chat",
-				DefaultPath: name,
-			})
-			if err != nil || path == "" {
-				return err
-			}
-			return os.WriteFile(path, data, 0o644)
 		})
 		app.SetPicker(mygo.Dialog.Open)
 		app.SetQuit(mygo.App.Quit)

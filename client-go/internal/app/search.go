@@ -22,7 +22,7 @@ func (a *App) searchTurns() []int {
 	if query == "" {
 		return nil
 	}
-	built := turns.GroupTurns(a.entries, a.waits)
+	built := turns.GroupTurns(a.entries)
 	var matched []int
 	for index := range built {
 		if strings.Contains(strings.ToLower(turnHaystack(&built[index])), query) {

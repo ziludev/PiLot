@@ -47,7 +47,7 @@
 | `ProjectBar.tsx` | 项目切换 / 打开 / 移除 | `internal/app/projectbar.go` | done |
 | `Transcript.tsx` | 回合列表、左右气泡、复制/编辑/重试、窗口化、新消息跳转、空态、通知 | `internal/app/transcript.go`（60 轮窗口 + earlierTurns + `jumpBar` + `noConversation` 空态；`followScroll` 打开即置底并在新条目到达时继续跟随，上翻后才计数） | diff |
 | `TurnRail.tsx` | 每步的阶段色点竖轨 | `stepRow` 前置色点 + 步骤组左侧 1px 竖线（`transcript.go` 的 `BorderWidth(0,0,0,1)`） | diff |
-| `TurnDurations.tsx` | 思考/工具/等待耗时分段条 | `phaseBar`（180×3px 分段条 + `phaseLegend` 逐段时长） | diff |
+| `TurnDurations.tsx` | 思考/工具/等待耗时分段条 | 不实现：回合末尾已经有耗时和文件数，再画一条分段条是同一件事的第二种画法 | — |
 | `ToolOutput.tsx` | 工具输出（diff/文本/失败色） | `stepOutput` + `diff.View` | done |
 | `Composer.tsx` | 输入、steer、发送、模型入口 | `internal/app/composer.go`（Cmd/Ctrl+Enter 发送） | done |
 | `ApprovalBar.tsx` | 审批三按钮 + 等待秒数 | `approvalBar`（composer.go） | done |
@@ -56,7 +56,7 @@
 | `FileViewer.tsx` | 只读文件 + 行号 + 行批注 | `internal/side/file.go` + `a.openFile` | done |
 | `CommitDialog.tsx` | 提交信息弹窗 | `internal/side/commit.go` | done |
 | `Commits.tsx` | 提交列表、补丁展开、push、compare、基分支选择 | `internal/side/commits.go`（`baseSelect` → `OnSetBase` → `api.SetGitBase`） | done |
-| `MergeButton.tsx` | 合并确认对话框、脏工作区禁用、冲突交给 agent | `internal/side/merge.go`（`MergeButton` + `MergeDialog`）；`App.openMergeDialog/mergeBranch/askAgentToResolve` | done |
+| `MergeButton.tsx` | 合并确认对话框 | 不实现：合并进主线是评审在推送处做的决定，客户端不提供入口 | — |
 | `AccessPanel.tsx` | 授权级别、路由、审计 | `internal/ops/access.go` | diff |
 | `TaskDialog.tsx` | 任务详情与取消 | `internal/ops/task.go` | done |
 | `UsageCalendar.tsx` | 120 天花费热力格 | `internal/ops/usage.go` | done |
@@ -301,3 +301,13 @@ pitta/internal/app.(*App).railRow.func1()  rail.go:213
 - **等待超过 5 分钟标题闪烁**：`titleText()` 在 `waitSeconds >= 300` 时按 `titleTick` 奇偶交替隐藏 `⚠` 标记；`tickTitle` 每秒递增计数。
 - **一个会话只有一个窗口**：`openWindows` 记录「哪个窗口专属于哪个会话」，rail 点击时 `focusOwnWindow` 把那个窗口提到前面而不是在本窗口再载入一遍；窗口关闭时 `forgetOwnWindow`。窗口自己的点击不会把自己抬起来。
 - 快捷键面板 14 条。
+### 2026-11 删减（第 40 轮）
+
+这一轮不加功能，只删：凡是同一个事实有第二种说法的地方，删掉多的那个。
+
+- **回合计时条**（`phaseBar`/`phaseLegend`，来自 `TurnDurations.tsx`）：回合末尾已经有耗时、文件数和 token，再画一条分段条是同一件事的第二种画法。连带删掉 `turns.Phases` 的整段推导——那个结构只为这条线存在，`GroupTurns` 也不再需要审批等待时间作为入参。
+- **导出 Markdown**（⌘⇧E、命令面板一项、`SetSaver` 的实现）：要看内容就在窗口里看，要存档有 bridge 的会话库。`export.go` 与其测试一起删。
+- **合并面板**（`internal/side/merge.go`、`MergeButton`/`MergeDialog`、`App.openMergeDialog/mergeBranch/askAgentToResolve`、`api.Client.Merge`、`protocol.MergeResult`）：合并是评审在推送处做的决定，客户端里留一个「合进主线」的按钮只会诱导误操作。分支选择器（`OnSetBase`）保留，它决定提交区用来对比的基线。
+- **toast 排空条**、**侧栏 tab 滑动下划线**、**rail 的 Running 过滤器**：三处都在重复旁边已有的信息（见 `5429784`）。
+- i18n 少 10 个键（merge/mainBranch/mergeHint/commitFirst/mainDirty/conflictIn/askAgent/askedAgent/nothingToMerge/baseBranchHint），`origin_test.go` 用 `dropped` 集合声明「origin 有、我们故意没有」，不再需要给每条都写理由。
+

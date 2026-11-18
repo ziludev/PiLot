@@ -25,7 +25,6 @@ const (
 	chatFold
 	chatFinal
 	chatLive
-	chatPhase
 	chatSummary
 )
 
@@ -143,7 +142,6 @@ func (a *App) buildChatRows(built []turns.Turn) []chatRow {
 		if live {
 			push(chatRow{kind: chatLive, key: "l" + itoa(turn.ID)})
 		}
-		push(chatRow{kind: chatPhase, key: "p" + itoa(turn.ID)})
 		// A folded turn's line already carries files, diff and time, so the
 		// summary under it would say all of it twice. An opened one gets its
 		// summary back, file list included.
@@ -207,8 +205,6 @@ func (a *App) chatRow(c *ui.Context, t theme.Tokens, row chatRow) {
 			a.answerBlock(c, t, turns.Text(row.entry), retry, a.isHit(row.entry))
 		case chatLive:
 			a.liveLine(c, t, row.turn)
-		case chatPhase:
-			a.phaseBar(c, t, row.turn)
 		case chatSummary:
 			a.summaryLine(c, t, row.turn)
 		}

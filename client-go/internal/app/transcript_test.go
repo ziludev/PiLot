@@ -437,7 +437,9 @@ func TestAVirtualListHoldsNoTurnBack(t *testing.T) {
 	if a.turnTotal != 200 {
 		t.Fatalf("the chat holds %d turns, want 200", a.turnTotal)
 	}
-	if tt.HasText("question 1") {
+	// Exact, not HasText: "question 1" is a prefix of "question 199", and the
+	// tail of a 200-turn chat is full of turns numbered in the hundreds.
+	if showsExactly(tt, "question 1") {
 		t.Fatal("the first frame built the oldest turn")
 	}
 
@@ -446,7 +448,7 @@ func TestAVirtualListHoldsNoTurnBack(t *testing.T) {
 	a.apply(func() { a.turnList.ScrollTo(0, ui.Start) })
 	tt.Frame()
 	tt.Frame()
-	if !tt.HasText("question 1") {
+	if !showsExactly(tt, "question 1") {
 		t.Fatalf("the top of the chat is not its first turn; texts=%q", tt.Texts())
 	}
 }

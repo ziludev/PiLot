@@ -81,15 +81,24 @@ func TestOriginDictionaryStillMatches(t *testing.T) {
 		// happened, and a turn that ended on an error says so on the row.
 		"undo": true, "turnFailed": true, "finished": true,
 	}
+	// Gone: the native client has no merge button. Merging into the main line is
+	// a reviewer's call made where the branch was pushed, so the words that only
+	// ever labelled that dialog left with it; i18n.ts still has them.
+	dropped := map[string]bool{
+		"merge": true, "mainBranch": true, "mergeHint": true,
+		"commitFirst": true, "mainDirty": true, "conflictIn": true,
+		"askAgent": true, "askedAgent": true, "nothingToMerge": true,
+		"baseBranchHint": true,
+	}
 	for lang, keys := range origin {
 		if len(keys) == 0 {
 			t.Fatalf("no keys parsed for %s", lang)
 		}
-		if len(keys) != len(ours[lang])-len(allowed) {
+		if len(keys)-len(dropped) != len(ours[lang])-len(allowed) {
 			t.Logf("%s: origin has %d keys, ours %d (allowed extras %d)", lang, len(keys), len(ours[lang]), len(allowed))
 		}
 		for key := range keys {
-			if _, ok := ours[lang][key]; !ok {
+			if _, ok := ours[lang][key]; !ok && !dropped[key] {
 				t.Errorf("%s key %q is missing from dict.go", lang, key)
 			}
 		}

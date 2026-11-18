@@ -60,8 +60,8 @@ const (
 
 // Offset and lifetime numbers that tie two motions together.
 const (
-	// ToastLife is how long a toast stays before it slides out: 1.8 s, which
-	// is also how long its drain bar takes to empty.
+	// ToastLife is how long a toast stays before it slides out: 1.8 s, long
+	// enough to read a title and reach its button, short enough to ignore.
 	ToastLife = 1800 * time.Millisecond
 	// Pulse is how long a running step's dot takes to breathe in and out once,
 	// and PulseLow how faint it gets at the bottom of that breath. The dot is

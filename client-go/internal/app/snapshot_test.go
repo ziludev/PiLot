@@ -384,7 +384,6 @@ func TestRailRowLiftsUnderThePointer(t *testing.T) {
 func TestSnapshotTurn(t *testing.T) {
 	a := snapshotData(t)
 	a.entries = turnEntries(4242, "why is the sky blue", "Rayleigh scattering favours short wavelengths.")
-	a.waits = nil
 	a.approvals = nil
 	a.live = nil
 	for _, dark := range []bool{false, true} {

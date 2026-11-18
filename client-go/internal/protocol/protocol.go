@@ -158,23 +158,15 @@ type Usage struct {
 	Turns  int     `json:"turns"`
 }
 
-// ApprovalWait is an interval the conversation spent waiting for approval.
-type ApprovalWait struct {
-	Start int64  `json:"start"`
-	End   int64  `json:"end"`
-	Tool  string `json:"tool"`
-}
-
 // Conversation is GET /api/conversation.
 type Conversation struct {
 	Entries []Entry `json:"entries"`
 	// HasMore says the chat holds entries older than the ones returned, so the
 	// transcript can offer to read further back.
-	HasMore       bool           `json:"hasMore"`
-	Model         *ModelRef      `json:"model"`
-	ThinkingLevel string         `json:"thinkingLevel"`
-	ApprovalWaits []ApprovalWait `json:"approvalWaits"`
-	Usage         *Usage         `json:"usage"`
+	HasMore       bool      `json:"hasMore"`
+	Model         *ModelRef `json:"model"`
+	ThinkingLevel string    `json:"thinkingLevel"`
+	Usage         *Usage    `json:"usage"`
 }
 
 // PendingApproval is one tool call waiting for the user's decision.
@@ -288,17 +280,6 @@ type WorktreeRemoved struct {
 	Branch  string `json:"branch"`
 	Commits int    `json:"commits"`
 	Message string `json:"message"`
-}
-
-// MergeResult is POST /api/merge.
-type MergeResult struct {
-	Status    string   `json:"status"`
-	Branch    string   `json:"branch"`
-	Base      string   `json:"base"`
-	Commits   int      `json:"commits"`
-	Files     []string `json:"files"`
-	Conflicts []string `json:"conflicts"`
-	Message   string   `json:"message"`
 }
 
 // AccessLevel is how much a chat may do.

@@ -18,7 +18,6 @@ const palettePrefix = ">"
 const (
 	paletteFind      = "Find in this chat…"
 	paletteToggle    = "Toggle the side panel"
-	paletteExport    = "Export this chat as Markdown"
 	paletteSettings  = "Settings…"
 	paletteLogs      = "Open the agent's logs"
 	paletteQuit      = "Quit PiLot"
@@ -43,7 +42,6 @@ func (a *App) paletteActions() []paletteAction {
 		{Name: i18n.T("memory"), Run: func() { a.openSideTab(SideMemory) }},
 		{Name: i18n.T("access"), Run: func() { a.openSideTab(SideAccess) }},
 		{Name: i18n.T("usage"), Run: func() { a.openSideTab(SideUsage) }},
-		{Name: paletteExport, Run: func() { a.exportMarkdown() }},
 		{Name: i18n.T("pinned"), Run: func() { a.togglePinSelected() }},
 		{Name: i18n.T("archive"), Run: func() { a.archiveSelected() }},
 		{Name: i18n.T("theme"), Run: func() { a.toggleTheme() }},
