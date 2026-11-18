@@ -1017,6 +1017,23 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     return response?.data?.message_id;
   }
 
+  /** A plain-text reply: same thread rule as cards, so a command answer lands where it was typed. */
+  async function replyText(
+    messageId: string,
+    text: string,
+    options: { thread?: boolean; mention?: string } = {},
+  ): Promise<void> {
+    const body = options.mention === undefined ? text : `<at id=${options.mention}></at> ${text}`;
+    await client.im.message.reply({
+      path: { message_id: messageId },
+      data: {
+        msg_type: "text",
+        content: JSON.stringify({ text: body }),
+        ...(options.thread === true ? { reply_in_thread: true } : {}),
+      },
+    });
+  }
+
   async function downloadResource(
     messageId: string,
     fileKey: string,
@@ -1384,6 +1401,9 @@ const continuing = new Set<string>();
   async function handle(event: IncomingMessage): Promise<void> {
     const message = event.message;
     if (message?.message_id === undefined || message.chat_id === undefined) return;
+    /** Command answers belong in the topic the command was typed in, not at the group's root. */
+    const say = (text: string): Promise<void> =>
+      replyText(message.message_id as string, text, { thread: threadFor(message) });
     const parsed = parseContent(message);
     const text = parsed.text;
     const owner = config.feishu.allowedSenderIds;
@@ -1576,7 +1596,7 @@ const continuing = new Set<string>();
     // Owner only, because the approval lines name the owner's own tool calls.
     if (/^\/(ketchup|进度|怎么样了)$/i.test(command)) {
       if (!isOwner) {
-        await sendText(chatId, "只有 alex 能看这个。").catch(() => {});
+        await say("只有 alex 能看这个。").catch(() => {});
         return;
       }
       const digest = await collectKetchup(runtime.harness, context);
@@ -1588,7 +1608,7 @@ const continuing = new Set<string>();
     }
     if (/^\/(digest|早报|昨晚)$/i.test(command)) {
       if (!isOwner) {
-        await sendText(chatId, "只有 alex 能看这个。").catch(() => {});
+        await say("只有 alex 能看这个。").catch(() => {});
         return;
       }
       const body = await collectDigest(runtime.harness, context);
@@ -1600,13 +1620,13 @@ const continuing = new Set<string>();
     }
     if (/^\/(stop|abort|停止|中断)$/i.test(command)) {
       await conversation.abort(context);
-      await sendText(chatId, "已中断当前任务。");
+      await say("已中断当前任务。");
       return;
     }
     const modelAsk = /^\/(?:model|模型)(?:\s+([\s\S]*))?$/i.exec(command);
     if (modelAsk !== null) {
       if (!isOwner) {
-        await sendText(chatId, "只有 alex 能换模型。").catch(() => {});
+        await say("只有 alex 能换模型。").catch(() => {});
         return;
       }
       const agent = await conversation.agent(context).catch(() => undefined);
@@ -1651,39 +1671,39 @@ const continuing = new Set<string>();
       if (ask.kind === "default") {
         const entry = known.get(ask.modelId);
         if (entry === undefined) {
-          await sendText(chatId, `没有这个模型：${ask.modelId}\n可用的有：${catalog.slice(0, 6).map((item) => item.id).join("、")}`).catch(() => {});
+          await say(`没有这个模型：${ask.modelId}\n可用的有：${catalog.slice(0, 6).map((item) => item.id).join("、")}`).catch(() => {});
           return;
         }
         await runtime.setDefaultModel({ provider: "magpie", modelId: ask.modelId });
-        await sendText(chatId, `默认模型已改为 ${ask.modelId}（新会话生效，当前会话不变）`);
+        await say(`默认模型已改为 ${ask.modelId}（新会话生效，当前会话不变）`);
         return;
       }
 
       if (ask.kind === "thinking") {
         const levels = known.get(modelId)?.thinkingLevels ?? [];
         if (levels.length > 0 && !levels.includes(ask.level)) {
-          await sendText(chatId, `思考档位只能是：${levels.join(" / ")}`).catch(() => {});
+          await say(`思考档位只能是：${levels.join(" / ")}`).catch(() => {});
           return;
         }
         await runtime.setModel(conversation, { provider, modelId, thinkingLevel: ask.level });
-        await sendText(chatId, `本会话 thinking 改为 **${ask.level}**（下一轮生效）`.replace(/\*\*/g, ""));
+        await say(`本会话 thinking 改为 **${ask.level}**（下一轮生效）`.replace(/\*\*/g, ""));
         return;
       }
 
       const entry = known.get(ask.modelId);
       if (entry === undefined) {
-        await sendText(chatId, `没有这个模型：${ask.modelId}\n可用的有：${catalog.slice(0, 6).map((item) => item.id).join("、")}`).catch(() => {});
+        await say(`没有这个模型：${ask.modelId}\n可用的有：${catalog.slice(0, 6).map((item) => item.id).join("、")}`).catch(() => {});
         return;
       }
       await runtime.setModel(conversation, { provider: "magpie", modelId: ask.modelId, thinkingLevel: thinking });
-      await sendText(chatId, `本会话已切到 ${ask.modelId}（下一轮生效）`);
+      await say(`本会话已切到 ${ask.modelId}（下一轮生效）`);
       return;
     }
 
     if (/^\/(cost|花费|额度)$/i.test(command)) {
       const budget = await runtime.budget(chatId);
       const limit = budget.limit <= 0 ? "未设上限" : `$${budget.limit.toFixed(2)}`;
-      await sendText(chatId, `今日花费 $${budget.spentToday.toFixed(4)} / ${limit}`);
+      await say(`今日花费 $${budget.spentToday.toFixed(4)} / ${limit}`);
       return;
     }
     if (/^\/(memory|记忆)$/i.test(command)) {
@@ -1721,12 +1741,12 @@ const continuing = new Set<string>();
         return;
       }
       if (!isOwner) {
-        await sendText(chatId, "只有 owner 能切仓库。");
+        await say("只有 owner 能切仓库。");
         return;
       }
       const result = await runtime.switchProject(conversationId, wanted);
       if ("error" in result) {
-        await sendText(chatId, `${result.error}\n可选：${result.candidates.join("、") || "（无）"}`);
+        await say(`${result.error}\n可选：${result.candidates.join("、") || "（无）"}`);
         return;
       }
       await sendText(
@@ -1754,12 +1774,12 @@ const continuing = new Set<string>();
         return;
       }
       if (!isOwner) {
-        await sendText(chatId, "只有 owner 能改本群记忆。");
+        await say("只有 owner 能改本群记忆。");
         return;
       }
       if (/^clear$/i.test(arg)) {
         const removed = await clearChatNotes(runtime.harness, context, conversationId);
-        await sendText(chatId, `已清空本群记忆（删除 ${removed} 条）。`);
+        await say(`已清空本群记忆（删除 ${removed} 条）。`);
         return;
       }
       const del = arg.match(/^(?:del|delete|remove|删)\s+(\d+)$/i);
