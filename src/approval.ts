@@ -179,16 +179,16 @@ function withoutQuoted(text: string): string {
  */
 export function guestShellBlockReason(command: string, roots: readonly string[] = [config.workspace]): string | undefined {
   const raw = command.trim();
-  if (raw.length === 0) return "这个群是 guest 模式：命令为空。";
+  if (raw.length === 0) return "这个群是只读的：命令为空。";
   const bare = withoutQuoted(raw);
   for (const [pattern, why] of GUEST_SHELL_DENY) {
-    if (pattern.test(bare)) return `这个群是 guest 模式：${why}（这里只允许只读查证）。`;
+    if (pattern.test(bare)) return `这个群是只读的：${why}（这里只允许只读查证）。`;
   }
   for (const segment of raw.split(/&&|\|\||;|\|/).map((part) => part.trim()).filter((part) => part.length > 0)) {
     const tokens = segment.split(/\s+/);
     const name = tokens[0] ?? "";
     if (!GUEST_SHELL_COMMANDS.has(name)) {
-      return `这个群是 guest 模式：不能执行 ${name}（只允许只读查证：git log / grep / psql select 这类）。`;
+      return `这个群是只读的：不能执行 ${name}（只允许只读查证：git log / grep / psql select 这类）。`;
     }
     if (name === "git") {
       // `git -C <path> log` and `git --no-pager show` are still reads; `-c` is not, because it
@@ -197,24 +197,24 @@ export function guestShellBlockReason(command: string, roots: readonly string[] 
       while (sub < tokens.length && tokens[sub]?.startsWith("-")) {
         if (tokens[sub] === "-C" || tokens[sub] === "--git-dir" || tokens[sub] === "--work-tree") sub += 2;
         else if (tokens[sub] === "--no-pager" || tokens[sub] === "-P") sub += 1;
-        else return `这个群是 guest 模式：git ${tokens[sub] ?? ""} 不接受（只允许 git log / show / diff / grep 这类只读查询）。`;
+        else return `这个群是只读的：git ${tokens[sub] ?? ""} 不接受（只允许 git log / show / diff / grep 这类只读查询）。`;
       }
       if (!GUEST_GIT_SUBCOMMANDS.has(tokens[sub] ?? "")) {
-        return `这个群是 guest 模式：git ${tokens[sub] ?? ""} 会改仓库，只允许 git log / show / diff / grep 这类。`;
+        return `这个群是只读的：git ${tokens[sub] ?? ""} 会改仓库，只允许 git log / show / diff / grep 这类。`;
       }
     }
     if (name === "psql") {
       const marker = segment.search(/\s-c\s/);
       const sql = marker >= 0 ? segment.slice(marker + 3) : segment;
       if (GUEST_SQL_WRITE.test(withoutQuoted(sql)) || !GUEST_SQL_READ.test(sql.replace(/^\s*['"]?/, ""))) {
-        return "这个群是 guest 模式：psql 只允许查（select / show / \\d），不允许写。";
+        return "这个群是只读的：psql 只允许查（select / show / \\d），不允许写。";
       }
     }
     for (const token of tokens) {
       const cleaned = token.replace(/^['"]|['"]$/g, "");
       if (!looksLikePath(cleaned)) continue;
       if (outsideRoots(cleaned, roots) || GUEST_DENIED_PATHS.some((pattern) => pattern.test(cleaned))) {
-        return `这个群是 guest 模式：不能碰 ${cleaned}（可读范围之外或敏感文件）。`;
+        return `这个群是只读的：不能碰 ${cleaned}（可读范围之外或敏感文件）。`;
       }
     }
   }
@@ -240,7 +240,7 @@ export function guestBlockReason(
   roots: readonly string[] = [config.workspace],
 ): string | undefined {
   if (!GUEST_TOOLS.has(tool)) {
-    return `这个群是 guest 模式：不能用 ${tool}（这里只读查证：read / project_search / logs_query / db_query / 只读 bash）。`;
+    return `这个群是只读的：不能用 ${tool}（这里只读查证：read / project_search / logs_query / db_query、bash 的只读命令）。`;
   }
   if (tool === "bash") {
     const reason = guestShellBlockReason(typeof args["command"] === "string" ? args["command"] : "", roots);
@@ -250,7 +250,7 @@ export function guestBlockReason(
   }
   const path = typeof args["path"] === "string" ? args["path"] : "";
   if (path.length > 0 && (outsideRoots(path, roots) || GUEST_DENIED_PATHS.some((pattern) => pattern.test(path)))) {
-    return `这个群是 guest 模式：不能读 ${path}（可读范围之外或敏感文件）。`;
+    return `这个群是只读的：不能读 ${path}（可读范围之外或敏感文件）。`;
   }
   return undefined;
 }
