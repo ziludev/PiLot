@@ -9,6 +9,19 @@
 # Usage: scripts/render-avatar-states        # needs Google Chrome + ffmpeg
 set -euo pipefail
 
+case "${1-}" in
+  -h | --help)
+    sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
+    exit 0
+    ;;
+  "")
+    ;;
+  *)
+    echo "render-avatar-states: unknown argument ${1}; try --help" >&2
+    exit 2
+    ;;
+esac
+
 CHROME=${CHROME:-"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"}
 root=$(cd "$(dirname "$0")/.." && pwd)
 page="file://$root/assets/legacy-avatar/states.html"
