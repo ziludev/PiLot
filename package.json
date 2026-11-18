@@ -12,6 +12,7 @@
     "ask": "node src/cli.ts",
     "typecheck": "tsc -p tsconfig.json",
     "card": "node src/feishu-selftest.ts",
+    "check:scopes": "node scripts/check-feishu-scopes.ts",
     "test": "node --test tests/*.test.ts",
     "eval": "node evals/run.ts"
   },
