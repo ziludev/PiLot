@@ -85,6 +85,26 @@ turns_in_flight() {
   sqlite3 "file:$db?mode=ro" "select count(*) from submissions where status in ('queued','placed')" 2>/dev/null || echo 0
 }
 
+# The agent comes back from a restart with no memory of it, so the switch leaves a note that the new
+# process reads on boot and sends to Alex. Without it the only trace was logs/restart-later.log.
+note_restart() {
+  local kind="$1" reason="${2:-}" now prev_at prev_reason keep_at keep_reason marker reason_json
+  # AGENT_DB may be relative (it is, in .env); make it absolute so the note lands next to the real db.
+  local db; db="$(db_path)"; case "$db" in /*) ;; *) db="$PROJECT/$db" ;; esac
+  marker="$(dirname "$db")/restart-pending.json"
+  now="$(( $(date +%s) * 1000 ))"
+  prev_at="$(sed -n 's/.*"queuedAt":\([0-9]*\).*/\1/p' "$marker" 2>/dev/null | head -1)"
+  prev_reason="$(sed -n 's/.*"reason":"\([^"]*\)".*/\1/p' "$marker" 2>/dev/null | head -1)"
+  # A queued restart can wait twenty minutes for an idle window; the original queue time is what
+  # makes the wait visible, and the fire must keep it instead of overwriting it.
+  keep_at="${prev_at:-$now}"
+  keep_reason="${reason:-$prev_reason}"
+  reason_json="${keep_reason//\"/\\\"}"
+  mkdir -p "$(dirname "$marker")"
+  printf '{"kind":"%s","reason":"%s","queuedAt":%s,"at":%s}\n' \
+    "$kind" "$reason_json" "$keep_at" "$now" > "$marker"
+}
+
 wait_idle() {
   local timeout="${RESTART_IDLE_TIMEOUT:-180}" deadline=$((SECONDS + ${RESTART_IDLE_TIMEOUT:-180}))
   local count
@@ -168,9 +188,13 @@ case "${1:-status}" in
     ;;
   restart)
     # Never cut a turn in half: wait for the queue to drain first unless forced.
+    reason="手动重启"
     if [ "${2:-}" != "--force" ]; then
       wait_idle || exit 1
+    else
+      reason="强制重启（--force），手上回合被切断"
     fi
+    note_restart manual "$reason"
     # kickstart -k keeps the same file descriptors, so rotation has to go through a full reload.
     launchctl bootout "$DOMAIN" "$AGENTS/$LABEL.plist" 2>/dev/null || true
     rotate_logs
@@ -179,6 +203,7 @@ case "${1:-status}" in
   restart-later)
     # Queue one restart, run by launchd. Used when the caller is the agent itself:
     # this process goes away with the bootout, so nothing here can watch the turn end.
+    note_restart queued "我排队重启，等手上的回合跑完再加载新代码"
     render_later
     launchctl bootout "$DOMAIN" "$AGENTS/$LATER_LABEL.plist" 2>/dev/null || true
     launchctl bootstrap "$DOMAIN" "$AGENTS/$LATER_LABEL.plist"
@@ -202,6 +227,8 @@ case "${1:-status}" in
       echo "attempt $((attempt - 1)) lost the race; trying again in 60s"
       sleep 60
     done
+    # Refresh the note: the fire time is now, the reason and queue time stay as queued.
+    note_restart planned ""
     launchctl bootout "$DOMAIN" "$AGENTS/$LABEL.plist" 2>/dev/null || true
     rotate_logs
     load "$LABEL" "$AGENTS/$LABEL.plist"
