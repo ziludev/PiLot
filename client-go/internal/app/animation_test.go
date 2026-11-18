@@ -41,27 +41,42 @@ func TestModelPaletteAnimatesIn(t *testing.T) {
 	}
 }
 
-// TestSidePanelTabRises checks a tab swap animates rather than cutting.
-func TestSidePanelTabRises(t *testing.T) {
+// TestSidePanelTabSlidesIn checks a tab swap animates rather than cutting: the
+// new panel's content comes in 24 px from the right, so on the frame it appears
+// it is still right of where it settles.
+func TestSidePanelTabSlidesIn(t *testing.T) {
 	a := snapshotData(t)
 	a.sideOpen = true
 	a.sideTab = SideChanges
 	tt := ui.NewTester(a.View, 1180, 820)
 	tt.Frame()
 	a.apply(func() { a.sideTab = SideMemory; a.invalidate() })
+	// The frame the new content is born on: 24 px right of where it lands, and
+	// still faded out, so this is the frame that measures the slide.
 	tt.Frame()
-	mid, ok := tt.Find("speak Chinese")
+	born, ok := tt.Find("speak Chinese")
 	if !ok {
 		t.Skipf("the memory panel's heading is not on screen; texts: %v", tt.Texts())
 	}
-	tt.Advance(120 * time.Millisecond)
+	tt.Advance(90 * time.Millisecond)
 	tt.Frame()
-	settled, ok := tt.Find("speak Chinese")
+	writePNG(t, motionShot("pitta-motion-panel-in.png"), tt.Image())
+	mid, ok := tt.Find("speak Chinese")
 	if !ok {
 		t.Fatal("the entry left the screen while animating in")
 	}
-	if settled.Y >= mid.Y {
-		t.Fatalf("the panel did not rise: mid %.1f → settled %.1f", mid.Y, settled.Y)
+	tt.Advance(200 * time.Millisecond)
+	tt.Frame()
+	writePNG(t, motionShot("pitta-motion-panel-settled.png"), tt.Image())
+	settled, ok := tt.Find("speak Chinese")
+	if !ok {
+		t.Fatal("the entry left the screen before it settled")
+	}
+	if settled.X >= born.X {
+		t.Fatalf("the panel did not come in from the right: born %.1f → settled %.1f", born.X, settled.X)
+	}
+	if settled.X > mid.X {
+		t.Fatalf("the panel moved back out: mid %.1f → settled %.1f", mid.X, settled.X)
 	}
 }
 

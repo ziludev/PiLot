@@ -36,6 +36,10 @@ const (
 	// ToastSlideTime is how long a toast takes to come in from the right, and
 	// to go back out on the same path.
 	ToastSlideTime = 350 * time.Millisecond
+	// PanelSlide is how long a side panel's content takes to come in from the
+	// right when a tab swaps it: the faster half of #057, the content rather
+	// than the tab strip.
+	PanelSlide = 200 * time.Millisecond
 )
 
 // Offsets, in DIPs.
@@ -50,6 +54,8 @@ const (
 	ContentRise = 8
 	// ToastSlide is how far a toast comes in from, off the right edge.
 	ToastSlide = 240
+	// PanelShift is how far a swapped-in panel's content starts to the right.
+	PanelShift = 24
 )
 
 // Offset and lifetime numbers that tie two motions together.
@@ -106,6 +112,22 @@ func FadeIn() ui.ElementTransition {
 		Duration: Tabs,
 		Ease:     EaseOutCubic,
 		Enter:    &ui.Motion{Y: ContentRise, Opacity: 0},
+	}
+}
+
+// PanelEnter is how a side panel's content comes in when a tab swaps it: 24 px
+// from the right, faded, over 200 ms. Enter only: the content a switch replaces
+// is gone by the time the new one draws, so there is nothing to animate out.
+//
+// It cannot be the panel opening from the split, though it reads the same: the
+// split and the panel are born on the same frame when the column opens, and a
+// transition only plays on a node whose parent was already there. Opening the
+// column therefore still cuts; see docs/ui-motion-todo.md.
+func PanelEnter() ui.ElementTransition {
+	return ui.ElementTransition{
+		Duration: PanelSlide,
+		Ease:     EaseOutCubic,
+		Enter:    &ui.Motion{X: PanelShift, Opacity: 0},
 	}
 }
 
