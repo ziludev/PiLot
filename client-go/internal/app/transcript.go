@@ -79,6 +79,9 @@ func (a *App) transcript(c *ui.Context) {
 				ui.Button(c, i18n.T("earlierTurns")).
 					OnClick(func() {
 						a.apply(func() {
+							// The turns land above what is on screen: the anchor is
+							// what keeps the line the reader is on where it is.
+							a.armAnchor()
 							a.stepWindow += stepWindowPage
 							a.invalidate()
 						})
@@ -1030,12 +1033,19 @@ func (a *App) followScroll() {
 		// scrolls up twenty points and stops there used to be yanked the twenty
 		// points back down, which read as the view jumping.
 		a.atBottom, a.stickToBottom, a.newMessages = true, true, 0
+		// Back at the end, the history the reader left is not drawn behind them
+		// any more: a window that grew while reading up would go on costing a
+		// frame's time for turns nobody is looking at.
+		if a.stepWindow > stepWindowDefault {
+			a.stepWindow = stepWindowDefault
+		}
 	}
 	// At the top of a chat that still holds turns back: let the next sixty in, so
 	// a history the reader scrolls through reads as one, and a chat that began
 	// "in the middle" — the window drew the newest sixty and a button held the
 	// rest — begins where it began.
 	if a.scrolledFromTop && state.Y <= 24 && a.turnHidden > 0 {
+		a.armAnchor()
 		a.stepWindow += stepWindowPage
 		a.invalidate()
 	}
@@ -1046,6 +1056,13 @@ func (a *App) followScroll() {
 		// of the end for a few frames while an answer streams.
 		state.Y = math.MaxFloat32
 	}
+}
+
+// armAnchor remembers the end of the content before turns are added above the
+// window, so the frame that follows moves the offset down by what arrived and
+// the reader keeps the line they were on.
+func (a *App) armAnchor() {
+	a.anchorMaxY, a.anchorArmed = a.transcriptScroll.MaxY, true
 }
 
 // scrollToNewest parks the transcript at the end, which is where a newly

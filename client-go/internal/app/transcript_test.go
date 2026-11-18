@@ -480,10 +480,26 @@ func TestScrollingToTheTopOpensTheRestOfTheHistory(t *testing.T) {
 	if a.turnHidden >= held {
 		t.Fatalf("reaching the top opened nothing: %d held back, was %d", a.turnHidden, held)
 	}
-	// Staying at the top keeps opening, frame by frame, until the chat begins
-	// where it began rather than a press at a time.
+	// The turns that landed above the view pushed the offset down with them:
+	// the reader keeps the line they were on instead of being thrown to a top
+	// that is a hundred turns older.
+	tt.Frame()
+	if a.transcriptScroll.Y <= 24 {
+		t.Fatalf("turns landed above an unheld view: at the top, y=%.1f", a.transcriptScroll.Y)
+	}
+	// Reaching the top again opens the next budget, until the chat begins where
+	// it began rather than a press at a time. The turns land above the reader,
+	// so the view holds its place and reaching the top is a scroll, not a wait:
+	// a window that opened itself frame after frame is a view that slides out
+	// from under the pointer.
 	for i := 0; i < 200 && a.turnHidden > 0; i++ {
+		at := a.transcriptScroll.Y
+		tt.Scroll(400, 200, 0, -20000)
 		tt.Frame()
+		tt.Frame()
+		if a.turnHidden > 0 && a.transcriptScroll.Y < at {
+			t.Fatalf("the view went up by %.1f while turns landed above it", at-a.transcriptScroll.Y)
+		}
 	}
 	if a.turnHidden > 0 {
 		t.Fatalf("the top of the chat still held back %d of %d turns", a.turnHidden, a.turnTotal)
@@ -575,5 +591,37 @@ func TestTheHistoryOfferReadsPagesNotTurns(t *testing.T) {
 	tt.Frame()
 	if tt.HasText(i18n.T("olderMessages")) {
 		t.Fatalf("the offer stayed after the chat began where it begins; texts=%q", tt.Texts())
+	}
+}
+
+// TestReturningToTheEndNarrowsTheWindow: reading back through a long chat grows
+// the window, and coming back to the end lets it go, so a frame costs what the
+// screen shows rather than what the reader once scrolled through.
+func TestReturningToTheEndNarrowsTheWindow(t *testing.T) {
+	i18n.Set(i18n.EN)
+	a := New(Config{})
+	a.previewImage = -1
+	a.current = 11
+	a.entries = manyTurns(200)
+	a.transcriptScroll.Y = math.MaxFloat32
+	tt := ui.NewTester(func(c *ui.Context) { a.main(c) }, 800, 400)
+	tt.Frame()
+	tt.Frame()
+	for i := 0; i < 3 && a.turnHidden > 0; i++ {
+		tt.Scroll(400, 200, 0, -20000)
+		tt.Frame()
+		tt.Frame()
+	}
+	if a.stepWindow <= stepWindowDefault {
+		t.Fatalf("reading up left the window at %d steps", a.stepWindow)
+	}
+	tt.Scroll(400, 200, 0, 200000)
+	tt.Frame()
+	tt.Frame()
+	if a.stepWindow != stepWindowDefault {
+		t.Fatalf("back at the end, the window is still %d steps", a.stepWindow)
+	}
+	if !a.stickToBottom || !a.atBottom {
+		t.Fatalf("the end did not re-attach: stick=%v atBottom=%v", a.stickToBottom, a.atBottom)
 	}
 }
