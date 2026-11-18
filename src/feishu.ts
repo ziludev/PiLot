@@ -664,6 +664,40 @@ export function quotedParentId(message: {
   return parent;
 }
 
+/**
+ * A topic's human messages, oldest first, as one block. Feishu delivers no event for a message that
+ * does not mention the bot, and a topic has no per-message quote to lean on — parent_id there is
+ * always the thread root — so without fetching the thread, everything said in it between our turns
+ * is invisible to the model.
+ */
+export function threadDigest(
+  items: ReadonlyArray<{
+    message_id?: string;
+    msg_type?: string;
+    create_time?: string;
+    body?: { content?: string };
+    sender?: { sender_type?: string; sender_name?: string };
+  }>,
+  options: { current: string; max?: number },
+): string {
+  const lines: string[] = [];
+  for (const item of items) {
+    const id = item.message_id ?? "";
+    if (id.length === 0 || id === options.current) continue;
+    // Our own answers are already in the conversation, in full.
+    if (item.sender?.sender_type === "app") continue;
+    const text = quoteText(item.msg_type ?? "", item.body?.content ?? "", [])
+      .replace(/\s+/g, " ")
+      .trim();
+    if (text.length === 0) continue;
+    const who = (item.sender?.sender_name ?? "").trim();
+    lines.push(`${who.length === 0 ? "某人" : who}: ${text.length > 300 ? `${text.slice(0, 300)}…` : text}`);
+  }
+  const shown = lines.slice(-(options.max ?? 20));
+  if (shown.length === 0) return "";
+  return `[话题里最近的 ${shown.length} 条发言]\n${shown.join("\n")}\n[话题结束]\n\n`;
+}
+
 /** The block the model sees in front of the reply, so "这个" has something to point at. */
 export function quoteBlock(quoted: Quoted): string {
   return `[引用 · ${quoted.who} 的消息]\n${quoted.text}\n[引用结束]\n\n`;
@@ -2330,6 +2364,58 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
 }
 
   /** One quoted message by id; undefined when it cannot be read (deleted, no scope, gone). */
+  /** "unsupported" once the API tells us the app may not read group messages at all. */
+  let threadRead: "unknown" | "unsupported" = "unknown";
+  /** Newest create_time we have already shown the model, per thread, so a turn does not re-send them. */
+  const threadSeen = new Map<string, number>();
+
+  /**
+   * What was said in this topic since we last looked. Cursor is in memory: after a restart the last
+   * few lines ride along once more, which beats losing a topic's context to a redeploy.
+   */
+  async function readThreadDigest(
+    message: NonNullable<IncomingMessage["message"]>,
+  ): Promise<string> {
+    const threadId = message.thread_id ?? "";
+    if (threadId.length === 0) return "";
+    if (threadRead === "unsupported") return "";
+    const response = await client.im.message
+      .list({
+        params: {
+          container_id_type: "thread",
+          container_id: threadId,
+          sort_type: "ByCreateTimeAsc",
+          page_size: 50,
+          with_sender_name: true,
+        },
+      })
+      .catch((error: unknown) => {
+        // Reading a group's messages needs its own scope; without it every turn would log the same
+        // failure, so say it once and stop asking.
+        if (JSON.stringify(error).includes("im:message.group_msg")) {
+          threadRead = "unsupported";
+          log("feishu", "cannot read topic history: the app is missing the im:message.group_msg scope", {});
+        } else {
+          logError("feishu", "could not read the topic", error);
+        }
+        return undefined;
+      });
+    const items = response?.data?.items ?? [];
+    if (items.length === 0) return "";
+    let newest = threadSeen.get(threadId) ?? 0;
+    for (const item of items) newest = Math.max(newest, Number(item?.create_time ?? 0));
+    const seen = threadSeen.get(threadId) ?? 0;
+    threadSeen.set(threadId, newest);
+    if (threadSeen.size > 64) threadSeen.delete(threadSeen.keys().next().value as string);
+    // create_time is a millisecond epoch string; take what is newer than the last look.
+    const fresh = items.filter((item) => Number(item?.create_time ?? 0) > seen);
+    const digest = threadDigest(fresh, { current: message.message_id ?? "" });
+    if (digest.length > 0) {
+      log("feishu", "topic context attached", { lines: items.filter((item) => Number(item?.create_time ?? 0) > seen).length });
+    }
+    return digest;
+  }
+
   async function readQuoted(parentId: string): Promise<Quoted | undefined> {
     const hit = quotedCache.get(parentId);
     if (hit !== undefined && Date.now() - hit.at < QUOTED_TTL_MS) return hit.value;
@@ -2375,7 +2461,10 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
     const quotedId = quotedParentId(message);
     const quoted = quotedId.length > 0 ? await readQuoted(quotedId) : undefined;
     if (quoted !== undefined) log("feishu", "quoted message attached", { id: quotedId.slice(-8), chars: quoted.text.length });
-    const withQuote = (text: string): string => (quoted === undefined ? tag(text) : tag(`${quoteBlock(quoted)}${text}`));
+    // A topic's back-and-forth never reaches us as events, so pull it in alongside the reply.
+    const topic = await readThreadDigest(message);
+    const withQuote = (text: string): string =>
+      tag(`${topic}${quoted === undefined ? "" : quoteBlock(quoted)}${text}`);
     if (parsed.audioKey !== undefined) {
       const bytes = await downloadResource(message.message_id ?? "", parsed.audioKey, "file");
       if (bytes === undefined) return withQuote(`${parsed.text}\n（语音下载失败）`.trim());
