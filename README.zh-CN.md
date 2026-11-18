@@ -4,6 +4,11 @@
 
 *PiLot：一个 Pi，无限可能。*
 
+![Node 22.6+](https://img.shields.io/badge/node-%E2%89%A522.6-informational)
+![平台：macOS](https://img.shields.io/badge/platform-macOS-lightgrey)
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
+![Durable execution](https://img.shields.io/badge/%E6%AF%8F%E8%BD%AE%E4%BB%BB%E5%8A%A1-durable-blueviolet)
+
 跑在 [Pi Durable](https://earendil.com/posts/pi-durable/) 上的个人助理：飞书里聊、桌面上看、终端里也能用，进程挂了不丢对话。
 
 ![桌面客户端：左栏会话与花费，中间折叠的工具时间轴与回答，底部 composer](assets/readme/client.png)

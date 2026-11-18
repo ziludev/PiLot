@@ -4,11 +4,22 @@
 
 *PiLot: one Pi, a lot of possibilities.*
 
+![Node 22.6+](https://img.shields.io/badge/node-%E2%89%A522.6-informational)
+![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey)
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
+![Durable execution](https://img.shields.io/badge/every%20turn-a%20durable%20task-blueviolet)
+
 A personal assistant that runs on [Pi Durable](https://earendil.com/posts/pi-durable/): talk to it in Feishu, watch it work in a desktop app, use it from a terminal — and if the process dies, the conversation does not.
 
 ![The desktop client, drawn by mygo/ui: rail with chats and their cost, a folded tool timeline over a real answer, the composer](assets/readme/client.png)
 
 ![The Feishu card going from Working to Done](assets/readme/card.gif)
+
+```bash
+git clone https://github.com/ziludev/PiLot.git && cd PiLot && ./bin/durable setup
+```
+
+Six steps, then it runs — [Install](#install) has the details and the two things only you can do.
 
 - **Engine** — `@earendil-works/pi-durable` 1.5.2. Every model request, tool call and compaction is a durable task that checkpoints before it runs. `kill -9` mid-turn, restart, and it continues from where it stopped.
 - **Models** — `@earendil-works/pi-ai`. Any built-in provider; model and thinking level are switchable per conversation.
