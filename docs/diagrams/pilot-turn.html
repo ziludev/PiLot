@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>One PiLot turn · PiLot</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&family=Noto+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #F7F7F4;
+      --color-ink:     #182235;
+      --color-muted:   #46536B;
+      --color-accent:  #1069EB;
+      --font-sans:     Geist, system-ui, sans-serif;
+      --font-serif:    Instrument Serif, Noto Serif, serif;
+      --font-mono:     Geist Mono, ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1360px; width: 100%; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 1280px; display: block; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Flowchart · PiLot</p>
+    <h1>One turn, and what survives a kill -9</h1>
+    <div class="diagram-container">
+      <svg viewBox="0 0 1280 600" xmlns="http://www.w3.org/2000/svg" role="img"
+           aria-labelledby="pilot-turn-title pilot-turn-desc">
+        <title id="pilot-turn-title">One PiLot turn</title>
+        <desc id="pilot-turn-desc">A message becomes a durable task, the model answers or calls a tool, a dangerous call waits for approval, and the loop continues until the turn ends with an answer and a finished card.</desc>
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#46536B"/>
+          </marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#1069EB"/>
+          </marker>
+        </defs>
+        <rect width="100%" height="100%" fill="#F7F7F4"/>
+<g transform="translate(40 30) scale(0.157143)" aria-hidden="true"><g transform="translate(0 0)"><g id="PiLot-symbol" shape-rendering="geometricPrecision">
+    <g id="blue-module"><path d="M 46.33,31.00 L 45.33,32.00 L 42.33,33.00 L 40.33,35.00 L 37.33,36.00 L 34.33,39.00 L 33.33,39.00 L 23.00,49.33 L 23.00,50.33 L 19.00,55.33 L 19.00,56.33 L 18.00,57.33 L 18.00,58.33 L 15.00,63.33 L 15.00,65.33 L 13.00,68.33 L 13.00,71.33 L 12.00,72.33 L 12.00,76.33 L 11.00,77.33 L 11.00,148.33 L 12.00,149.33 L 12.00,151.33 L 17.33,156.67 L 19.33,156.67 L 20.33,157.67 L 105.33,157.67 L 106.33,158.67 L 111.33,155.67 L 113.33,155.67 L 113.67,150.33 L 110.33,147.00 L 65.33,147.00 L 64.33,146.00 L 61.33,145.00 L 57.67,139.33 L 57.67,134.33 L 58.67,133.33 L 58.67,130.33 L 60.67,127.33 L 60.67,125.33 L 61.67,124.33 L 62.67,121.33 L 64.67,119.33 L 64.67,118.33 L 66.67,116.33 L 66.67,115.33 L 75.33,106.67 L 76.33,106.67 L 78.33,104.67 L 79.33,104.67 L 81.33,102.67 L 82.33,102.67 L 85.33,100.67 L 87.33,100.67 L 88.33,99.67 L 90.33,99.67 L 91.33,98.67 L 95.33,98.67 L 96.33,97.67 L 152.33,97.67 L 154.33,95.67 L 155.33,95.67 L 155.67,94.33 L 157.67,92.33 L 157.67,89.33 L 156.67,88.33 L 156.67,86.33 L 157.67,85.33 L 157.67,82.33 L 156.67,81.33 L 156.67,50.33 L 157.67,49.33 L 157.67,43.33 L 156.67,42.33 L 156.67,33.33 L 151.33,28.00 L 150.33,28.00 L 149.33,27.00 L 147.33,27.00 L 146.33,26.00 L 64.33,26.00 L 63.33,27.00 L 58.33,27.00 L 57.33,28.00 L 54.33,28.00 L 53.33,29.00 L 51.33,29.00 L 48.33,31.00 Z" fill="#1069EB" fill-rule="evenodd"/></g>
+    <g id="coral-module"><path d="M 159.00,32.33 L 159.00,34.33 L 158.00,35.33 L 158.00,92.33 L 159.00,93.33 L 159.00,94.33 L 162.33,97.67 L 210.33,97.67 L 210.67,93.33 L 213.33,90.67 L 214.33,90.67 L 215.33,89.67 L 218.33,89.67 L 219.33,90.67 L 222.33,91.67 L 226.33,95.67 L 227.33,95.67 L 229.33,97.67 L 230.33,97.67 L 239.33,105.67 L 240.33,105.67 L 243.33,108.67 L 244.33,108.67 L 247.33,111.67 L 248.33,111.67 L 252.33,115.67 L 253.33,115.67 L 256.33,118.67 L 257.33,118.67 L 260.33,121.67 L 261.33,121.67 L 265.00,125.33 L 265.00,132.33 L 259.33,138.00 L 258.33,138.00 L 255.33,141.00 L 254.33,141.00 L 247.33,147.00 L 246.33,147.00 L 244.33,149.00 L 243.33,149.00 L 240.33,152.00 L 239.33,152.00 L 236.33,155.00 L 235.33,155.00 L 232.33,158.00 L 231.33,158.00 L 224.33,164.00 L 223.33,164.00 L 221.33,166.00 L 220.33,166.00 L 219.33,167.00 L 218.00,167.33 L 218.00,171.33 L 217.00,172.33 L 217.00,175.33 L 218.00,176.33 L 218.00,178.33 L 221.33,181.67 L 249.33,181.67 L 250.33,182.67 L 256.33,182.67 L 257.33,181.67 L 260.33,181.67 L 261.33,182.67 L 263.33,182.67 L 264.33,181.67 L 272.33,181.67 L 273.33,182.67 L 283.33,182.67 L 284.33,181.67 L 290.33,181.67 L 291.33,182.67 L 317.33,182.67 L 318.33,181.67 L 320.33,181.67 L 322.33,179.67 L 323.33,179.67 L 326.67,176.33 L 326.67,175.33 L 327.67,174.33 L 327.67,118.33 L 326.67,117.33 L 326.67,116.33 L 322.33,112.00 L 321.33,112.00 L 318.33,110.00 L 278.33,110.00 L 277.33,109.00 L 274.33,108.00 L 271.67,105.33 L 271.67,104.33 L 270.67,103.33 L 270.67,74.33 L 269.67,73.33 L 269.67,68.33 L 268.67,67.33 L 268.67,64.33 L 267.67,63.33 L 267.67,61.33 L 266.67,60.33 L 266.67,58.33 L 264.67,56.33 L 264.67,55.33 L 263.67,54.33 L 262.67,51.33 L 260.67,49.33 L 260.67,48.33 L 249.33,37.00 L 248.33,37.00 L 245.33,34.00 L 244.33,34.00 L 243.33,33.00 L 242.33,33.00 L 237.33,30.00 L 235.33,30.00 L 232.33,28.00 L 229.33,28.00 L 228.33,27.00 L 224.33,27.00 L 223.33,26.00 L 168.33,26.00 L 167.33,27.00 L 165.33,27.00 L 164.33,28.00 L 163.33,28.00 Z" fill="#FD713C" fill-rule="evenodd"/></g>
+    <g id="purple-module"><path d="M 19.33,157.00 L 19.00,158.33 L 17.33,160.00 L 16.33,160.00 L 13.00,163.33 L 13.00,164.33 L 11.00,167.33 L 11.00,195.33 L 10.00,196.33 L 10.00,201.33 L 11.00,202.33 L 11.00,223.33 L 10.00,224.33 L 10.00,226.33 L 11.00,227.33 L 11.00,236.33 L 12.00,237.33 L 12.00,240.33 L 13.00,241.33 L 13.00,243.33 L 14.00,244.33 L 14.00,245.33 L 15.00,246.33 L 15.00,247.33 L 16.00,248.33 L 16.00,249.33 L 17.00,250.33 L 18.00,253.33 L 20.00,255.33 L 20.00,256.33 L 29.33,265.67 L 30.33,265.67 L 33.33,268.67 L 34.33,268.67 L 35.33,269.67 L 36.33,269.67 L 41.33,272.67 L 43.33,272.67 L 44.33,273.67 L 46.33,273.67 L 47.33,274.67 L 49.33,274.67 L 50.33,275.67 L 55.33,275.67 L 56.33,276.67 L 103.33,276.67 L 104.33,275.67 L 106.33,275.67 L 107.33,274.67 L 108.33,274.67 L 112.67,270.33 L 112.67,269.33 L 114.67,268.33 L 113.67,267.33 L 113.67,243.33 L 112.33,243.00 L 108.67,239.33 L 108.67,238.33 L 107.67,237.33 L 107.67,235.33 L 106.67,234.33 L 106.67,226.33 L 107.67,225.33 L 107.67,216.33 L 108.67,215.33 L 108.67,207.33 L 109.67,206.33 L 109.67,199.33 L 110.67,198.33 L 110.67,190.33 L 111.67,189.33 L 111.67,181.33 L 112.67,180.33 L 112.67,171.33 L 113.67,170.33 L 113.67,165.33 L 107.33,159.00 L 106.33,159.00 L 105.33,158.00 L 20.33,158.00 Z" fill="#8654FC" fill-rule="evenodd"/></g>
+    <g id="yellow-module"><path d="M 326.67,188.33 L 322.33,184.00 L 321.33,184.00 L 318.33,182.00 L 317.33,183.00 L 291.33,183.00 L 290.33,182.00 L 284.33,182.00 L 283.33,183.00 L 273.33,183.00 L 272.33,182.00 L 264.33,182.00 L 263.33,183.00 L 261.33,183.00 L 260.33,182.00 L 257.33,182.00 L 256.33,183.00 L 252.33,183.00 L 252.33,183.67 L 253.33,183.67 L 256.00,186.33 L 256.00,187.33 L 257.00,188.33 L 257.00,196.33 L 256.00,197.33 L 256.00,200.33 L 255.00,201.33 L 255.00,203.33 L 254.00,204.33 L 254.00,206.33 L 252.00,209.33 L 252.00,211.33 L 251.00,212.33 L 251.00,213.33 L 250.00,214.33 L 249.00,217.33 L 247.00,219.33 L 246.00,222.33 L 243.00,225.33 L 243.00,226.33 L 233.33,236.00 L 232.33,236.00 L 227.33,240.00 L 226.33,240.00 L 221.33,243.00 L 219.33,243.00 L 218.33,244.00 L 215.33,244.00 L 214.33,245.00 L 205.33,245.00 L 202.33,243.00 L 201.00,243.33 L 201.00,267.33 L 202.00,268.33 L 202.00,270.33 L 206.33,274.67 L 207.33,274.67 L 208.33,275.67 L 211.33,275.67 L 212.33,276.67 L 282.33,276.67 L 283.33,275.67 L 288.33,275.67 L 289.33,274.67 L 292.33,274.67 L 293.33,273.67 L 295.33,273.67 L 296.33,272.67 L 297.33,272.67 L 298.33,271.67 L 300.33,271.67 L 302.33,269.67 L 305.33,268.67 L 308.33,265.67 L 309.33,265.67 L 318.67,256.33 L 318.67,255.33 L 320.67,253.33 L 321.67,250.33 L 323.67,248.33 L 323.67,247.33 L 324.67,246.33 L 324.67,244.33 L 325.67,243.33 L 325.67,241.33 L 326.67,240.33 L 326.67,238.33 L 327.67,237.33 L 327.67,227.33 L 328.67,226.33 L 328.67,195.33 L 327.67,194.33 L 327.67,190.33 L 326.67,189.33 Z M 288.33,12.00 L 285.00,15.33 L 285.00,16.33 L 283.00,19.33 L 283.00,58.33 L 284.00,59.33 L 284.00,60.33 L 288.33,64.67 L 289.33,64.67 L 292.33,66.67 L 327.33,66.67 L 328.33,65.67 L 331.33,64.67 L 335.67,60.33 L 335.67,59.33 L 336.67,58.33 L 336.67,55.33 L 337.67,54.33 L 337.67,22.33 L 336.67,21.33 L 336.67,19.33 L 335.67,18.33 L 334.67,15.33 L 329.33,11.00 L 326.33,11.00 L 325.33,10.00 L 294.33,10.00 L 293.33,11.00 L 290.33,11.00 L 289.33,12.00 Z" fill="#FEAE2C" fill-rule="evenodd"/></g>
+    <g id="pi-stem"><path d="M 198.33,147.00 L 172.33,147.00 L 169.00,149.33 L 169.00,150.33 L 168.00,151.33 L 168.00,155.33 L 167.00,156.33 L 167.00,165.33 L 166.00,166.33 L 166.00,175.33 L 165.00,176.33 L 165.00,184.33 L 164.00,185.33 L 164.00,194.33 L 163.00,195.33 L 163.00,203.33 L 162.00,204.33 L 162.00,211.33 L 161.00,212.33 L 161.00,217.33 L 160.00,218.33 L 160.00,220.33 L 159.00,221.33 L 158.00,224.33 L 156.00,226.33 L 156.00,227.33 L 153.00,230.33 L 153.00,231.33 L 150.33,234.00 L 149.33,234.00 L 145.33,238.00 L 144.33,238.00 L 142.33,240.00 L 141.33,240.00 L 136.33,243.00 L 134.33,243.00 L 133.33,244.00 L 131.33,244.00 L 130.33,245.00 L 116.33,245.00 L 115.33,244.00 L 114.00,244.33 L 114.00,267.33 L 115.00,268.33 L 116.00,271.33 L 119.33,274.67 L 120.33,274.67 L 121.33,275.67 L 124.33,275.67 L 125.33,276.67 L 153.33,276.67 L 154.33,275.67 L 160.33,275.67 L 161.33,276.67 L 169.33,276.67 L 170.33,275.67 L 186.33,275.67 L 187.33,276.67 L 188.33,276.67 L 189.33,275.67 L 192.33,275.67 L 193.33,274.67 L 196.33,273.67 L 198.67,271.33 L 198.67,270.33 L 200.67,267.33 L 200.67,242.33 L 197.67,237.33 L 197.67,177.33 L 198.67,176.33 L 198.67,170.33 L 197.67,169.33 L 197.67,164.33 L 198.67,163.33 L 198.67,150.33 L 199.67,149.33 L 198.67,148.33 Z" fill="#19284F" fill-rule="evenodd"/></g>
+    <path d="M 264.67,126.33 L 259.33,121.00 L 219.33,91.00 L 214.33,91.00 L 212.00,93.33 L 210.33,99.00 L 94.33,99.00 L 93.33,100.00 L 90.33,100.00 L 89.33,101.00 L 84.33,102.00 L 80.33,105.00 L 77.33,106.00 L 67.00,116.33 L 63.00,122.33 L 63.00,124.33 L 60.00,129.33 L 60.00,131.33 L 59.00,132.33 L 59.00,140.33 L 60.00,142.33 L 64.33,145.67 L 108.33,145.67 L 109.33,146.67 L 111.33,146.67 L 114.00,149.33 L 115.00,151.33 L 115.00,160.33 L 114.00,161.33 L 114.00,173.33 L 113.00,174.33 L 112.00,192.33 L 111.00,193.33 L 110.00,209.33 L 109.00,210.33 L 109.00,219.33 L 108.00,220.33 L 108.00,236.33 L 110.00,240.33 L 115.33,243.67 L 126.33,244.67 L 127.33,243.67 L 131.33,243.67 L 132.33,242.67 L 137.33,241.67 L 148.33,234.67 L 153.67,229.33 L 159.67,218.33 L 159.67,215.33 L 160.67,214.33 L 160.67,207.33 L 161.67,206.33 L 161.67,198.33 L 162.67,197.33 L 162.67,189.33 L 163.67,188.33 L 163.67,179.33 L 164.67,178.33 L 164.67,170.33 L 165.67,169.33 L 166.67,152.33 L 169.33,147.67 L 173.33,145.67 L 197.33,145.67 L 198.33,146.67 L 211.33,146.67 L 212.00,147.33 L 212.00,161.33 L 215.33,165.67 L 218.33,166.67 L 222.33,164.67 L 262.33,134.67 L 264.67,131.33 Z" fill="#FFFFFF" />
+  </g></g>
+<g id="PiLot-wordmark" transform="translate(390 35)" shape-rendering="geometricPrecision">
+  <path d="M 155.33,26.00 L 139.33,19.00 L 131.33,18.00 L 130.33,17.00 L 125.33,17.00 L 124.33,16.00 L 26.33,16.00 L 25.33,17.00 L 23.33,17.00 L 20.00,20.33 L 19.00,22.33 L 19.00,194.33 L 23.33,199.67 L 25.33,199.67 L 26.33,200.67 L 58.33,200.67 L 59.33,199.67 L 61.33,199.67 L 65.67,195.33 L 65.67,193.33 L 66.67,192.33 L 66.67,143.33 L 67.33,142.67 L 126.33,142.67 L 127.33,141.67 L 131.33,141.67 L 132.33,140.67 L 135.33,140.67 L 136.33,139.67 L 139.33,139.67 L 140.33,138.67 L 145.33,137.67 L 153.33,133.67 L 162.33,127.67 L 171.67,118.33 L 179.67,104.33 L 179.67,102.33 L 182.67,95.33 L 182.67,90.33 L 183.67,89.33 L 183.67,68.33 L 182.67,67.33 L 182.67,63.33 L 181.67,62.33 L 179.67,54.33 L 171.67,40.33 L 162.33,31.00 Z M 473.33,63.00 L 472.33,64.00 L 467.33,65.00 L 462.33,68.00 L 460.33,68.00 L 447.33,76.00 L 437.00,85.33 L 429.00,96.33 L 424.00,106.33 L 424.00,108.33 L 421.00,115.33 L 420.00,125.33 L 419.00,126.33 L 419.00,139.33 L 420.00,140.33 L 420.00,146.33 L 421.00,147.33 L 421.00,151.33 L 422.00,152.33 L 424.00,160.33 L 430.00,172.33 L 439.33,183.67 L 440.33,183.67 L 446.33,189.67 L 452.33,193.67 L 464.33,199.67 L 466.33,199.67 L 473.33,202.67 L 476.33,202.67 L 477.33,203.67 L 490.33,204.67 L 491.33,205.67 L 505.33,205.67 L 506.33,204.67 L 513.33,204.67 L 514.33,203.67 L 518.33,203.67 L 519.33,202.67 L 522.33,202.67 L 523.33,201.67 L 526.33,201.67 L 527.33,200.67 L 532.33,199.67 L 544.33,193.67 L 555.33,185.67 L 564.67,175.33 L 567.67,169.33 L 569.67,167.33 L 570.67,163.33 L 573.67,158.33 L 575.67,148.33 L 576.67,147.33 L 576.67,141.33 L 577.67,140.33 L 577.67,125.33 L 576.67,124.33 L 576.67,118.33 L 575.67,117.33 L 575.67,114.33 L 574.67,113.33 L 572.67,105.33 L 567.67,95.33 L 564.67,92.33 L 562.67,88.33 L 551.33,77.00 L 542.33,71.00 L 532.33,66.00 L 530.33,66.00 L 520.33,62.00 L 510.33,61.00 L 509.33,60.00 L 488.33,60.00 L 487.33,61.00 L 482.33,61.00 L 481.33,62.00 Z M 279.33,17.00 L 275.00,22.33 L 275.00,194.33 L 276.00,196.33 L 279.33,199.67 L 281.33,199.67 L 282.33,200.67 L 403.33,200.67 L 407.33,198.67 L 410.67,192.33 L 410.67,165.33 L 408.67,160.33 L 406.33,158.00 L 404.33,157.00 L 323.33,157.00 L 322.67,156.33 L 322.67,23.33 L 320.67,19.33 L 316.33,16.00 L 281.33,16.00 Z M 612.33,25.00 L 610.33,26.00 L 607.00,30.33 L 607.00,62.33 L 606.33,63.00 L 590.33,63.00 L 589.33,64.00 L 587.33,64.00 L 584.00,67.33 L 584.00,70.33 L 583.00,71.33 L 584.00,73.33 L 584.00,87.33 L 583.00,88.33 L 584.00,96.33 L 587.33,99.67 L 589.33,99.67 L 590.33,100.67 L 606.33,100.67 L 607.00,101.33 L 607.00,162.33 L 608.00,163.33 L 608.00,168.33 L 609.00,169.33 L 610.00,175.33 L 615.00,184.33 L 624.33,193.67 L 633.33,198.67 L 635.33,198.67 L 642.33,201.67 L 647.33,201.67 L 648.33,202.67 L 671.33,202.67 L 672.33,201.67 L 678.33,201.67 L 679.33,200.67 L 686.33,199.67 L 690.67,194.33 L 690.67,166.33 L 686.33,162.00 L 676.33,164.00 L 675.33,165.00 L 665.33,165.00 L 658.33,162.00 L 655.67,159.33 L 653.67,155.33 L 653.67,152.33 L 652.67,151.33 L 652.67,101.33 L 653.33,100.67 L 683.33,100.67 L 684.33,99.67 L 686.33,99.67 L 690.67,94.33 L 690.67,69.33 L 689.67,67.33 L 684.33,63.00 L 653.33,63.00 L 652.67,62.33 L 652.67,30.33 L 649.33,26.00 L 647.33,25.00 Z M 210.33,75.00 L 209.33,76.00 L 207.33,76.00 L 205.00,78.33 L 203.00,83.33 L 203.00,193.33 L 205.00,197.33 L 210.33,200.67 L 241.33,200.67 L 242.33,199.67 L 244.33,199.67 L 248.67,195.33 L 248.67,192.33 L 249.67,191.33 L 249.67,185.33 L 248.67,184.33 L 248.67,80.33 L 246.33,77.00 L 242.33,75.00 Z M 491.33,99.67 L 506.33,99.67 L 517.33,104.67 L 527.00,114.33 L 531.00,124.33 L 531.00,128.33 L 532.00,129.33 L 532.00,137.33 L 531.00,138.33 L 530.00,145.33 L 526.00,153.33 L 519.33,160.00 L 507.33,166.00 L 502.33,166.00 L 501.33,167.00 L 490.33,166.00 L 480.33,162.00 L 472.67,155.33 L 467.67,147.33 L 466.67,141.33 L 465.67,140.33 L 465.67,125.33 L 469.67,115.33 L 478.33,105.67 L 485.33,101.67 L 487.33,101.67 Z M 66.67,56.33 L 67.33,55.67 L 115.33,55.67 L 116.33,56.67 L 119.33,56.67 L 124.33,58.67 L 132.00,65.33 L 136.00,74.33 L 136.00,85.33 L 132.00,94.33 L 124.33,101.00 L 119.33,103.00 L 116.33,103.00 L 115.33,104.00 L 67.33,104.00 L 66.67,103.33 Z" fill="#182235" fill-rule="evenodd"/>
+  <path d="M 222.33,11.00 L 221.33,12.00 L 218.33,12.00 L 217.33,13.00 L 215.33,13.00 L 214.33,14.00 L 211.33,15.00 L 205.00,21.33 L 205.00,22.33 L 203.00,24.33 L 203.00,25.33 L 202.00,26.33 L 202.00,28.33 L 201.00,29.33 L 201.00,36.33 L 200.00,37.33 L 201.00,38.33 L 201.00,43.33 L 202.00,44.33 L 202.00,46.33 L 203.00,47.33 L 204.00,50.33 L 206.00,52.33 L 206.00,53.33 L 210.33,57.67 L 211.33,57.67 L 212.33,58.67 L 213.33,58.67 L 216.33,60.67 L 218.33,60.67 L 219.33,61.67 L 232.33,61.67 L 233.33,60.67 L 236.33,60.67 L 237.33,59.67 L 240.33,58.67 L 242.33,56.67 L 243.33,56.67 L 247.67,52.33 L 247.67,51.33 L 249.67,49.33 L 249.67,48.33 L 250.67,47.33 L 250.67,45.33 L 251.67,44.33 L 251.67,41.33 L 252.67,40.33 L 252.67,32.33 L 251.67,31.33 L 251.67,28.33 L 250.67,27.33 L 250.67,26.33 L 249.67,25.33 L 248.67,22.33 L 241.33,15.00 L 240.33,15.00 L 239.33,14.00 L 238.33,14.00 L 235.33,12.00 L 232.33,12.00 L 231.33,11.00 Z" fill="#FD713C" />
+</g></g>
+        <path d="M 256,184 H 296" fill="none" stroke="#46536B" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <path d="M 504,184 H 544" fill="none" stroke="#46536B" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <path d="M 752,184 H 784" fill="none" stroke="#46536B" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <path d="M 984,184 H 1132 Q 1140,184 1140,192 V 232" fill="none" stroke="#46536B" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="1038" y="162" width="28" height="12" rx="2" fill="#F7F7F4"/><text x="1052" y="172" fill="#5C6B85" font-size="8" font-family="Geist Mono, ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">yes</text>
+        <path d="M 884,240 V 288" fill="none" stroke="#46536B" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="902" y="258" width="22" height="12" rx="2" fill="#F7F7F4"/><text x="913" y="268" fill="#5C6B85" font-size="8" font-family="Geist Mono, ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">no</text>
+        <path d="M 1140,344 V 392" fill="none" stroke="#46536B" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="1158" y="362" width="28" height="12" rx="2" fill="#F7F7F4"/><text x="1172" y="372" fill="#5C6B85" font-size="8" font-family="Geist Mono, ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">yes</text>
+        <path d="M 1140,456 V 488 Q 1140,480 1132,480 H 644 Q 636,480 636,472 V 216" fill="none" stroke="#1069EB" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+        <rect x="638" y="294" width="59" height="12" rx="2" fill="#F7F7F4"/><text x="668" y="304" fill="#1069EB" font-size="8" font-family="Geist Mono, ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">NEXT STEP</text>
+        <path d="M 1040,288 H 1020 Q 1012,288 1012,296 V 468 a 8,8 0 0,0 0,16 V 500 Q 1012,508 1004,508 H 672 Q 664,508 664,500 V 216" fill="none" stroke="#182235" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="1030" y="324" width="48" height="12" rx="2" fill="#F7F7F4"/><text x="1054" y="334" fill="#5C6B85" font-size="8" font-family="Geist Mono, ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">REFUSED</text>
+        <rect x="64" y="152" width="192" height="64" rx="20" fill="#F7F7F4"/>
+        <rect x="64" y="152" width="192" height="64" rx="20" fill="rgba(70,83,107,0.10)" stroke="#5C6B85" stroke-width="1"/>
+        <text x="160.0" y="183.0" fill="#182235" font-size="12" font-family="Geist, system-ui, sans-serif" text-anchor="middle" font-weight="600">Message arrives</text>
+        <text x="160.0" y="199.0" fill="#46536B" font-size="9" font-family="Geist Mono, ui-monospace, monospace" text-anchor="middle">Feishu · desktop · CLI</text>
+        <rect x="296" y="152" width="208" height="64" rx="6" fill="#F7F7F4"/>
+        <rect x="296" y="152" width="208" height="64" rx="6" fill="rgba(16,105,235,0.08)" stroke="#1069EB" stroke-width="1.2"/>
+        <rect x="308" y="160" width="34" height="12" rx="2" fill="none" stroke="#1069EB" stroke-opacity="0.35" stroke-width="0.8"/>
+        <text x="325.0" y="168.5" fill="#1069EB" font-size="7" font-family="Geist Mono, ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">STEP</text>
+        <text x="308" y="182" fill="#182235" font-size="12" font-family="Geist, system-ui, sans-serif" text-anchor="start" font-weight="600">Durable task</text>
+        <text x="308" y="198" fill="#46536B" font-size="9" font-family="Geist Mono, ui-monospace, monospace" text-anchor="start">row · checkpoint first</text>
+        <rect x="544" y="152" width="208" height="64" rx="6" fill="#F7F7F4"/>
+        <rect x="544" y="152" width="208" height="64" rx="6" fill="#FFFFFF" stroke="#182235" stroke-width="1"/>
+        <rect x="556" y="160" width="34" height="12" rx="2" fill="none" stroke="#182235" stroke-opacity="0.35" stroke-width="0.8"/>
+        <text x="573.0" y="168.5" fill="#182235" font-size="7" font-family="Geist Mono, ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">STEP</text>
+        <text x="556" y="182" fill="#182235" font-size="12" font-family="Geist, system-ui, sans-serif" text-anchor="start" font-weight="600">Model request</text>
+        <text x="556" y="198" fill="#46536B" font-size="9" font-family="Geist Mono, ui-monospace, monospace" text-anchor="start">pi-ai · model + thinking</text>
+        <polygon points="884,128 984,184 884,240 784,184" fill="#F7F7F4"/>
+        <polygon points="884,128 984,184 884,240 784,184" fill="#FFFFFF" stroke="#182235" stroke-width="1"/>
+        <text x="884" y="184" fill="#182235" font-size="12" font-family="Geist, system-ui, sans-serif" text-anchor="middle" font-weight="600">Tool call?</text>
+        <polygon points="1140,232 1240,288 1140,344 1040,288" fill="#F7F7F4"/>
+        <polygon points="1140,232 1240,288 1140,344 1040,288" fill="#FFFFFF" stroke="#182235" stroke-width="1"/>
+        <text x="1140" y="288" fill="#182235" font-size="12" font-family="Geist, system-ui, sans-serif" text-anchor="middle" font-weight="600">Approved?</text>
+        <rect x="1040" y="392" width="200" height="64" rx="6" fill="#F7F7F4"/>
+        <rect x="1040" y="392" width="200" height="64" rx="6" fill="#FFFFFF" stroke="#182235" stroke-width="1"/>
+        <rect x="1052" y="400" width="34" height="12" rx="2" fill="none" stroke="#182235" stroke-opacity="0.35" stroke-width="0.8"/>
+        <text x="1069.0" y="408.5" fill="#182235" font-size="7" font-family="Geist Mono, ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">STEP</text>
+        <text x="1052" y="422" fill="#182235" font-size="12" font-family="Geist, system-ui, sans-serif" text-anchor="start" font-weight="600">Execute tool</text>
+        <text x="1052" y="438" fill="#46536B" font-size="9" font-family="Geist Mono, ui-monospace, monospace" text-anchor="start">bash · read · edit · delegate</text>
+        <rect x="788" y="288" width="192" height="64" rx="20" fill="#F7F7F4"/>
+        <rect x="788" y="288" width="192" height="64" rx="20" fill="rgba(70,83,107,0.10)" stroke="#5C6B85" stroke-width="1"/>
+        <text x="884.0" y="319.0" fill="#182235" font-size="12" font-family="Geist, system-ui, sans-serif" text-anchor="middle" font-weight="600">Answer · card Done</text>
+        <text x="884.0" y="335.0" fill="#46536B" font-size="9" font-family="Geist Mono, ui-monospace, monospace" text-anchor="middle">tokens · cost · duration</text>
+        <text x="64" y="330" fill="#182235" font-size="15" font-family="Instrument Serif, Noto Serif, serif" text-anchor="start">kill -9 mid-turn — the next process resumes</text>
+        <text x="64" y="356" fill="#182235" font-size="15" font-family="Instrument Serif, Noto Serif, serif" text-anchor="start">from the last checkpoint.</text>
+        <line x1="64" y1="540" x2="1216" y2="540" stroke="rgba(24,34,53,0.12)" stroke-width="0.8"/>
+        <text x="64" y="564" fill="#46536B" font-size="8" font-family="Geist Mono, ui-monospace, monospace" text-anchor="start" letter-spacing="0.14em">LEGEND</text>
+        <rect x="176" y="553" width="18" height="12" rx="2" fill="rgba(70,83,107,0.10)" stroke="#5C6B85" stroke-width="1"/>
+        <text x="202" y="563" fill="#46536B" font-size="8" font-family="Geist Mono, ui-monospace, monospace" text-anchor="start" letter-spacing="0.06em">START / END</text>
+        <rect x="366" y="553" width="18" height="12" rx="2" fill="#FFFFFF" stroke="#182235" stroke-width="1"/>
+        <text x="392" y="563" fill="#46536B" font-size="8" font-family="Geist Mono, ui-monospace, monospace" text-anchor="start" letter-spacing="0.06em">STEP</text>
+        <rect x="542" y="553" width="18" height="12" rx="2" fill="rgba(16,105,235,0.08)" stroke="#1069EB" stroke-width="1.2"/>
+        <text x="568" y="563" fill="#46536B" font-size="8" font-family="Geist Mono, ui-monospace, monospace" text-anchor="start" letter-spacing="0.06em">DURABLE</text>
+        <path d="M 724,560 H 748" fill="none" stroke="#1069EB" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+        <text x="758" y="563" fill="#46536B" font-size="8" font-family="Geist Mono, ui-monospace, monospace" text-anchor="start" letter-spacing="0.06em">THE LOOP</text>
+      </svg>
+    </div>
+  </div>
+</body>
+</html>
