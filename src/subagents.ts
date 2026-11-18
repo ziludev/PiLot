@@ -327,6 +327,16 @@ function buildStagePrompt(key: StageKey, spec: string, previous: Record<string, 
   return `需求：\n${spec}\n\n设计摘要：\n${design}\n\n实现者的汇报：\n${implementation}\n\n请按约定写测试并运行一次。`;
 }
 
+/** Cut a report at a line, not mid-word: a headline that ends in "…（还有 1 千字）" reads as shorthand. */
+export function cutAtLine(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  const boundary = cut.lastIndexOf("\n");
+  const kept = boundary > max * 0.6 ? cut.slice(0, boundary) : cut;
+  const left = text.length - kept.length;
+  return `${kept}\n…（还有约 ${Math.round(left / 100) * 100} 字，完整版在客户端这一轮里）`;
+}
+
 function buildSummary(spec: string, outputs: Record<string, string>, stages: ReadonlyArray<{ key: string }>): string {
   const body = stages
     .map((stage) => {
@@ -348,14 +358,14 @@ async function report(
   await runtime.commit(async (tx) => {
     await tx.appendEntry(task.input.parentConversationId as never, {
       kind: "app.feature-report",
-      data: { text: text.slice(0, 4000) } as never,
+      data: { text: cutAtLine(text, 4000) } as never,
     });
     return undefined;
   }, context);
   const surfaceId = surfaceForConversation(task.input.parentConversationId) ?? task.input.surfaceId;
   const headline = text.startsWith("❌") ? "🧩 需求没做完" : "🧩 需求做完了";
   if (surfaceId.length > 0) {
-    await notify(surfaceId, `${headline}\n\n${text.slice(0, 3000)}`).catch((error) =>
+    await notify(surfaceId, `${headline}\n\n${cutAtLine(text, 3000)}`).catch((error) =>
       logError("feature", "could not notify", error),
     );
   }

@@ -1109,6 +1109,40 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     return { data: bytes.toString("base64"), mimeType: sniff(bytes) };
   }
 
+  /** Does this text carry formatting that plain text would show as literal asterisks and pipes? */
+  function noticeIsRich(text: string): boolean {
+    return /(\*\*|`|^#|\|)/m.test(text);
+  }
+
+  /**
+   * Extensions notify with the prose they were written in — a background pipeline reports in
+   * markdown, with bold stage names and `code`. Sent as plain text the asterisks show up literally
+   * and the structure is gone, so the first line becomes the header and the rest a card body.
+   */
+  async function sendNotice(chatId: string, text: string): Promise<void> {
+    const [head, ...rest] = text.split("\n");
+    const body = rest.join("\n").trim();
+    if (body.length === 0 || !noticeIsRich(body)) {
+      await sendText(chatId, text);
+      return;
+    }
+    await client.im.message.create({
+      params: { receive_id_type: "chat_id" },
+      data: {
+        receive_id: chatId,
+        msg_type: "interactive",
+        content: JSON.stringify(
+          card(
+            body,
+            undefined,
+            undefined,
+            { title: (head ?? "").replace(/[*`#]/g, "").trim().slice(0, 80) || "通知", template: "blue" },
+          ),
+        ),
+      },
+    });
+  }
+
   // The extensions reach back through these two hooks.
   setNotifier(async (surfaceId, text) => {
     // Only a Feishu chat can receive a message here; other surfaces (cli, client) are
@@ -1117,7 +1151,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       log("feishu", "notifier skipped a surface that is not a chat", { surfaceId });
       return;
     }
-    await sendText(surfaceId, text);
+    await sendNotice(surfaceId, text);
   });
   setApprovalDecider(async (request) => {
     // The owner answers in their own DM. A card in the group would show everyone what is about
