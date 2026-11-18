@@ -7,8 +7,10 @@ import (
 	"pitta/internal/protocol"
 )
 
-// TestRailFiltersByWhatAChatIsDoing checks the two status views: the filter
-// keeps a chat by the work it has, not only by where it came from.
+// TestRailFiltersByWhatAChatIsDoing checks the status views: the filter keeps a
+// chat by the work it has, not only by where it came from. There is no "running"
+// view any more — the jobs section lists what is in flight and the rows that are
+// working carry a ring.
 func TestRailFiltersByWhatAChatIsDoing(t *testing.T) {
 	a := New(Config{})
 	a.surfaces = []protocol.Surface{
@@ -24,20 +26,14 @@ func TestRailFiltersByWhatAChatIsDoing(t *testing.T) {
 	}
 	a.unread = map[int]bool{3: true}
 
-	running, unread := railFilterIndex("running"), railFilterIndex("unread")
+	unread := railFilterIndex("unread")
 	client, feishu := railFilterIndex("client"), railFilterIndex("feishu")
 
-	var shown []int
-	for _, s := range a.surfaces {
-		if a.railShown(s, running) {
-			shown = append(shown, s.ConversationID)
-		}
-	}
-	if len(shown) != 2 || shown[0] != 1 || shown[1] != 2 {
-		t.Fatalf("running view shows %v, want [1 2]: a queued approval is work in flight too", shown)
+	if railFilterIndex("running") != 0 {
+		t.Fatalf("a stored \"running\" filter still resolves to a view; it should fall back to all")
 	}
 	if !a.railShown(a.surfaces[2], unread) || a.railShown(a.surfaces[0], unread) {
-		t.Fatalf("unread view shows %v", shown)
+		t.Fatalf("the unread view does not keep only the chat nobody has read")
 	}
 	// The kind views keep their meaning: they must not start filtering on state.
 	if !a.railShown(a.surfaces[0], client) || a.railShown(a.surfaces[1], client) {
@@ -75,14 +71,14 @@ func TestRailFilterCountsMatchTheViews(t *testing.T) {
 	}
 	// The archived chat is out of every count until the rail shows archives,
 	// and no chat waits for its owner here, so the "needs you" view is empty.
-	if fmt.Sprint(counts) != "[3 2 1 1 0 1]" {
-		t.Fatalf("counts = %v, want [3 2 1 1 0 1]", counts)
+	if fmt.Sprint(counts) != "[3 2 1 0 1]" {
+		t.Fatalf("counts = %v, want [3 2 1 0 1]", counts)
 	}
 
 	a.query = "deploy"
 	counts = a.railFilterCounts()
-	if fmt.Sprint(counts) != "[2 1 1 1 0 1]" {
-		t.Fatalf("search counts = %v, want [2 1 1 1 0 1]: both matching chats counted once each", counts)
+	if fmt.Sprint(counts) != "[2 1 1 0 1]" {
+		t.Fatalf("search counts = %v, want [2 1 1 0 1]: both matching chats counted once each", counts)
 	}
 }
 

@@ -136,11 +136,6 @@ func FadeIn() ui.ElementTransition {
 	}
 }
 
-// TabSlide is how fast the underline under the side panel's tabs moves from
-// the tab that was picked to the one just picked: the strip's own duration, in
-// and out, so it reads as one marker travelling rather than a new one appearing.
-var TabSlide = ui.Animation{Duration: Tabs, Ease: EaseInOutCubic}
-
 // PanelEnter is how a side panel's content comes in when a tab swaps it: 24 px
 // from the right, faded, over 200 ms. Enter only: the content a switch replaces
 // is gone by the time the new one draws, so there is nothing to animate out.

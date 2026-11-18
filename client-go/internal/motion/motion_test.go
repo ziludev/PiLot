@@ -69,10 +69,9 @@ func TestToastComesInFromTheEdge(t *testing.T) {
 	}
 }
 
-// TestPanelAndTabNumbers pins the side panel's two motions: its content comes in
-// 24 px from the right in 200 ms, and the marker under the tabs moves over the
-// strip's own 250 ms.
-func TestPanelAndTabNumbers(t *testing.T) {
+// TestPanelNumbers pins the side panel's motion: its content comes in 24 px from
+// the right over 200 ms.
+func TestPanelNumbers(t *testing.T) {
 	in := PanelEnter()
 	if in.Duration != 200*time.Millisecond || in.Enter == nil || in.Exit != nil {
 		t.Fatalf("panel enter = %+v, want 200 ms in and nothing out", in)
@@ -80,17 +79,14 @@ func TestPanelAndTabNumbers(t *testing.T) {
 	if in.Enter.X != 24 || in.Enter.Opacity != 0 || in.Enter.Y != 0 {
 		t.Fatalf("panel comes in as %+v, want 24 px from the right, faded", in.Enter)
 	}
-	if TabSlide.Duration != Tabs || TabSlide.Ease == nil {
-		t.Fatalf("tab marker = %+v, want the strip's %v", TabSlide, Tabs)
-	}
 }
 
-// TestLifeOutlastsItsBarrier holds the one number that is about two others: the
-// drain bar is only honest while the toast outlives both slides, otherwise a
-// toast would start leaving with the hairline still half full.
+// TestLifeOutlastsItsBarrier holds the one number that is about two others: a
+// toast has to outlive both of its slides, or it would start leaving while it is
+// still arriving.
 func TestLifeOutlastsItsBarrier(t *testing.T) {
 	if ToastLife < 2*ToastSlideTime {
-		t.Fatalf("ToastLife = %v, want at least two slides (%v) to drain over", ToastLife, 2*ToastSlideTime)
+		t.Fatalf("ToastLife = %v, want at least two slides (%v)", ToastLife, 2*ToastSlideTime)
 	}
 	if PulseLow <= 0 || PulseLow >= 1 {
 		t.Fatalf("PulseLow = %v, want a breath between invisible and solid", PulseLow)
