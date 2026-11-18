@@ -18,48 +18,52 @@ import (
 // callback.
 func (a *App) sidePanel(c *ui.Context) {
 	t := theme.Current(c)
-	// Switching tabs swaps the panel's content: it rises into place as the
-	// the earlier client side panel's tab panels do.
-	ui.Column(c).Fill().Background(t.Sidebar).Key(string(a.sideTab)).
-		Transition(motion.FadeIn()).Children(func() {
+	ui.Column(c).Fill().Background(t.Sidebar).Children(func() {
+		// The strip sits outside the column a switch replaces: inside it, the
+		// tabs would be rebuilt along with the content they select.
 		a.sideTabs(c, t)
 		ui.Divider(c).Background(t.SidebarBorder)
-		ui.Scroll(c).Fill().Children(func() {
-			switch a.sideTab {
-			case SideMemory:
-				ops.MemoryPanel(c, ops.MemoryProps{
-					Memory:      a.memory,
-					Query:       a.memoryQuery,
-					Curating:    a.curating,
-					Suggestions: a.suggestions,
-					Selected:    a.memoryUnchecked,
-					OnQuery: func(query string) {
-						a.apply(func() { a.memoryQuery = query; a.invalidate() })
-					},
-					OnCurate: func() { a.curateMemory() },
-					OnToggle: func(index int) {
-						a.apply(func() {
-							if a.memoryUnchecked == nil {
-								a.memoryUnchecked = map[int]bool{}
-							}
-							a.memoryUnchecked[index] = !a.memoryUnchecked[index]
-							a.invalidate()
-						})
-					},
-					OnApply: func(indices []int) { a.applyMemory(indices) },
-					OnDrop:  func(index int) { a.dropSuggestion(index) },
-				})
-			case SideAccess:
-				ops.AccessPanel(c, ops.AccessProps{
-					View:     a.access,
-					Audit:    a.audit,
-					OnReload: func() { a.goLoad(func() error { return a.loadAccess(context.Background()) }) },
-				})
-			case SideUsage:
-				ops.UsageCalendar(c, ops.UsageProps{Days: a.usageDays})
-			default:
-				a.sideChanges(c, t)
-			}
+		// Switching tabs swaps the panel's content, which comes in 24 px from
+		// the right over 200 ms, as the earlier client's tab panels do.
+		ui.Column(c).Fill().Key(string(a.sideTab)).
+			Transition(motion.PanelEnter()).Children(func() {
+			ui.Scroll(c).Fill().Children(func() {
+				switch a.sideTab {
+				case SideMemory:
+					ops.MemoryPanel(c, ops.MemoryProps{
+						Memory:      a.memory,
+						Query:       a.memoryQuery,
+						Curating:    a.curating,
+						Suggestions: a.suggestions,
+						Selected:    a.memoryUnchecked,
+						OnQuery: func(query string) {
+							a.apply(func() { a.memoryQuery = query; a.invalidate() })
+						},
+						OnCurate: func() { a.curateMemory() },
+						OnToggle: func(index int) {
+							a.apply(func() {
+								if a.memoryUnchecked == nil {
+									a.memoryUnchecked = map[int]bool{}
+								}
+								a.memoryUnchecked[index] = !a.memoryUnchecked[index]
+								a.invalidate()
+							})
+						},
+						OnApply: func(indices []int) { a.applyMemory(indices) },
+						OnDrop:  func(index int) { a.dropSuggestion(index) },
+					})
+				case SideAccess:
+					ops.AccessPanel(c, ops.AccessProps{
+						View:     a.access,
+						Audit:    a.audit,
+						OnReload: func() { a.goLoad(func() error { return a.loadAccess(context.Background()) }) },
+					})
+				case SideUsage:
+					ops.UsageCalendar(c, ops.UsageProps{Days: a.usageDays})
+				default:
+					a.sideChanges(c, t)
+				}
+			})
 		})
 	})
 }
