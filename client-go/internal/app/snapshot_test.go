@@ -579,8 +579,11 @@ func TestSnapshotFileList(t *testing.T) {
 	if tt.HasText("transcript.go, delegation.go") {
 		t.Errorf("file names drew before the list was opened; texts=%q", strings.Join(tt.Texts(), " | "))
 	}
+	// Four steps is a turn that folds, and the file list is part of the summary
+	// under the opened steps.
+	a.stepsOpen[1] = true
 	a.filesOpen[1] = true
-	tt = ui.NewTester(func(c *ui.Context) { theme.Apply(c, theme.Light()); a.transcript(c) }, 720, 460)
+	tt = ui.NewTester(func(c *ui.Context) { theme.Apply(c, theme.Light()); a.transcript(c) }, 720, 520)
 	tt.Frame()
 	if !tt.HasText("transcript.go, delegation.go") {
 		t.Fatalf("opened file list missing; texts=%q", strings.Join(tt.Texts(), " | "))

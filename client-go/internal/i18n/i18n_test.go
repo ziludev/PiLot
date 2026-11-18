@@ -15,9 +15,10 @@ import (
 // native desktop app needs; goalMet and goalNotMet are ours, for the verdict a
 // turn ends on, which the React client drew as a tool result instead; close and
 // logsEmpty are ours, for the log viewer that reads the file in the window;
-// toolCallsCount is ours, for the line a run of tool calls folds into.
+// toolCallsCount is ours, for the line a run of tool calls folds into;
+// stepsCount is ours, for the line a whole long turn folds into.
 // TestOriginDictionaryStillMatches keeps that line.
-const wantKeys = 198
+const wantKeys = 199
 
 // useLang switches the package language for one test and restores it after.
 func useLang(t *testing.T, l Lang) {

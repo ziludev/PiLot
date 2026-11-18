@@ -22,6 +22,7 @@ const (
 	chatUser
 	chatReport
 	chatSteps
+	chatFold
 	chatFinal
 	chatLive
 	chatPhase
@@ -36,9 +37,13 @@ type chatRow struct {
 	turn  *turns.Turn
 	entry protocol.Entry
 	steps []turns.Step
-	live  bool
-	first bool
-	key   any
+	// folded is the steps a chatFold line stands in for. It is here rather than
+	// derived from the turn so a search hit knows whether its step is under the
+	// line or beside it.
+	folded []turns.Step
+	live   bool
+	first  bool
+	key    any
 }
 
 // buildChatRows lays the chat out as rows: the offer to read more, then each
@@ -70,9 +75,67 @@ func (a *App) buildChatRows(built []turns.Turn) []chatRow {
 		for _, report := range turn.Reports {
 			push(chatRow{kind: chatReport, entry: report, key: "r" + itoa(report.ID)})
 		}
+		// A turn of twelve tool calls is a wall to scroll past when what the
+		// reader came for is the answer; past stepsFoldAt steps the finished ones
+		// fold into one line that keeps the accounting. The step still running and
+		// the ones that failed stay as rows: they are the two reasons to look.
+		long := len(turn.Steps) > stepsFoldAt
+		open := a.stepsOpen[turn.ID]
+		runningID := -1
+		if n := runningStep(turn, live); n >= 0 {
+			runningID = turn.Steps[n].Entry.ID
+		}
+		// The steps in reading order, with the runs that fold held together. A
+		// failed step and the one still running break a run: those are read where
+		// they happened, not from a line about them.
+		type foldRun struct {
+			steps []turns.Step
+			fold  bool
+		}
+		runs := make([]foldRun, 0, len(turn.Steps))
 		for _, group := range stepGroups(turn) {
-			push(chatRow{kind: chatSteps, steps: group, live: live,
-				key: "s" + itoa(group[0].Entry.ID)})
+			// Short turns keep the runs the transcript already had: three calls
+			// are one line here, and that line is not the turn's.
+			if !long {
+				runs = append(runs, foldRun{steps: group})
+				continue
+			}
+			for _, step := range group {
+				if step.Failed() || step.Entry.ID == runningID {
+					runs = append(runs, foldRun{steps: []turns.Step{step}})
+					continue
+				}
+				if n := len(runs); n > 0 && runs[n-1].fold {
+					runs[n-1].steps = append(runs[n-1].steps, step)
+					continue
+				}
+				runs = append(runs, foldRun{steps: []turns.Step{step}, fold: true})
+			}
+		}
+		foldAt, folded := -1, make([]turns.Step, 0, len(turn.Steps))
+		for _, run := range runs {
+			if !run.fold {
+				push(chatRow{kind: chatSteps, steps: run.steps, live: live,
+					key: "s" + itoa(run.steps[0].Entry.ID)})
+				continue
+			}
+			if foldAt < 0 {
+				foldAt = len(rows)
+				push(chatRow{kind: chatFold, key: "d" + itoa(turn.ID)})
+			}
+			folded = append(folded, run.steps...)
+			if !open {
+				continue
+			}
+			// Opened, a folded run is every step of it, one row each: the reader
+			// asked for the steps, not for a shorter way to fold them again.
+			for _, step := range run.steps {
+				push(chatRow{kind: chatSteps, steps: []turns.Step{step}, live: live,
+					key: "s" + itoa(step.Entry.ID)})
+			}
+		}
+		if foldAt >= 0 {
+			rows[foldAt].folded = folded
 		}
 		for _, final := range turn.Finals {
 			push(chatRow{kind: chatFinal, entry: final, key: "f" + itoa(final.ID)})
@@ -81,7 +144,12 @@ func (a *App) buildChatRows(built []turns.Turn) []chatRow {
 			push(chatRow{kind: chatLive, key: "l" + itoa(turn.ID)})
 		}
 		push(chatRow{kind: chatPhase, key: "p" + itoa(turn.ID)})
-		push(chatRow{kind: chatSummary, key: "m" + itoa(turn.ID)})
+		// A folded turn's line already carries files, diff and time, so the
+		// summary under it would say all of it twice. An opened one gets its
+		// summary back, file list included.
+		if foldAt < 0 || open {
+			push(chatRow{kind: chatSummary, key: "m" + itoa(turn.ID)})
+		}
 	}
 	return rows
 }
@@ -104,12 +172,16 @@ func (a *App) chatRow(c *ui.Context, t theme.Tokens, row chatRow) {
 	if row.first {
 		padTop = 8
 	}
-	if row.kind == chatSteps {
+	if row.kind == chatSteps || row.kind == chatFold {
 		// The rail fills the row, padding included, so consecutive step rows
 		// draw one line rather than a dashed one.
 		ui.Row(c).Gap(7).Padding(16, 0).Children(func() {
 			ui.Column(c).Width(2).Radius(1).Background(t.Border).FillHeight()
 			ui.Column(c).Gap(4).Grow(1).Padding(0, padTop, 4, 0).Children(func() {
+				if row.kind == chatFold {
+					a.stepsFoldLine(c, t, row.turn)
+					return
+				}
 				if len(row.steps) == 1 {
 					a.stepRow(c, t, row.steps[0], row.live)
 					return

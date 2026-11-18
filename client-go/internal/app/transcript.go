@@ -69,10 +69,16 @@ func (a *App) jumpRow(rows []chatRow, built []turns.Turn) bool {
 	case target != 0:
 		key = "entry:" + itoa(target)
 		want = func(row chatRow) bool {
-			if row.kind != chatSteps {
+			steps := row.steps
+			switch row.kind {
+			case chatFold:
+				// A hit inside a folded turn lands on the line that holds it.
+				steps = row.folded
+			case chatSteps:
+			default:
 				return row.entry.ID == target
 			}
-			for _, step := range row.steps {
+			for _, step := range steps {
 				if step.Entry.ID == target || (step.Result != nil && step.Result.ID == target) {
 					return true
 				}
@@ -800,9 +806,66 @@ func fileList(files []string) string {
 	return strings.Join(names, ", ")
 }
 
+// stepsFoldAt is where a turn stops being read step by step. Three steps is a
+// turn whose shape is the whole story; past that the steps are the road rather
+// than the answer.
+const stepsFoldAt = 3
+
+// runningStep is the step a live turn is on: the last one, whose result has
+// not landed. It keeps its own row folded or not — it is the only line that
+// says the agent is still working.
+func runningStep(turn *turns.Turn, live bool) int {
+	if !live || len(turn.Steps) == 0 {
+		return -1
+	}
+	return len(turn.Steps) - 1
+}
+
+// stepsFoldLine is what a long turn's finished steps fold into: how many there
+// were, what they cost, and the way back into them. The count is the turn's
+// steps, not Stats.Tools: that one counts tool calls, so it skips the thinking
+// message and the verdict and would undercount the turn this line stands for.
+func (a *App) stepsFoldLine(c *ui.Context, t theme.Tokens, turn *turns.Turn) {
+	open := a.stepsOpen[turn.ID]
+	chevron := icons.ChevronRight
+	if open {
+		chevron = icons.ChevronDown
+	}
+	line := ui.Row(c).Gap(6).AlignItems(ui.Center).Radius(3).Padding(0, 2)
+	line.Cursor(ui.CursorPointer)
+	if line.Hovered() {
+		line.Background(t.Accent)
+	}
+	line.OnClick(func() {
+		a.apply(func() {
+			a.stepsOpen[turn.ID] = !open
+			a.invalidate()
+		})
+	})
+	line.Children(func() {
+		ui.Icon(c, chevron).Size(9, 9).TextColor(t.MutedFg)
+		ui.Icon(c, icons.Check).Size(10, 10).TextColor(t.Primary)
+		ui.Text(c, itoa(len(turn.Steps))+" "+i18n.T("stepsCount")).FontSize(10).TextColor(t.MutedFg)
+		// Opened, the file list and the clock are the summary line's job below;
+		// repeating them here would make the turn say everything twice.
+		if !open {
+			if rest := strings.Join(summaryParts(turn, false), " · "); rest != "" {
+				ui.Text(c, rest).FontSize(9).TextColor(t.MutedFg)
+			}
+		}
+	})
+}
+
 func turnSummary(turn *turns.Turn) string {
+	return strings.Join(summaryParts(turn, true), " · ")
+}
+
+// summaryParts is what the turn cost, in the order the two callers need it.
+// The folded line counts steps instead of tool calls, so it drops that part and
+// puts its own count in front.
+func summaryParts(turn *turns.Turn, tools bool) []string {
 	parts := make([]string, 0, 5)
-	if turn.Stats.Tools > 0 {
+	if tools && turn.Stats.Tools > 0 {
 		parts = append(parts, plural(turn.Stats.Tools, "tool"))
 	}
 	if turn.Stats.Files > 0 {
@@ -817,7 +880,7 @@ func turnSummary(turn *turns.Turn) string {
 	if turn.Stats.MS != nil {
 		parts = append(parts, turns.Clock(*turn.Stats.MS))
 	}
-	return strings.Join(parts, " · ")
+	return parts
 }
 
 func plural(n int, what string) string {

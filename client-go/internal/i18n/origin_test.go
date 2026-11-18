@@ -67,6 +67,10 @@ func TestOriginDictionaryStillMatches(t *testing.T) {
 		// surface it came from, and names the view that holds the chats whose
 		// answers arrived unseen.
 		"unread": true, "needsYou": true,
+		// Ours: a turn longer than a few steps folds its finished ones into a
+		// line that counts steps rather than tool calls, so it needs the bare
+		// noun to put after the number.
+		"stepsCount": true,
 	}
 	for lang, keys := range origin {
 		if len(keys) == 0 {
