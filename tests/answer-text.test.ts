@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { answerTextInTx, answerTextOf, textPartsOf } from "../src/answer.ts";
+import { answerBlocksOf, answerTextInTx, answerTextOf, composeAnswer, textPartsOf } from "../src/answer.ts";
 
 const assistant = (...parts: unknown[]) => ({ model: [{ role: "assistant", content: parts }] });
 const text = (value: string) => ({ type: "text", text: value });
@@ -79,4 +79,42 @@ test("without a starting entry only the answer entry is read", async () => {
   };
   assert.equal(await answerTextInTx(tx as never, 1 as never, 99 as never, undefined), "接着说完的那段");
   assert.equal(scans, 0);
+});
+
+/** A turn narrates, calls a tool, narrates again: the card used to open with four orphan headings. */
+
+const narration = (text: string, ...tools: string[]) => ({
+  model: [
+    {
+      role: "assistant",
+      content: [
+        { type: "text", text },
+        ...tools.map((name) => ({ type: "toolCall", name, arguments: {} })),
+      ],
+    },
+  ],
+});
+
+test("the answer comes first and the narration follows it", () => {
+  const blocks = answerBlocksOf([
+    narration("现在把清理返回值改成实际删除数，并在截断时告警：", "edit"),
+    narration("现在把清空动作从事务里挪出来：拆成独立的前置方法。", "bash"),
+    narration("三轮改完了，但 OCR 第四轮又提了 3 条 medium，按你说的上限我停手没再改，也还没部署——先跟你确认。另外附上这三条的判断和部署计划，等你点头。"),
+  ]);
+  const text = composeAnswer(blocks);
+  assert.match(text, /^三轮改完了/, "the conclusion is the first thing read");
+  assert.match(text, /_过程 2 段：_/);
+  assert.match(text, /· 现在把清理返回值改成实际删除数，并在截断时告警（edit）/);
+  assert.match(text, /· 现在把清空动作从事务里挪出来：拆成独立的前置方法。（bash）/);
+});
+
+test("a one-line ending keeps the analysis above it", () => {
+  const blocks = answerBlocksOf([
+    narration("排查结论：这个 case 是换男方清残留，relay 的 source 没推进，所以更早的气泡一直留着。改法是先把清场从事务里拆出来，再按实际删除数推进水位。"),
+    narration("已部署到 release/test。", "report_done"),
+  ]);
+  const text = composeAnswer(blocks);
+  assert.match(text, /^排查结论/, "the analysis is the answer here, so it stays first");
+  assert.ok(text.includes("已部署到 release/test。"));
+  assert.ok(!text.includes("_过程"), text);
 });
