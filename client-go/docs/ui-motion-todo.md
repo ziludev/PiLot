@@ -32,19 +32,29 @@ mygo 版本：v0.9.1（`go.mod`）。结论先行：**动效本身 mygo 完全�
 - **`⌘↑`/`⌘↓` 改滑动**：`ScrollTo(180ms, EaseOut)` + `pageGliding` 标志；`followScroll` 在 glide 期间直接 return（否则会在下一帧把位置弹回底部），落地后再决定是否继续跟随。`ScrollState.Scrolling()` 是判据。
 - **会话行的退出动画仍不做**：`ui.List` 复用行元素，`Transition` 挂在行上会出现重复行与白块（第 25 轮踩过），归档消失保持硬切。
 
-## 2. 可以复刻，尚未做（TODO）
+## 2. 逐项状态（第 36 轮清完）
 
-| 项 | React | mygo 手法 | 优先级 |
-| --- | --- | --- | --- |
-| Toast 进场/退场 | 右侧滑入 240 px / 350 ms，退场滑回 350 ms | `ui.Toast` 内容元素挂 `Transition{Enter:&Motion{X:240,Opacity:0}, Exit:&Motion{X:240,Opacity:0}}` | 中 |
-| Toast 底部 1.8 s 排空条 | `::after` 宽度 100%→0 线性 | 一条 `ui.Box`，`AnimateTo("drain",0,…)` 或按 toast 剩余时间画宽度 | 低 |
-| Popover/命令面板进场 | 280 ms、从锚点方向滑 6 px（`#055`） | `motion.PopoverEnter()` 已写好，挂到 `ui.Popover` 内容/`modelPalette` 上即可 | 中 |
-| 标签内容切换 | 200 ms 上浮 8 px，延迟 100 ms | 面板内容挂 `motion.FadeIn()`，切换时给 `Transition.Delay` | 中 |
-| 侧栏标签下划线滑动 | 250 ms，X 与宽度同时过渡 | 需要上一帧的 `Element.Bounds()` 量出当前标签与目标标签的框（mygo 没有 `Measure()`），再用 `AnimateTo("underlineX")` + `AnimateTo("underlineW")` | 中 |
-| 运行中任务/步骤呼吸 | `animate-pulse` | 同色两个 `AnimateTo` 循环，或换成 `ui.Spinner` | 低 |
-| Spinner 弧 | 243° 弧、1.3 转/秒（`#070`） | `ui.Spinner` 形状不同；可自绘 `Arc` 240° + `AnimateTo("turn")` 旋转，ease Linear | 低 |
-| 行内操作按钮渐显 | `opacity-0 group-hover/row:opacity-100`，`transition` 150 ms | 可做（`Opacity` + `AnimateTo`），但本客户端**刻意常显**（`rail.go` 注释：隐藏操作的行没人会去置顶），需要时再改 | 低 |
-| 面板打开的整体进场 | `animate-in fade-in slide-in-from-right-6` 200 ms | `motion.FadeIn()` 变体（`X:+24`） | 低 |
+§2 原来的 8 项在 `docs/client-go-motion-rest.md` 的设计基础上逐项落地，一项一个 commit。表格里的"帧"都是快照测试落在 `/tmp/pitta-motion-*.png` 的文件名（不进仓库，看完即弃）。
+
+| 项 | 状态 | 做法与证据 |
+| --- | --- | --- |
+| Toast 进场/退场 | **done** | `glass.go` 的 `toasts()` 给 `parts.Root` 挂 `motion.ToastEnter()`：`Enter/Exit = {X:240, Opacity:0}`，各 350 ms（进 easeOutCubic、出 easeInOutCubic）。**不给 `Root` 加 `Key`**——`coreToastBase` 已挂 `ts.key`，覆盖会毁掉 exit 的 ghost 匹配与多 toast 身份。帧：`toast-in-0/in-mid/end/out-0/out-mid/gone`；断言：进入半程比落定位置偏右 >40 px、退场半程同样偏右、exit 结束后玻璃带里剩不到 40 个非背景像素（没有 ghost 残留）。玻璃材质 + `Transition` 的组合没有白块、没有重影（逐帧看过） |
+| Toast 底部 1.8 s 排空条 | **done** | `drainBar()`：底边 2 px 的绝对定位条，`ui.Row` 的 `WidthPercent(left/ToastLife*100)`。**不用 App 侧记账**：`ui.ToastParts.Left()` 是导出 API（`api_gen.go:8895`，类型断言即可用），它自己在视口 hover 时停表，与 toast 计时同源，所以不需要"记创建时刻 + 自己冻结"。帧：`toast-bar-early/bar-late/bar-after`；断言：0.06 s 时 ≥40 px、0.96 s 时 < 早期宽度的 65%、存活结束后 <8 px。副本 toast 存活随之从默认 4 s 降到 `motion.ToastLife`(1.8 s) |
+| Popover/命令面板进场 | **已在用** | `motion.PopoverEnter()` 挂在审批条（`composer.go:85`）与模型面板（`modelpicker.go:119`）上，280/150 ms，无需再动 |
+| 运行中步骤呼吸 | **done** | `stepRow` 前的小圆点：`dot.Loop("pulse", motion.Pulse=1400ms, ui.Bounce(ui.EaseInOut))` 在同色两档（alpha 0.35↔1）间呼吸。用 `Loop` 不用 `AnimateTo`：`AnimateTo` 只会收敛到目标、不循环，`Loop` 自带持续请求帧。帧：`step-a/step-b`；断言：半个周期前后圆点亮度差 ≥20，且已完成的步骤两帧完全一致（不让时间轴整体闪）。把 alpha 写死为 1 后测试确实会红（做过变异验证） |
+| 标签内容切换 / 面板整体进场 | **done（改成 X 轴）** | 内容列 `Key(sideTab)` + `motion.PanelEnter()`：`Enter = {X:24, Opacity:0}`、200 ms（原来是 `FadeIn()` 的 Y:+8）。`TestSidePanelTabSlidesIn`（原 `TestSidePanelTabRises`，断言改 X）。帧：`panel-in/panel-settled`。**"面板打开"那一层不播，理由见下** |
+| 侧栏标签下划线滑动 | **done（待拍板是否保留）** | 标签条移出被 `Key(sideTab)` 的那列（否则切 tab 整棵树重建、`AnimateTo` 状态清零，永远不滑）。指示线是流式占位：`spacer.AnimateTo("tabX")` + `bar.AnimateTo("tabW")`，两个目标都取上一帧 `Bounds()`，`motion.TabSlide`(250 ms easeInOutCubic)。**不能用 Absolute**：`ui/paint.go` 里 Absolute 子元素画在流式兄弟之上，会盖住标签文字。条的第一帧没有布局、直接跳过作画，避免从最左滑进来。帧：`tabs-start/tabs-mid/tabs-end`；断言：落定位置压在新标签下、半程位置严格介于两端之间（跳动会立刻红） |
+| Spinner 弧 | **不做** | 全仓没有 `ui.Spinner`：思考中的指示是有意画的品牌 mark（`thinking.go`），`#070` 的 243° 弧没有可替换的对象。自绘一条弧只会多一个没人用的组件 |
+| 行内操作按钮渐显 | **仍不做** | 本客户端刻意常显（见 §1）。同前 |
+
+### 面板"打开"时为什么不播进场
+
+`ui/transition.go` 的 `appears` 要求父节点早于本帧存在（`parent.st.born != rt.frame`）。右栏打开时 `ui.Split` 与面板列在同一帧出生，条件不成立，`Enter` 一定不播；要让它播就得把 Split 改成常驻，代价是分隔条与拖拽手柄常留在右边缘。所以第 5 项落在"切 tab 的内容列"上——那是真正"整块换掉"的地方。打开时仍是硬切。
+
+### 第 36 轮顺带修掉的
+
+- `glass.go` 的 toast 一直只画玻璃壳、没有标题（`ToastBase` 只给 status box，文字要自己加），`Copied` 提示此前是空胶囊。现在补上 `toast.Title`，也是快照能定位 toast 的前提。
+- 上述每个动效都有对应的 `go test` 断言 + 中间帧/落定帧快照，`go build ./... && go vet ./... && go test ./internal/...` 全绿，`go tool mygo build -skip-dmg` 出包。
 
 ## 3. 只能降级（背景模糊一条已由 `plugins/glass` 解决，见 §1）
 
@@ -61,8 +71,9 @@ mygo 版本：v0.9.1（`go.mod`）。结论先行：**动效本身 mygo 完全�
 - **`ui.List` 行上的 `Transition`**（颜色/阴影/位移的自动过渡）：mygo 会把带 `Transition` 的元素画进离屏图层，行在虚拟列表里合成时出现重复行与白色块。暂时用 `AnimateTo` 手动驱动位移，颜色与阴影即时切换。要恢复平滑过渡，得先确认 mygo 侧图层裁剪行为（属于库的行为，不是我们这层能绕过的）。
 - **`glass.Glass{Native: true}`**：走 macOS 26 的 `NSGlassEffectView`，但它采样的是窗口材质或 `ui.WebView` 的页面，不采样同一帧里画出的元素；我们的浮层下面就是自己画的 transcript，所以只能用着色器版（`glass.Glass{}`），观感是"像"而非系统材质。
 - **面板合并（`glass.Group`）**：macOS 的 `NSGlassEffectContainerView` 让相近的玻璃片融成一片；我们的浮层彼此不相邻，暂不需要。
+- **toast 存活 4 s → 1.8 s，侧栏下划线是新视觉元素**（第 36 轮）：为了排空条与存活同步，`copied` 提示改成 `motion.ToastLife`(1.8 s)；侧栏标签本来只有"选中态填充 pill"、React 端也没有下划线，这次按 TODO 加了 2 px 指示线。两件都容易回退——前者改回 `c.Toast(...)` 的默认 4 s，后者删掉 `sideTabs` 里的下划线那一行即可——但都改了观感，需要拍板。
 - **Radix 的 popover/dialog 遮罩渐变**：mygo `ui.Modal` 自带 `RGBA(0,0,0,0.4)` 遮罩与投影（`ui/widgets.go:689`），不再做二次动画。
 
 ## 5. 结论
 
-动效层面 mygo 与 React 一一对应，剩下的是"逐处挂 `Transition`"的体力活（§2 共 8 项，其中 3 项已做）。`backdrop-filter` 这一条不再是缺口：mygo 的 `plugins/glass` 直接把 Liquid Glass 画出来，`internal/app/glass.go` 已挂在浮层上，`TestGlassSamplesWhatIsUnderIt` 钉住"背景真的透过来了"。唯一保留的差异是 `glass.Native`（系统 `NSGlassEffectView`）采样不到同帧元素，见 §4。
+动效层面 mygo 与 React 一一对应，剩下的是"逐处挂 `Transition`"的体力活（§2 共 8 项，除 Spinner 弧与行内按钮渐显外都已落地，理由见该节）。`backdrop-filter` 这一条不再是缺口：mygo 的 `plugins/glass` 直接把 Liquid Glass 画出来，`internal/app/glass.go` 已挂在浮层上，`TestGlassSamplesWhatIsUnderIt` 钉住"背景真的透过来了"。唯一保留的差异是 `glass.Native`（系统 `NSGlassEffectView`）采样不到同帧元素，见 §4。
