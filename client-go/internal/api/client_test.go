@@ -128,9 +128,6 @@ func TestClientGET(t *testing.T) {
 				if conversation.ThinkingLevel != "high" || conversation.Usage == nil || conversation.Usage.Turns != 34 {
 					t.Fatalf("thinking = %q usage = %+v", conversation.ThinkingLevel, conversation.Usage)
 				}
-				if len(conversation.ApprovalWaits) != 1 || conversation.ApprovalWaits[0].Tool != "bash" {
-					t.Fatalf("waits = %+v", conversation.ApprovalWaits)
-				}
 			},
 		},
 		{
@@ -315,17 +312,6 @@ func TestClientPOST(t *testing.T) {
 				head, err := c.Commit(ctx, 2, "checkpoint")
 				if err == nil && head != "9f2c1ab" {
 					t.Errorf("head = %q", head)
-				}
-				return err
-			},
-		},
-		{
-			name: "merge", path: "/api/merge", body: `{"conversationId":2}`,
-			reply: `{"status":"conflict","branch":"agent/conv-2","base":"main","conflicts":["main.go"]}`,
-			call: func(c *Client) error {
-				result, err := c.Merge(ctx, 2)
-				if err == nil && (result.Status != "conflict" || len(result.Conflicts) != 1) {
-					t.Errorf("merge = %+v", result)
 				}
 				return err
 			},

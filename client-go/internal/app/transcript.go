@@ -3,7 +3,6 @@ package app
 import (
 	"encoding/json"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -133,101 +132,10 @@ func stepGroups(turn *turns.Turn) [][]turns.Step {
 // frame that only scrolls or hovers changes none of them.
 func (a *App) groupedTurns() []turns.Turn {
 	if a.turnStale || a.turnCache == nil {
-		a.turnCache = turns.GroupTurns(a.entries, a.waits)
+		a.turnCache = turns.GroupTurns(a.entries)
 		a.turnStale = false
 	}
 	return a.turnCache
-}
-
-// phaseBar is TurnDurations at transcript scale: one thin bar where the widths
-// follow how long the turn spent thinking, waiting on tools and waiting for an
-// approval, so a slow turn is visible without opening anything.
-func (a *App) phaseBar(c *ui.Context, t theme.Tokens, turn *turns.Turn) {
-	phases := turn.Stats.Phases
-	total := phases.Think + phases.Tool + phases.Wait + phases.Error
-	if total <= 0 || turn.Stats.MS == nil {
-		return
-	}
-	// The bar thickens under the pointer, which is what makes it read as
-	// something to inspect rather than a rule across the card. It grows for real
-	// instead of scaling: a scaled bar keeps its three-pixel hit box, so the
-	// edges of the grown one would flicker in and out under the pointer.
-	bar := ui.Row(c).FillWidth().Radius(phaseBarRadius).Background(t.Muted).Label(phaseBarLabel)
-	height := float32(phaseBarHit)
-	if bar.Hovered() {
-		height = phaseBarHover
-	}
-	grown := bar.Animate(phaseBarGrowKey, height, phaseBarGrowTime)
-	bar.Height(grown)
-
-	// Each stretch takes its own share of the whole bar, so the bar is the
-	// turn's time in four colours rather than a fixed-length stub that looks the
-	// same on every turn.
-	segment := func(name string, ms int64, color ui.Color) {
-		if ms <= 0 {
-			return
-		}
-		// The bar says nothing on its own, so each stretch names what it is and
-		// how much of the turn it took where the pointer rests. The stretches are
-		// as tall as the bar so the pointer finds one anywhere on it.
-		ui.Row(c).Grow(float32(ms)).Height(grown).Background(color).
-			Label(phaseBarLabel + "-" + name).
-			Tooltip(phaseTooltip(name, ms, total))
-	}
-	bar.Children(func() {
-		segment("think", phases.Think, t.MutedFg)
-		segment("tool", phases.Tool, t.Primary)
-		segment("wait", phases.Wait, t.Warning)
-		segment("error", phases.Error, t.Destructive)
-	})
-	ui.Text(c, phaseLegend(turn)).FontSize(9).TextColor(t.MutedFg).MaxLines(1)
-}
-
-// phaseBarLabel names the turn's phase bar, which is how the tests that hover
-// one stretch of it find it.
-const phaseBarLabel = "phase-bar"
-
-// phaseBarHit is how tall the bar rests, and phaseBarHover how tall it grows
-// under the pointer: a three-pixel bar is a hard thing to rest a pointer on, and
-// the tooltip each stretch carries is the point of it.
-const (
-	phaseBarHit     = 6
-	phaseBarHover   = 11.0
-	phaseBarRadius  = 2
-	phaseBarGrowKey = "phase-bar-height"
-)
-
-// phaseBarGrowTime is how long the bar takes to thicken, short enough to feel
-// like a response to the pointer and not like an animation of its own.
-const phaseBarGrowTime = 120 * time.Millisecond
-
-// phaseTooltip is what one stretch of the phase bar says under the pointer: the
-// phase, how long it took, and the share of the bar it covers.
-func phaseTooltip(name string, ms, total int64) string {
-	share := 0
-	if total > 0 {
-		share = int(float64(ms)/float64(total)*100 + 0.5)
-	}
-	return name + " " + turns.Clock(ms) + " · " + strconv.Itoa(share) + "%"
-}
-
-// phaseLegend names what the bar's colours mean, as the phase bar does.
-func phaseLegend(turn *turns.Turn) string {
-	phases := turn.Stats.Phases
-	parts := make([]string, 0, 3)
-	if phases.Think > 0 {
-		parts = append(parts, "think "+turns.Clock(phases.Think))
-	}
-	if phases.Tool > 0 {
-		parts = append(parts, "tool "+turns.Clock(phases.Tool))
-	}
-	if phases.Wait > 0 {
-		parts = append(parts, "wait "+turns.Clock(phases.Wait))
-	}
-	if phases.Error > 0 {
-		parts = append(parts, "error "+turns.Clock(phases.Error))
-	}
-	return strings.Join(parts, " · ")
 }
 
 // userBubble is the message the person typed, right aligned as in the earlier client
@@ -997,6 +905,6 @@ func (a *App) copyText(c *ui.Context, text string) {
 	))
 	c.Services().WriteClipboardData(data)
 	// 1.8 s is the toast's own life (motion.ToastLife): short enough for a
-	// confirmation that needs no reading twice, and the drain bar's countdown.
+	// confirmation that needs no reading twice.
 	c.AddToast(ui.Toast{ID: "copied", Title: i18n.T("copied"), Timeout: motion.ToastLife})
 }

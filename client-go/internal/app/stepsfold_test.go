@@ -188,7 +188,7 @@ func TestShortTurnKeepsItsSteps(t *testing.T) {
 // holds, not Stats.Tools, which skips the thinking message and the verdict.
 func TestFoldCountIsEveryStep(t *testing.T) {
 	entries := longTurnEntries()
-	built := turns.GroupTurns(entries, nil)
+	built := turns.GroupTurns(entries)
 	turn := built[0]
 	if len(turn.Steps) <= turn.Stats.Tools {
 		t.Fatalf("the turn has %d steps and %d tools: this test's case is gone",

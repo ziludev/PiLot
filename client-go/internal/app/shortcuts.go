@@ -23,7 +23,6 @@ func shortcuts() []shortcut {
 		{cmd + "⇧N", "Open this chat in a window"},
 		{cmd + "F", "Find in this chat"},
 		{cmd + "B", "Show or hide the side panel"},
-		{cmd + "⇧E", "Export this chat as Markdown"},
 		{"⌥↑ ⌥↓", "Previous / next chat"},
 		{cmd + "⇧P", "Pin or unpin this chat"},
 		{cmd + "⇧⌫", "Archive this chat"},

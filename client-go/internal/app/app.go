@@ -124,7 +124,7 @@ type App struct {
 	// they came from: a row points into them, so both live and die together.
 	chatRows  []chatRow
 	chatBuilt []turns.Turn
-	// Grouped turns, kept until the entries or the waits change: grouping
+	// Grouped turns, kept until the entries change: grouping
 	// parses every entry, and a frame that only scrolls parses nothing.
 	turnCache []turns.Turn
 	turnStale bool
@@ -174,7 +174,6 @@ type App struct {
 	commitBusy       bool
 	commitMsg        string
 	gitBase          string
-	mergeOpen        bool
 	mainPane         float32
 	// turnList is the chat's place among its rows: it keeps that place by the
 	// row the reader is on, so turns loading above them move nothing.
@@ -214,8 +213,6 @@ type App struct {
 	// a different room means the window was resized, not the divider dragged.
 	sideRoom       float32
 	frameRecovered bool
-	mergeBusy      bool
-	merge          *protocol.MergeResult
 	changesLoading bool
 	pushNote       string
 
@@ -327,7 +324,6 @@ type App struct {
 	models   []protocol.ModelEntry
 
 	approvals []protocol.PendingApproval
-	waits     []protocol.ApprovalWait
 	// health is the bridge's own report, and healthErr is what a failed read
 	// means: the agent is not there. The footer shows one or the other.
 	health    *protocol.Health
@@ -802,7 +798,6 @@ func (a *App) reloadConversation(current int) {
 		if conv.Usage != nil {
 			a.usage = *conv.Usage
 		}
-		a.waits = conv.ApprovalWaits
 		a.turnStale = true
 		a.live = nil
 		// A newly opened chat lands on its newest turn, not its oldest.

@@ -81,12 +81,11 @@ func TestChangesViewShowsFilesAndOpensOne(t *testing.T) {
 	opened := ""
 	props.OnOpenFile = func(path string) { opened = path }
 	props.OnCommit = func() {}
-	props.OnMerge = func() {}
 	props.OnReload = func() {}
 
 	tt := ui.NewTester(func(c *ui.Context) { ChangesView(c, props) }, 460, 620)
 	tt.Frame()
-	for _, want := range []string{"3 files · agent/work", "main.go", "old.txt", "+12", "−4", "rename this", "Commit", "Merge"} {
+	for _, want := range []string{"3 files · agent/work", "main.go", "old.txt", "+12", "−4", "rename this", "Commit"} {
 		if !tt.HasText(want) {
 			t.Fatalf("changes panel is missing %q, shows %q", want, tt.Texts())
 		}
@@ -199,25 +198,5 @@ func TestCommitsViewOpensAndClosesAPatch(t *testing.T) {
 	}
 	if closed != 1 || expanded != "" {
 		t.Fatalf("closed = %d, opened = %d, expanded = %q", closed, opened, expanded)
-	}
-}
-
-func TestMergeButtonShowsOutcomes(t *testing.T) {
-	english(t)
-	merged := 0
-	tt := ui.NewTester(func(c *ui.Context) {
-		MergeButton(c, &protocol.MergeResult{Status: "conflict", Conflicts: []string{"main.go"}}, func() { merged++ })
-	}, 420, 200)
-	tt.Frame()
-	for _, want := range []string{"Merge", "main.go", "Ask the agent"} {
-		if !tt.HasText(want) {
-			t.Fatalf("merge button is missing %q, shows %q", want, tt.Texts())
-		}
-	}
-	if err := tt.Click("Merge"); err != nil {
-		t.Fatalf("click Merge: %v", err)
-	}
-	if merged != 1 {
-		t.Fatalf("merge = %d, want 1", merged)
 	}
 }

@@ -23,7 +23,6 @@ func TestGroupTurns(t *testing.T) {
 	tests := []struct {
 		name    string
 		entries []protocol.Entry
-		waits   []protocol.ApprovalWait
 		check   func(t *testing.T, turns []Turn)
 	}{
 		{
@@ -100,7 +99,6 @@ func TestGroupTurns(t *testing.T) {
 				}
 				checkInt64(t, "thinking step start", turns[0].Steps[0].Start, 1_100)
 				checkInt64(t, "thinking step end", turns[0].Steps[0].End, 1_200)
-				checkInt64(t, "phases think", turns[0].Stats.Phases.Think, 100)
 				checkInt64Ptr(t, "turn ms", turns[0].Stats.MS, 200)
 			},
 		},
@@ -189,40 +187,22 @@ func TestGroupTurns(t *testing.T) {
 			},
 		},
 		{
-			name: "approval waits count only their overlap",
-			entries: []protocol.Entry{
-				userEntry(1, "wait", 1_000),
-				assistantText(2, "done", 5_000),
-			},
-			waits: []protocol.ApprovalWait{
-				{Start: 2_000, End: 3_000, Tool: "bash"},
-				{Start: 4_000, End: 6_000, Tool: "bash"},
-				{Start: 0, End: 500, Tool: "bash"},
-			},
-			check: func(t *testing.T, turns []Turn) {
-				t.Helper()
-				checkInt64(t, "phases wait", turns[0].Stats.Phases.Wait, 2_000)
-			},
-		},
-		{
 			name: "a turn without timestamps has no start, end or ms",
 			entries: []protocol.Entry{
 				noteEntry(1),
 			},
-			waits: []protocol.ApprovalWait{{Start: 0, End: 10_000}},
 			check: func(t *testing.T, turns []Turn) {
 				t.Helper()
 				if turns[0].Stats.Start != nil || turns[0].Stats.End != nil || turns[0].Stats.MS != nil {
 					t.Errorf("stats timing = %+v, want nil start/end/ms", turns[0].Stats)
 				}
-				checkInt64(t, "phases wait", turns[0].Stats.Phases.Wait, 0)
 			},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			test.check(t, GroupTurns(test.entries, test.waits))
+			test.check(t, GroupTurns(test.entries))
 		})
 	}
 }
@@ -267,10 +247,6 @@ type wantStats struct {
 	removed int
 	tokens  int
 	cost    float64
-	think   int64
-	tool    int64
-	errors  int64
-	wait    int64
 	start   int64
 	end     int64
 	ms      int64
@@ -298,7 +274,6 @@ func TestGroupTurnsRealTranscripts(t *testing.T) {
 			},
 			stats: wantStats{
 				tools: 2, tokens: 12_214, cost: 0.0019354019999999997,
-				tool: 1_357, errors: 1_459,
 				start: 1_794_195_672_122, end: 1_794_195_674_996, ms: 2_874,
 			},
 			status: StatusDone,
@@ -319,7 +294,6 @@ func TestGroupTurnsRealTranscripts(t *testing.T) {
 			},
 			stats: wantStats{
 				tools: 6, added: 1, removed: 4, tokens: 191_597, cost: 0.029376887999999997,
-				tool:  14_673,
 				start: 1_794_223_244_566, end: 1_794_223_259_290, ms: 14_724,
 			},
 			status: StatusDone,
@@ -335,7 +309,6 @@ func TestGroupTurnsRealTranscripts(t *testing.T) {
 			},
 			stats: wantStats{
 				tools: 2, files: 1, tokens: 3_232, cost: 0.00056265,
-				tool:  1_392,
 				start: 1_794_194_334_134, end: 1_794_194_335_595, ms: 1_461,
 			},
 			status: StatusDone,
@@ -352,7 +325,6 @@ func TestGroupTurnsRealTranscripts(t *testing.T) {
 				{23_985, StepThink, 1_794_580_675_997, 1_794_580_675_997, false},
 			},
 			stats: wantStats{
-				think: 131_287,
 				start: 1_794_580_544_515, end: 1_794_580_675_997, ms: 131_482,
 			},
 			status: StatusError,
@@ -372,7 +344,6 @@ func TestGroupTurnsRealTranscripts(t *testing.T) {
 			},
 			stats: wantStats{
 				tools: 6, tokens: 141_621, cost: 0.02136591,
-				tool:  11_756,
 				start: 1_794_484_924_935, end: 1_794_484_936_787, ms: 11_852,
 			},
 			status: StatusAborted,
@@ -381,7 +352,7 @@ func TestGroupTurnsRealTranscripts(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.file, func(t *testing.T) {
-			turns := GroupTurns(loadEntries(t, test.file), nil)
+			turns := GroupTurns(loadEntries(t, test.file))
 			if len(turns) != 1 {
 				t.Fatalf("turns = %d, want 1", len(turns))
 			}
@@ -418,10 +389,6 @@ func TestGroupTurnsRealTranscripts(t *testing.T) {
 			if math.Abs(turn.Stats.Cost-test.stats.cost) > 1e-12 {
 				t.Errorf("cost = %v, want %v", turn.Stats.Cost, test.stats.cost)
 			}
-			checkInt64(t, "phases think", turn.Stats.Phases.Think, test.stats.think)
-			checkInt64(t, "phases tool", turn.Stats.Phases.Tool, test.stats.tool)
-			checkInt64(t, "phases error", turn.Stats.Phases.Error, test.stats.errors)
-			checkInt64(t, "phases wait", turn.Stats.Phases.Wait, test.stats.wait)
 			checkInt64Ptr(t, "start", turn.Stats.Start, test.stats.start)
 			checkInt64Ptr(t, "end", turn.Stats.End, test.stats.end)
 			checkInt64Ptr(t, "ms", turn.Stats.MS, test.stats.ms)
@@ -437,7 +404,7 @@ func TestStepLabelTruncatesTo46Units(t *testing.T) {
 		userEntry(1, "write it", 1_000),
 		callEntry(2, "c1", "write", map[string]any{"path": "/Users/alexwang/learn/pi-durable-agent/workspace/note.md"}, 1_100),
 	}
-	turns := GroupTurns(entries, nil)
+	turns := GroupTurns(entries)
 	const want = "write · /Users/alexwang/learn/pi-durable-agent/workspa"
 	if got := turns[0].Steps[0].Label; got != want {
 		t.Errorf("label = %q, want %q", got, want)

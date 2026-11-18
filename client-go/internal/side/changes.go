@@ -20,12 +20,11 @@ type ReviewNote struct {
 }
 
 // ChangesProps is the changes tab: the worktree's uncommitted files, the
-// review notes staged for the agent, and the buttons that commit or merge.
+// review notes staged for the agent, and the buttons that commit.
 type ChangesProps struct {
 	Changes      *protocol.Changes
 	Loading      bool
 	Review       []ReviewNote
-	Merge        *protocol.MergeResult // nil unless the last merge answered
 	OnReload     func()
 	OnOpenFile   func(path string)
 	OnStageNote  func(path, line, note string)
@@ -33,7 +32,6 @@ type ChangesProps struct {
 	OnClearNotes func()
 	OnSendReview func()
 	OnCommit     func() // opens the commit dialog
-	OnMerge      func()
 
 	// Note is the review text being typed and Picked names the line it will
 	// be staged on. The app owns both: these views keep no state of their
@@ -82,18 +80,9 @@ func changesHeader(c *ui.Context, t theme.Tokens, p ChangesProps) {
 		if p.OnCommit != nil {
 			ui.Button(c, i18n.T("commit")).OnClick(p.OnCommit)
 		}
-		if p.OnMerge != nil {
-			MergeButton(c, nil, p.OnMerge)
-		}
 	})
 	if changes.Error != "" {
 		ui.Text(c, changes.Error).FontSize(10).TextColor(t.Destructive).Wrap().Padding(2, 10)
-	}
-	if p.Merge != nil {
-		text, tint := mergeOutcome(t, p.Merge)
-		if text != "" {
-			ui.Text(c, text).FontSize(10).TextColor(tint).Wrap().Padding(2, 10)
-		}
 	}
 }
 

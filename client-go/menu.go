@@ -29,7 +29,6 @@ func installMenu(a *app.App) {
 	menu := mygo.NewMenu([]*mygo.MenuItem{
 		{Label: "File", Submenu: []*mygo.MenuItem{
 			item("New chat", "CmdOrCtrl+N", a.MenuNewChat),
-			item("Export chat…", "CmdOrCtrl+Shift+E", a.MenuExportChat),
 			item("Attach image…", "CmdOrCtrl+Shift+A", a.MenuAttachImage),
 			item("Open project…", "CmdOrCtrl+Shift+O", a.MenuOpenProject),
 			mygo.Separator(),

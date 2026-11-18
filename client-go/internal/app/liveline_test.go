@@ -22,7 +22,7 @@ func liveApp(t *testing.T) *App {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := transcriptApp(append(phaseEntries(), protocol.Entry{
+	a := transcriptApp(append(turnWithTool(), protocol.Entry{
 		ID: 9, Kind: "pi.assistant", Model: rawModel(map[string]any{
 			"role": "assistant", "content": []any{map[string]any{"type": "text", "text": "working"}}, "timestamp": 1500,
 		}),

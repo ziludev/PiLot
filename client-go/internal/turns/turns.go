@@ -1,5 +1,5 @@
 // Package turns groups the agent transcript into turns and derives what a
-// transcript view needs from each: steps, spend, files touched and phase time.
+// transcript view needs from each: steps, spend and the files touched.
 //
 // Ported from the earlier web client (the old client/lib/turns.ts and
 // the old client). The JSON field names read here are the ones those
@@ -45,14 +45,6 @@ type Step struct {
 // not counted among them and is drawn as a verdict instead of a step.
 const ReportDoneTool = "report_done"
 
-// Phases is how the turn's wall time was spent, in milliseconds.
-type Phases struct {
-	Think int64
-	Tool  int64
-	Error int64
-	Wait  int64
-}
-
 // Stats is the turn's derived accounting. Start, End and MS are nil when the
 // turn has no timestamp at all, matching the optional TurnStats fields in the
 // earlier web client; MS is nil until there are two timestamps to subtract.
@@ -63,7 +55,6 @@ type Stats struct {
 	Removed int
 	Cost    float64
 	Tokens  int
-	Phases  Phases
 	Start   *int64
 	End     *int64
 	MS      *int64
@@ -85,8 +76,7 @@ type Turn struct {
 // GroupTurns splits entries into turns: a user message opens one, later
 // assistant and tool entries belong to it, and app.note lines attach to the
 // turn they were written in. Unknown non-pi kinds are kept, not dropped.
-// waits are the conversation's approval waits, used for wait time.
-func GroupTurns(entries []protocol.Entry, waits []protocol.ApprovalWait) []Turn {
+func GroupTurns(entries []protocol.Entry) []Turn {
 	turns := make([]Turn, 0)
 	current := -1
 
@@ -129,7 +119,7 @@ func GroupTurns(entries []protocol.Entry, waits []protocol.ApprovalWait) []Turn 
 	}
 
 	for i := range turns {
-		turns[i].derive(waits)
+		turns[i].derive()
 	}
 	return turns
 }
@@ -166,7 +156,7 @@ func isThinkingOrTool(entry protocol.Entry) bool {
 	return hasCall || !hasText
 }
 
-func (t *Turn) derive(waits []protocol.ApprovalWait) {
+func (t *Turn) derive() {
 	timestamps := make([]int64, 0, 1+len(t.Internals)+len(t.Finals))
 	for _, entry := range append(append([]protocol.Entry{t.Anchor}, t.Internals...), t.Finals...) {
 		if ts, ok := timestampOf(entry); ok {
@@ -197,7 +187,6 @@ func (t *Turn) derive(waits []protocol.ApprovalWait) {
 	}
 
 	steps := make([]Step, 0, len(timeline))
-	var phases Phases
 	for index, entry := range timeline {
 		parts := partsOf(messages(entry.Model))
 		var call map[string]any
@@ -258,16 +247,6 @@ func (t *Turn) derive(waits []protocol.ApprovalWait) {
 			Entry:  entry,
 			Result: result,
 		})
-
-		spent := end - start
-		switch kind {
-		case StepThink:
-			phases.Think += spent
-		case StepError:
-			phases.Error += spent
-		default:
-			phases.Tool += spent
-		}
 	}
 
 	paths := make(map[string]struct{})
@@ -306,18 +285,6 @@ func (t *Turn) derive(waits []protocol.ApprovalWait) {
 		addUsage(entry, &cost, &tokens)
 	}
 
-	// Approval time inside this turn: a run that waited on a human should say
-	// so.
-	if len(timestamps) > 0 {
-		turnStart, turnEnd := timestamps[0], timestamps[len(timestamps)-1]
-		for _, wait := range waits {
-			overlap := min(turnEnd, wait.End) - max(turnStart, wait.Start)
-			if overlap > 0 {
-				phases.Wait += overlap
-			}
-		}
-	}
-
 	stats := Stats{
 		Tools:   tools,
 		Files:   len(paths),
@@ -325,7 +292,6 @@ func (t *Turn) derive(waits []protocol.ApprovalWait) {
 		Removed: removed,
 		Cost:    cost,
 		Tokens:  tokens,
-		Phases:  phases,
 	}
 	if len(timestamps) > 0 {
 		start, end := timestamps[0], timestamps[len(timestamps)-1]

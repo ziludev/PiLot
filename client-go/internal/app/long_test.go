@@ -37,7 +37,7 @@ func TestLiveLongConversation(t *testing.T) {
 		t.Skipf("conversation %d has no entries", conversationID)
 	}
 
-	built := turns.GroupTurns(a.entries, a.waits)
+	built := turns.GroupTurns(a.entries)
 	patchLines := 0
 	files := 0
 	for index := range built {
@@ -104,7 +104,6 @@ func loadEntries(t *testing.T, a *App, conversationID int) {
 		a.current = conversationID
 		a.entries = conversation.Entries
 		a.model = conversation.Model
-		a.waits = conversation.ApprovalWaits
 	})
 }
 
@@ -214,7 +213,7 @@ func TestLiveStreamingFrames(t *testing.T) {
 	go func() {
 		deadline := time.Now().Add(90 * time.Second)
 		for time.Now().Before(deadline) {
-			build := turns.GroupTurns(a.entries, a.waits)
+			build := turns.GroupTurns(a.entries)
 			if len(build) > 0 && build[len(build)-1].Status(a.live) == turns.StatusDone {
 				frames <- previous
 				return
@@ -234,14 +233,14 @@ func TestLiveStreamingFrames(t *testing.T) {
 			previous = entries
 			framesSeen++
 		}
-		build := turns.GroupTurns(a.entries, a.waits)
+		build := turns.GroupTurns(a.entries)
 		if len(build) > 0 && build[len(build)-1].Status(a.live) == turns.StatusDone {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	answer := ""
-	build := turns.GroupTurns(a.entries, a.waits)
+	build := turns.GroupTurns(a.entries)
 	if len(build) > 0 {
 		for _, final := range build[len(build)-1].Finals {
 			answer += turns.Text(final)
@@ -271,7 +270,7 @@ func TestLiveMarkdownRender(t *testing.T) {
 	a.previewImage = -1
 	a.init()
 	loadEntries(t, a, longestConversation(t, a))
-	built := turns.GroupTurns(a.entries, a.waits)
+	built := turns.GroupTurns(a.entries)
 	rendered := 0
 	for index := range built {
 		for _, final := range built[index].Finals {

@@ -188,7 +188,7 @@ func TestTurnStatus(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			turns := GroupTurns(test.entries, nil)
+			turns := GroupTurns(test.entries)
 			if len(turns) != 1 {
 				t.Fatalf("turns = %d, want 1", len(turns))
 			}

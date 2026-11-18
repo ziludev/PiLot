@@ -341,15 +341,6 @@ func (c *Client) Commit(ctx context.Context, conversationID int, message string)
 	return reply.Head, nil
 }
 
-// Merge merges the chat's branch into its base.
-func (c *Client) Merge(ctx context.Context, conversationID int) (*protocol.MergeResult, error) {
-	var result protocol.MergeResult
-	if err := c.post(ctx, "/api/merge", conversationIDBody(conversationID), &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
 // CancelTask aborts a background or sleeping task.
 func (c *Client) CancelTask(ctx context.Context, id int) error {
 	return c.post(ctx, "/api/task/cancel", struct {

@@ -103,7 +103,7 @@ func TestJumpToHitMarksTheTurn(t *testing.T) {
 // TestTurnOfEntryFindsToolResults covers the entry kinds a hit can point at.
 func TestTurnOfEntryFindsToolResults(t *testing.T) {
 	entries := turnEntries(1, "question", "answer")
-	built := turns.GroupTurns(entries, nil)
+	built := turns.GroupTurns(entries)
 	if len(built) != 1 {
 		t.Fatalf("turns = %d, want 1", len(built))
 	}
