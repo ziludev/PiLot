@@ -84,3 +84,18 @@ func TestPanelAndTabNumbers(t *testing.T) {
 		t.Fatalf("tab marker = %+v, want the strip's %v", TabSlide, Tabs)
 	}
 }
+
+// TestLifeOutlastsItsBarrier holds the one number that is about two others: the
+// drain bar is only honest while the toast outlives both slides, otherwise a
+// toast would start leaving with the hairline still half full.
+func TestLifeOutlastsItsBarrier(t *testing.T) {
+	if ToastLife < 2*ToastSlideTime {
+		t.Fatalf("ToastLife = %v, want at least two slides (%v) to drain over", ToastLife, 2*ToastSlideTime)
+	}
+	if PulseLow <= 0 || PulseLow >= 1 {
+		t.Fatalf("PulseLow = %v, want a breath between invisible and solid", PulseLow)
+	}
+	if Pulse < 2*Tabs {
+		t.Fatalf("Pulse = %v, want a breath slower than a tab slide (%v) so it reads as one", Pulse, Tabs)
+	}
+}
