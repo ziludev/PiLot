@@ -69,9 +69,29 @@ test("the version is the one this bridge was built from", () => {
 });
 
 test("a broken harness comes back as zeroes, not as an error", async () => {
-  const report = await healthReport(runtimeWith({ fail: true }), context, Date.now());
+  // Both times are pinned: the default "now" is the real clock, and a
+  // millisecond ticking over between the two reads would make this flaky.
+  const now = 1_700_000_000_000;
+  const report = await healthReport(runtimeWith({ fail: true }), context, now, now);
   assert.equal(report.queueDepth, 0);
   assert.equal(report.runningTurns, 0);
   assert.equal(report.conversations, 0);
   assert.equal(report.uptimeMs, 0);
+});
+
+test("one dead read does not blank the others", async () => {
+  const started = 1_700_000_000_000;
+  const runtime = {
+    harness: {
+      inspect: async () => {
+        throw new Error("harness is down");
+      },
+      snapshot: async () => ({ chats: { oc_a: 7, oc_b: 7 } }),
+    },
+  } as unknown as Runtime;
+  const report = await healthReport(runtime, context, started, started + 1000);
+  assert.equal(report.queueDepth, 0, "the queue could not be read");
+  assert.equal(report.runningTurns, 0);
+  assert.equal(report.conversations, 1, "the chats were readable and still count");
+  assert.equal(report.uptimeMs, 1000);
 });
