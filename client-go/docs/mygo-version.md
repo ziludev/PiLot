@@ -78,6 +78,7 @@ go build ./... && go vet ./... && go test ./internal/... -count=1
 | `#1921` capture paints again after another window moved the shared atlas | 带 `Transition` 的列表行曾画出重复行与白色块（§4 的阻塞项），可疑成因就在共享 atlas 的捕获；v0.10.0 下已复现不出来（见下） |
 | `#1928` lay out a tree with fewer reads of its elements | 布局少读元素属性，2000 行大文件的首帧开销测试仍在阈值内（62 ms 那次是并行跑测试的噪声，单独跑稳定通过） |
 | `#1904` `ListState.MoveAnimation` | 行进出、换位时的滑行交给 `ui.List` 自己做。我们的会话栏不做重排动画，暂时不用；将来要做「归档后行自动收拢」时先看它 |
+| `Exit` 动效在 `ui.List` 的行上仍不生效 | v0.10.0 也没变：行在数据消失的那一帧就被丢掉，没有元素可挂 Exit。会话行的离场因此走 app 侧记账 + `AnimateTo`（见 `docs/ui-motion-todo.md` §4） |
 | `#1975` read a child a container walks in four lines of the element | 内部实现变化，无迁移成本 |
 
 ### 顺带解掉的阻塞：会话行的颜色过渡

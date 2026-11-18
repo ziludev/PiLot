@@ -81,6 +81,15 @@ func Hover() ui.ElementTransition {
 	return ui.ElementTransition{Duration: HoverLift, Ease: EaseOutCubic, Colors: true, Shadows: true}
 }
 
+// RowLeave is how an archived chat folds out of the rail: it collapses and
+// fades over this long. The fold is driven by AnimateTo, not by Exit — a
+// ui.List row is dropped the moment the data says so, so there is nothing left
+// to run an exit motion on (v0.10.0 still behaves this way).
+const RowLeave = 220 * time.Millisecond
+
+// Fold is the animation a rail row closes with when its chat is archived.
+var Fold = ui.Animation{Duration: RowLeave, Ease: EaseInOutCubic}
+
 // Accordion is the transition an opening step carries: its content grows and
 // folds over 350 ms instead of appearing.
 func AccordionTransition() ui.ElementTransition {

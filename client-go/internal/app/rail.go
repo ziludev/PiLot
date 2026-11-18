@@ -343,6 +343,7 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 		return
 	}
 	s := row.surface
+	folding := a.foldingOut(s.ConversationID)
 	selected := s.ConversationID == a.current
 	pinned := a.isPinned(s.ConversationID)
 	// Keyed by chat, not by row: the list recycles rows, and a lift that
@@ -373,6 +374,19 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 	// still pointer would give the hover to the row below at the seam, which
 	// would give it back, frame after frame, and the two would flicker.
 	lift := line.AnimateTo("lift", target, motion.Lift)
+	// Parked at 1 while the chat is in the rail; foldRowOut takes it to 0 and the
+	// row folds shut with its content fading, rather than vanishing between two
+	// frames. The clip keeps the shrinking box from spilling its title and price.
+	foldTarget := float32(1)
+	if folding {
+		foldTarget = 0
+		line.Clip()
+	}
+	fold := line.AnimateTo("fold", foldTarget, motion.Fold)
+	// The square makes the content go before the box does: at half height the title
+	// is a quarter as visible, so the row reads as closing rather than as a
+	// squeezed line of text.
+	line.Height(railRowHeight * fold).Opacity(fold * fold)
 	line.OnClick(func() {
 		// A chat already open in a window of its own comes forward instead of
 		// being loaded here a second time.
@@ -689,7 +703,7 @@ func (a *App) sortedSurfaces() []protocol.Surface {
 	query := strings.ToLower(a.query)
 	out := make([]protocol.Surface, 0, len(a.surfaces))
 	for _, s := range a.surfaces {
-		if s.Archived && !a.showArchived {
+		if s.Archived && !a.showArchived && !a.foldingOut(s.ConversationID) {
 			continue
 		}
 		if query != "" && !strings.Contains(strings.ToLower(surfaceTitle(s)), query) {
@@ -757,15 +771,59 @@ func (a *App) archiveSurface(s protocol.Surface) {
 			a.fail("archive chat %d: %v", s.ConversationID, err)
 			return
 		}
+		a.apply(func() { a.markArchived(s.ConversationID, archived) })
+	}()
+}
+
+// markArchived is the rail side of the archive toggle: the chat drops the
+// archived flag — and, when it is being archived, folds out of the list instead
+// of vanishing.
+func (a *App) markArchived(conversationID int, archived bool) {
+	for i := range a.surfaces {
+		if a.surfaces[i].ConversationID == conversationID {
+			a.surfaces[i].Archived = archived
+		}
+	}
+	if archived {
+		a.foldRowOut(conversationID)
+	} else {
+		a.railLeaving = withoutFold(a.railLeaving, conversationID)
+	}
+	a.invalidate()
+}
+
+// foldRowOut marks a chat as on its way out of the rail. The row keeps its
+// place in the list for motion.RowLeave — collapsing rather than disappearing
+// between frames — and the timer then drops it for good.
+func (a *App) foldRowOut(conversationID int) {
+	if a.railLeaving == nil {
+		a.railLeaving = map[int]bool{}
+	}
+	a.railLeaving[conversationID] = true
+	time.AfterFunc(motion.RowLeave, func() {
 		a.apply(func() {
-			for i := range a.surfaces {
-				if a.surfaces[i].ConversationID == s.ConversationID {
-					a.surfaces[i].Archived = archived
-				}
-			}
+			a.railLeaving = withoutFold(a.railLeaving, conversationID)
 			a.invalidate()
 		})
-	}()
+	})
+}
+
+// foldingOut reports whether the chat is still on its way out of the rail.
+func (a *App) foldingOut(conversationID int) bool {
+	return a.railLeaving[conversationID]
+}
+
+func withoutFold(folds map[int]bool, conversationID int) map[int]bool {
+	if _, ok := folds[conversationID]; !ok {
+		return folds
+	}
+	out := make(map[int]bool, len(folds)-1)
+	for id := range folds {
+		if id != conversationID {
+			out[id] = true
+		}
+	}
+	return out
 }
 
 // newConversation asks the bridge for a fresh chat and opens it.

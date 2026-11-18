@@ -30,7 +30,7 @@ mygo 版本：v0.10.0（`go.mod`，见 `docs/mygo-version.md` §5）。结论先
 
 - **流式光标**：`turn.State` 为 `StateStreaming` 时，在流式卡片末尾画 6×13 的方光标，`Loop("caret", 1060ms, ui.Linear) < 0.5` 决定明灭（`Loop` 会持续请求帧，所以不需要额外定时器）。测试 `TestStreamingCaretBlinks` 只数光标所在窄带里的主色像素，避开上方 Spinner 的干扰。
 - **`⌘↑`/`⌘↓` 改滑动**：`ScrollTo(180ms, EaseOut)` + `pageGliding` 标志；`followScroll` 在 glide 期间直接 return（否则会在下一帧把位置弹回底部），落地后再决定是否继续跟随。`ScrollState.Scrolling()` 是判据。
-- **会话行的退出动画仍不做**：`ui.List` 复用行元素，`Transition` 挂在行上会出现重复行与白块（第 25 轮踩过），归档消失保持硬切。
+- **会话行的退出动画**（v0.10.0 后做了）：归档时行不硬切，而是在 220 ms 里折起来（`motion.Fold`）。它不是 `Exit` 动效——`ui.List` 的行在数据消失的那一帧就被丢掉，没有元素可挂 Exit，所以改为 app 侧记账：`railLeaving` 记住正在离场的会话，行照旧留在列表里、`AnimateTo("fold")` 从 1 走到 0，定时器到点再把账抹掉。`TestArchivedRowFoldsOut` 断言「归档那一帧行还在」「行下的行走到一半时已上移」「220 ms 后标题消失且下移到位」。
 
 ## 2. 逐项状态（第 36 轮清完）
 

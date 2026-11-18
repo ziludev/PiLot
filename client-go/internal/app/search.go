@@ -344,7 +344,15 @@ func (a *App) archiveChat(archived bool) {
 		if err := a.api.SetSurfaceMeta(context.Background(), a.apiSurfaceMeta(conversationID, nil, &archived)); err != nil {
 			return err
 		}
-		a.apply(func() { a.menu.open = false })
+		a.apply(func() {
+			a.menu.open = false
+			// Folded here as well as in the rail's own toggle: this path reloads
+			// the rail from the bridge, and an archived chat would otherwise be
+			// gone from the list before it could close.
+			if archived {
+				a.markArchived(conversationID, true)
+			}
+		})
 		return a.loadState(context.Background())
 	})
 }
