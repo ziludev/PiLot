@@ -1,36 +1,31 @@
 package app
 
 import (
-	"time"
-
 	"github.com/egoist/mygo/ui"
 )
 
+// pageRows is how many rows a page moves, which is how a long chat is read: the
+// list scrolls by rows, so a page is a few of them rather than a measurement
+// the app has to make.
+const pageRows = 4
+
 // scrollPage moves the transcript by most of a screen, which is how a long chat
-// is read: a page is the measurement that always holds, since turns are only
-// measured once they are drawn.
+// is read.
 func (a *App) scrollPage(direction int) {
-	page := a.scrollViewH * 0.85
-	if page <= 0 {
-		page = 480
+	first, last := a.turnList.Visible()
+	if last < first {
+		return
 	}
-	// A transcript that follows its end parks at MaxFloat32, so the page is
-	// measured from the furthest offset the content actually has.
-	current := a.transcriptScroll.Y
-	if a.scrollMaxY > 0 && current > a.scrollMaxY {
-		current = a.scrollMaxY
-	}
-	target := current + float32(direction)*page
+	// A list that follows its end has no row below the last one: paging down
+	// from there is a page that lands on the end.
+	target := first + direction*pageRows
 	if target < 0 {
 		target = 0
 	}
-	if a.scrollMaxY > 0 && target > a.scrollMaxY {
-		target = a.scrollMaxY
+	if target >= len(a.chatRows) {
+		a.turnList.ScrollToEnd()
+		return
 	}
-	// Paging back stops the transcript from following new answers, and the
-	// glide is why followScroll must stand aside until it lands.
-	a.stickToBottom = false
 	a.atBottom = false
-	a.pageGliding = true
-	a.transcriptScroll.ScrollTo(0, target, ui.Animation{Duration: 180 * time.Millisecond, Ease: ui.EaseOut})
+	a.turnList.ScrollTo(target, ui.Start)
 }

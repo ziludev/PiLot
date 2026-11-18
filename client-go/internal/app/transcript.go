@@ -2,7 +2,6 @@ package app
 
 import (
 	"encoding/json"
-	"math"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -22,112 +21,105 @@ import (
 	"pitta/internal/turns"
 )
 
-// transcript is the middle pane: one block per turn, oldest first, with the
-// live run at the bottom.
+// transcript is the middle pane: one row per part of a turn, oldest first,
+// with the live run at the bottom. The list builds only the rows in view, so a
+// chat of a thousand turns costs what the screen shows.
 func (a *App) transcript(c *ui.Context) {
 	t := theme.Current(c)
 	built := a.groupedTurns()
 	a.turnTotal = len(built)
-	// The window keeps a frame cheap; the button opens the rest.
-	start := a.windowStart(built)
-	window := len(built) - start
-	// A find hit moves the window instead of the scroll offset: turn heights
-	// vary, so the only reliable way to land on a turn is to draw it.
-	anchor := a.focusedTurn()
-	if anchor < 0 && a.focusEntry > 0 {
-		anchor = turnOfEntry(built, a.focusEntry)
+	rows := a.buildChatRows(built)
+	a.chatRows, a.chatBuilt = rows, built
+	if a.jumpRow(rows, built) {
+		// The find bar's hit is a row: the list lands on it exactly, however
+		// tall the turns above it are.
+		a.turnList.ScrollTo(a.jumpTarget, ui.Center)
 	}
-	if index := anchor; index >= 0 {
-		if start = index - window/2; start < 0 {
-			start = 0
+	a.turnList.Key = func(row int) any {
+		if row < 0 || row >= len(rows) {
+			return row
 		}
-		if start+window > len(built) {
-			start = len(built) - window
-		}
+		return rows[row].key
 	}
-	hidden := start
-	a.turnHidden = hidden
-	end := start + window
-	if end > len(built) {
-		end = len(built)
-	}
-	scroll := ui.Scroll(c).Fill().TrackScroll(&a.transcriptScroll)
-	a.followScroll()
-	if bounds := scroll.Bounds(); bounds.H > 0 {
-		a.scrollViewH = bounds.H
-	}
-	scroll.Children(func() {
-		ui.Column(c).Fill().Padding(16, 20).Gap(8).Children(func() {
-			if len(built) == 0 {
-				// A chat nobody picked is not the same as a quiet one: the earlier client
-				// says so instead of drawing an empty pane (the transcript view:340).
-				title, hint := i18n.T("noConversation"), i18n.T("noSessionsHint")
-				if a.conn == ConnDown {
-					title, hint = i18n.T("bridgeDownTitle"), i18n.T("bridgeRetrying")
-				}
-				// The empty state comes in the way the earlier client's does (#072): a 350 ms
-				// fade while it rises 8 px.
-				ui.Column(c).Padding(16, 0).Gap(3).Transition(motion.FadeIn()).Children(func() {
-					ui.Text(c, title).FontSize(12).TextColor(t.MutedFg).Wrap()
-					if hint != "" {
-						ui.Text(c, hint).FontSize(11).TextColor(t.MutedFg).Wrap()
-					}
-				})
-				return
-			}
-			if hidden > 0 {
-				ui.Button(c, i18n.T("earlierTurns")).
-					OnClick(func() {
-						a.apply(func() {
-							// The turns land above what is on screen: the anchor is
-							// what keeps the line the reader is on where it is.
-							a.armAnchor()
-							a.stepWindow += stepWindowPage
-							a.invalidate()
-						})
-					})
-			} else if a.historyMore {
-				// Every loaded turn is drawn and the chat still has entries above
-				// them: this button is what reads further back.
-				ui.Button(c, i18n.T("olderMessages")).
-					OnClick(func() { a.loadOlder() })
-			}
-			for i := start; i < end; i++ {
-				turn := &built[i]
-				live := i == len(built)-1 && a.live != nil && turn.Status(a.live) == turns.StatusRunning
-				a.turnBlock(c, t, turn, live, i == anchor)
-			}
-		})
+	ui.List(c, &a.turnList, len(rows), func(row int) {
+		a.chatRow(c, t, rows[row])
 	})
+	// AtEnd reports the last frame, which is the one the reader is looking at:
+	// a frame of lag on a chip is not a frame of lag on the chat.
+	a.atBottom = a.turnList.AtEnd()
+	if a.atBottom {
+		a.newMessages = 0
+	}
+	// The top of what is loaded is where the next page is read from. Visible is
+	// read only while a page is waiting, so the extra frame it asks for is a
+	// frame the reader asked for first.
+	if a.historyMore && !a.historyLoading {
+		if first, last := a.turnList.Visible(); last >= 0 && first <= 0 {
+			a.loadOlder()
+		}
+	}
 }
 
-// stepWindowDefault is what a frame draws before the window starts holding
-// turns back, in steps: a step is a tool call or a message, and about a
-// hundred and twenty of them is a frame's budget on a laptop.
-const stepWindowDefault = 120
-
-// stepWindowPage is how much one reach for the top, or one press of the
-// button, adds to the window.
-const stepWindowPage = 120
-
-// windowStart returns the first turn a frame draws. It walks back from the
-// newest turn adding steps until the budget runs out, keeping at least the
-// newest turn so a single huge turn still shows.
-func (a *App) windowStart(built []turns.Turn) int {
-	budget := a.stepWindow
-	if budget <= 0 {
-		budget = stepWindowDefault
-	}
-	steps := 0
-	start := len(built)
-	for i := len(built) - 1; i >= 0; i-- {
-		steps += len(built[i].Steps) + 1
-		if steps > budget && start < len(built) {
-			break
+// jumpRow finds the row the reader asked for: a search hit points at an entry,
+// the find bar at a turn. The list scrolls there once per ask, not every frame.
+func (a *App) jumpRow(rows []chatRow, built []turns.Turn) bool {
+	var want func(chatRow) bool
+	key := ""
+	switch target := a.focusEntry; {
+	case target != 0:
+		key = "entry:" + itoa(target)
+		want = func(row chatRow) bool {
+			if row.kind != chatSteps {
+				return row.entry.ID == target
+			}
+			for _, step := range row.steps {
+				if step.Entry.ID == target || (step.Result != nil && step.Result.ID == target) {
+					return true
+				}
+			}
+			return false
 		}
-		start = i
+	case a.focusedTurn() >= 0 && a.focusedTurn() < len(built):
+		turn := a.focusedTurn()
+		key = "turn:" + itoa(turn)
+		want = func(row chatRow) bool { return row.turn == &built[turn] }
 	}
-	return start
+	if key == "" || key == a.jumpKey {
+		if key == "" {
+			a.jumpKey, a.jumpTarget = "", -1
+		}
+		return false
+	}
+	a.jumpKey = key
+	for i, row := range rows {
+		if want(row) {
+			a.jumpTarget = i
+			return true
+		}
+	}
+	a.jumpTarget = -1
+	return false
+}
+
+// stepGroups folds each run of neighbouring tool calls into one group, which is
+// the line the chat shows for them: a turn that runs a dozen commands used to
+// put a dozen lines between the question and the answer.
+func stepGroups(turn *turns.Turn) [][]turns.Step {
+	groups := make([][]turns.Step, 0, len(turn.Steps))
+	for i := 0; i < len(turn.Steps); {
+		if !foldsIntoRun(turn.Steps[i]) {
+			groups = append(groups, turn.Steps[i:i+1])
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(turn.Steps) && foldsIntoRun(turn.Steps[j]) {
+			j++
+		}
+		groups = append(groups, turn.Steps[i:j])
+		i = j
+	}
+	return groups
 }
 
 // groupedTurns groups the entries once per change. Grouping parses every
@@ -139,52 +131,6 @@ func (a *App) groupedTurns() []turns.Turn {
 		a.turnStale = false
 	}
 	return a.turnCache
-}
-
-// turnBlock draws one turn: the user's message on the right, the agent's work
-// on the left, and a line of accounting under it.
-func (a *App) turnBlock(c *ui.Context, t theme.Tokens, turn *turns.Turn, live, focused bool) {
-	block := ui.Column(c).Fill().Gap(6)
-	if focused {
-		// The find bar's current hit gets a frame, so stepping shows where it
-		// landed without scrolling the list.
-		block = ui.Column(c).Fill().Gap(6).Padding(6, 6).Radius(8).
-			Border(1, t.Primary).Transition(motion.Hover())
-	}
-	block.Children(func() {
-		for _, note := range turn.Notes {
-			a.noteLine(c, t, noteText(note))
-		}
-		if turn.User != nil {
-			a.userBubble(c, t, turns.Text(*turn.User), a.historyImages(*turn.User), a.isHit(*turn.User))
-		}
-		for _, report := range turn.Reports {
-			a.reportBlock(c, t, turns.Text(report))
-		}
-		if len(turn.Steps) > 0 {
-			// The steps hang off a rounded 2px rail, as the transcript's
-			// TurnRail does: a hairline border reads as a table rule instead of
-			// a timeline.
-			ui.Row(c).Gap(7).Children(func() {
-				ui.Column(c).Width(2).Radius(1).Background(t.Border).FillHeight()
-				ui.Column(c).Gap(4).Grow(1).Children(func() {
-					a.stepList(c, t, turn, live)
-				})
-			})
-		}
-		for _, final := range turn.Finals {
-			retry := ""
-			if turn.User != nil {
-				retry = turns.Text(*turn.User)
-			}
-			a.answerBlock(c, t, turns.Text(final), retry, a.isHit(final))
-		}
-		if live {
-			a.liveLine(c, t, turn)
-		}
-		a.phaseBar(c, t, turn)
-		a.summaryLine(c, t, turn)
-	})
 }
 
 // phaseBar is TurnDurations at transcript scale: one thin bar where the widths
@@ -548,30 +494,6 @@ func (a *App) stepRow(c *ui.Context, t theme.Tokens, step turns.Step, live bool)
 		ui.Column(c).Key(step.Entry.ID).Transition(motion.AccordionTransition()).
 			Children(func() { a.stepOutput(c, t, step.Entry.ID, text, failed) })
 	})
-}
-
-// stepList draws a turn's steps, folding each run of neighbouring tool calls into
-// one line. A turn that runs a dozen commands used to put a dozen lines between
-// the question and the answer.
-func (a *App) stepList(c *ui.Context, t theme.Tokens, turn *turns.Turn, live bool) {
-	for i := 0; i < len(turn.Steps); {
-		if !foldsIntoRun(turn.Steps[i]) {
-			a.stepRow(c, t, turn.Steps[i], live)
-			i++
-			continue
-		}
-		j := i + 1
-		for j < len(turn.Steps) && foldsIntoRun(turn.Steps[j]) {
-			j++
-		}
-		if j-i == 1 {
-			// A lone call says more as itself than as "1 次工具调用".
-			a.stepRow(c, t, turn.Steps[i], live)
-		} else {
-			a.toolRun(c, t, turn, turn.Steps[i:j], live)
-		}
-		i = j
-	}
 }
 
 // foldsIntoRun says whether a step joins the run of tool calls a turn folds. The
@@ -969,7 +891,7 @@ func (a *App) jumpBar(c *ui.Context) {
 		})
 		pill.OnClick(func() {
 			a.apply(func() {
-				a.transcriptScroll.ScrollTo(0, math.MaxFloat32, ui.Animation{})
+				a.turnList.ScrollToEnd()
 				a.newMessages = 0
 				a.invalidate()
 			})
@@ -977,100 +899,12 @@ func (a *App) jumpBar(c *ui.Context) {
 	})
 }
 
-// followScroll keeps the newest turn in view until the user scrolls away, and
-// counts what arrives while they are away: the transcript view:231 starts stuck and
-// :286 jumps to the end whenever entries grow.
-func (a *App) followScroll() {
-	state := &a.transcriptScroll
-	if a.pageGliding {
-		// A page is on its way: let the glide land before deciding whether the
-		// transcript follows its end again.
-		if state.Scrolling() {
-			a.invalidate()
-			return
-		}
-		a.pageGliding = false
-	}
-	if a.anchorArmed {
-		// Older entries landed above the view: hold the reader on the turn they
-		// were reading by moving the offset down by the height that arrived.
-		a.anchorArmed = false
-		if !a.stickToBottom {
-			if grown := state.MaxY - a.anchorMaxY; grown > 0 {
-				state.Y += grown
-			}
-		}
-	}
-	if state.MaxY <= 0 {
-		// Content that fits the pane cannot be scrolled away from.
-		a.atBottom, a.stickToBottom, a.newMessages = true, true, 0
-		a.scrollY, a.scrollMaxY = 0, 0
-		return
-	}
-	if state.Y > state.MaxY+0.5 {
-		// The offset is still the sentinel that means "the end", not a place the
-		// frame has landed on: the next frame reports where that is. What the
-		// reader sees meanwhile is the end, and remembering it is what lets a
-		// flick up be read at all when it lands.
-		a.scrollY, a.scrollMaxY = state.MaxY, state.MaxY
-		return
-	}
-	if state.Y > 24 {
-		a.scrolledFromTop = true
-	}
-	switch {
-	case state.MaxY+0.5 >= a.scrollMaxY && state.Y < a.scrollY-1 && state.Y < a.scrollMaxY-1:
-		// The view moved up since the last frame, and sits above the end that
-		// frame stood at: the reader scrolled up, however few points. An answer
-		// arriving cannot do this — it grows the end, never lifts the view — and
-		// this is the case the old "close enough to the end" band swallowed,
-		// which slid a ten-point flick straight back down and left the transcript
-		// stuck.
-		a.atBottom, a.stickToBottom = false, false
-	case !a.stickToBottom && state.Y > a.scrollY+1 && state.Y >= state.MaxY-2:
-		// Back at the very end: follow again, and drop the count of what arrived
-		// while the reader was away. The end, not "close to it": a reader who
-		// scrolls up twenty points and stops there used to be yanked the twenty
-		// points back down, which read as the view jumping.
-		a.atBottom, a.stickToBottom, a.newMessages = true, true, 0
-		// Back at the end, the history the reader left is not drawn behind them
-		// any more: a window that grew while reading up would go on costing a
-		// frame's time for turns nobody is looking at.
-		if a.stepWindow > stepWindowDefault {
-			a.stepWindow = stepWindowDefault
-		}
-	}
-	// At the top of a chat that still holds turns back: let the next sixty in, so
-	// a history the reader scrolls through reads as one, and a chat that began
-	// "in the middle" — the window drew the newest sixty and a button held the
-	// rest — begins where it began.
-	if a.scrolledFromTop && state.Y <= 24 && a.turnHidden > 0 {
-		a.armAnchor()
-		a.stepWindow += stepWindowPage
-		a.invalidate()
-	}
-	a.scrollY = min(state.Y, state.MaxY)
-	a.scrollMaxY = state.MaxY
-	if a.stickToBottom {
-		// Assigning Y is instant; ScrollTo would glide, leaving the view short
-		// of the end for a few frames while an answer streams.
-		state.Y = math.MaxFloat32
-	}
-}
-
-// armAnchor remembers the end of the content before turns are added above the
-// window, so the frame that follows moves the offset down by what arrived and
-// the reader keeps the line they were on.
-func (a *App) armAnchor() {
-	a.anchorMaxY, a.anchorArmed = a.transcriptScroll.MaxY, true
-}
-
 // scrollToNewest parks the transcript at the end, which is where a newly
 // selected chat should open.
 func (a *App) scrollToNewest() {
 	a.apply(func() {
-		a.stickToBottom, a.atBottom, a.newMessages = true, true, 0
-		a.transcriptScroll.Y = math.MaxFloat32
+		a.atBottom, a.newMessages = true, 0
+		a.turnList.ScrollToEnd()
 		a.invalidate()
 	})
 }

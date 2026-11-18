@@ -41,7 +41,9 @@ func TestMessageActionsCopyEditRetry(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) { a.transcript(c) }, 900, 420)
 	// The actions only show under the pointer, so park it on the message first.
 	hover := func() {
-		tt.Move(400, 90)
+		if msg, ok := tt.Find("why is the sky blue"); ok {
+			tt.Move(msg.X+msg.W/2, msg.Y+msg.H/2)
+		}
 		tt.Frame()
 	}
 	hover()

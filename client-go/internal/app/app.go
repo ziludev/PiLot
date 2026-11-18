@@ -10,7 +10,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math"
 	"reflect"
 	"sync/atomic"
 	"time"
@@ -102,20 +101,13 @@ type App struct {
 	prefs         prefs
 	md            markdown.Options
 	steer         bool
-	// stepWindow bounds what a frame draws. Turns are not a size: one turn can
-	// carry forty tool calls, and forty of those turns is a second a frame, so
-	// the window counts steps and the transcript stops adding turns to it when
-	// the budget runs out.
-	stepWindow int
-	// turnTotal is how many turns the transcript has to draw, and turnHidden how
-	// many of them the window is holding back, so reaching the top knows whether
-	// there is more to open.
-	turnTotal  int
-	turnHidden int
-	// scrolledFromTop says the view has been somewhere below the top, so reaching
-	// the top is the reader asking for what the window holds back — not a chat
-	// that simply opened there.
-	scrolledFromTop bool
+	// turnTotal is how many turns the chat holds: what a title or a summary
+	// counts, not what a frame draws.
+	turnTotal int
+	// chatRows are the rows the last frame laid out, and chatBuilt the turns
+	// they came from: a row points into them, so both live and die together.
+	chatRows  []chatRow
+	chatBuilt []turns.Turn
 	// Grouped turns, kept until the entries or the waits change: grouping
 	// parses every entry, and a frame that only scrolls parses nothing.
 	turnCache []turns.Turn
@@ -126,11 +118,11 @@ type App struct {
 	// stops a second request while one is in flight.
 	historyMore    bool
 	historyLoading bool
-	// anchorMaxY is the scroll range before older entries were put above the
-	// view; the frame after they are laid out moves the offset down by the
-	// difference, so the reader stays on the turn they were reading.
-	anchorMaxY  float32
-	anchorArmed bool
+	// jumpKey is what the find bar or a search hit last asked the list to land
+	// on, so the jump happens once rather than every frame; jumpTarget is the
+	// row it is at.
+	jumpKey    string
+	jumpTarget int
 
 	// M2 layout: the side panel and the file view share the middle pane.
 	sideOpen  bool
@@ -168,12 +160,12 @@ type App struct {
 	gitBase          string
 	mergeOpen        bool
 	mainPane         float32
-	transcriptScroll ui.ScrollState
+	// turnList is the chat's place among its rows: it keeps that place by the
+	// row the reader is on, so turns loading above them move nothing.
+	turnList ui.ListState
 	// settingsScroll keeps the panel where the reader left it while a
 	// preference is dragged.
 	settingsScroll ui.ScrollState
-	scrollViewH    float32
-	pageGliding    bool
 	previewScale   float32
 	// seenApprovals remembers which waits have already sounded the alert, and
 	// waitingAlert remembers that one is still running.
@@ -198,13 +190,10 @@ type App struct {
 	ownChat int
 	// titleTick counts the title refreshes, which is what makes a long wait
 	// blink.
-	titleTick     int
-	atBottom      bool
-	stickToBottom bool
-	scrollY       float32
-	scrollMaxY    float32
-	newMessages   int
-	sideSynced    bool
+	titleTick   int
+	atBottom    bool
+	newMessages int
+	sideSynced  bool
 	// sideRoom is the room the two panes shared when the split was last synced:
 	// a different room means the window was resized, not the divider dragged.
 	sideRoom       float32
@@ -380,14 +369,13 @@ func New(cfg Config) *App {
 		previewImage:  -1,
 		seenApprovals: map[string]bool{},
 		previewScale:  1,
-		stepWindow:    stepWindowDefault,
 		commitDiffs:   map[string]string{},
 		modelsFav:     p.Favorites,
 		modelsRecent:  p.Recents,
 		unread:        unreadFromPrefs(p),
 		// A chat opens at its newest turn, as the earlier client's transcript does.
-		atBottom:      true,
-		stickToBottom: true,
+		atBottom: true,
+		turnList: ui.ListState{FollowEnd: true},
 	}
 }
 
@@ -746,7 +734,6 @@ func (a *App) reloadConversation(current int) {
 		a.entries = conv.Entries
 		a.historyMore = conv.HasMore
 		a.historyLoading = false
-		a.anchorArmed = false
 		a.turnStale = true
 		a.model = conv.Model
 		a.thinking = conv.ThinkingLevel
@@ -757,8 +744,10 @@ func (a *App) reloadConversation(current int) {
 		a.turnStale = true
 		a.live = nil
 		// A newly opened chat lands on its newest turn, not its oldest.
-		a.stickToBottom, a.atBottom, a.newMessages = true, true, 0
-		a.transcriptScroll.Y = math.MaxFloat32
+		// Another chat is another list: its keys, its place and its scroll are
+		// not this one's, so the list starts afresh and at its end.
+		a.turnList = ui.ListState{FollowEnd: true}
+		a.atBottom, a.newMessages = true, 0
 		a.invalidate()
 	})
 	go a.watch(current)

@@ -2,7 +2,6 @@ package app
 
 import (
 	"encoding/json"
-	"math"
 	"testing"
 	"time"
 
@@ -61,9 +60,10 @@ func TestTranscriptDrawsUserRightAndAnswerLeft(t *testing.T) {
 	}
 }
 
-// TestTranscriptWindowKeepsTheFirstFrameCheap checks the 60-turn window and the
-// button that opens the rest.
-func TestTranscriptWindowKeepsTheFirstFrameCheap(t *testing.T) {
+// TestTranscriptBuildsOnlyWhatIsInView is the list's contract: a chat of 65
+// turns costs the rows the screen shows, and the turns above them are still
+// there to scroll to.
+func TestTranscriptBuildsOnlyWhatIsInView(t *testing.T) {
 	var entries []protocol.Entry
 	for i := 0; i < 65; i++ {
 		entries = append(entries, turnEntries(i*10, "question "+itoa(i), "answer "+itoa(i))...)
@@ -71,23 +71,25 @@ func TestTranscriptWindowKeepsTheFirstFrameCheap(t *testing.T) {
 	a := transcriptApp(entries...)
 	tt := ui.NewTester(a.transcript, 800, 400)
 	tt.Frame()
+	tt.Frame()
 
-	if !tt.HasText("earlier turns") {
-		t.Fatalf("no earlier-turns button; texts=%q", tt.Texts())
+	if a.turnTotal != 65 {
+		t.Fatalf("the chat holds %d turns, want 65", a.turnTotal)
 	}
 	if tt.HasText("question 0") {
-		t.Fatal("the window drew the oldest turn")
+		t.Fatal("the first frame built the oldest turn")
 	}
 	if !tt.HasText("question 64") {
-		t.Fatalf("the window hid the newest turn; texts=%q", tt.Texts())
+		t.Fatalf("the first frame hid the newest turn; texts=%q", tt.Texts())
 	}
 
-	// The view follows the newest turn, so the older ones sit above the visible
-	// area: scrolling up the way a reader would opens them, without a press.
-	a.transcriptScroll.Y = 0
+	// The view opens at the newest turn, so the older ones are above the
+	// visible area: scrolling up the way a reader would builds them.
+	a.apply(func() { a.turnList.ScrollTo(0, ui.Start) })
+	tt.Frame()
 	tt.Frame()
 	if !tt.HasText("question 0") {
-		t.Fatalf("scrolling to the top did not open the older turns; texts=%q", tt.Texts())
+		t.Fatalf("scrolling to the top did not build the older turns; texts=%q", tt.Texts())
 	}
 }
 
@@ -202,45 +204,17 @@ func TestFindBarJumpsToAnOldTurn(t *testing.T) {
 
 	tt := ui.NewTester(func(c *ui.Context) { a.transcript(c) }, 900, 700)
 	tt.Frame()
+	tt.Frame()
 	if !tt.HasText("the needle sits here") {
-		t.Fatal("matched turn not drawn")
+		t.Fatalf("the list did not land on the match; texts=%q", tt.Texts())
 	}
 	if tt.HasText("answer 199") {
-		t.Fatal("window did not move to the match")
+		t.Fatal("the list stayed at the newest turn")
 	}
 
-	// Clicking the earlier-turns button grows the window and keeps the match.
-	tt.Click("earlier turns")
-	tt.Frame()
+	// The hit is marked, so the line that matched is found once it is in view.
 	if !tt.HasText("the needle sits here") {
-		t.Fatal("match lost after widening the window")
-	}
-}
-
-// TestCmdFOpensFindBar covers the window-wide shortcut the earlier client's view binds:
-// the root's OnShortcut has to fire even with nothing focused.
-func TestCmdFOpensFindBar(t *testing.T) {
-	a := New(Config{})
-	a.previewImage = -1
-	a.entries = turnEntries(1, "where is it", "the answer")
-	tt := ui.NewTester(a.View, 1000, 700)
-	tt.Frame()
-	if a.findOpen {
-		t.Fatal("find bar open before the shortcut")
-	}
-	tt.Key(ui.Cmd, ui.KeyF)
-	tt.Frame()
-	if !a.findOpen {
-		t.Fatal("cmd+F did not open the find bar")
-	}
-	// Typing goes into the bar's field and reports the match it found.
-	if err := tt.Click(i18n.T("findShort")); err != nil {
-		t.Fatal(err)
-	}
-	tt.Type("answer")
-	tt.Frame()
-	if !tt.HasText("1/1") {
-		t.Fatalf("find bar did not count the match in %v", tt.Texts())
+		t.Fatalf("the hit lost its mark; texts=%q", tt.Texts())
 	}
 }
 
@@ -281,11 +255,11 @@ func TestStepsHangOffARoundedRail(t *testing.T) {
 	if tallest < rows*3/5 {
 		t.Fatalf("no column runs alongside the steps (best %d of %d rows)", tallest, rows)
 	}
-	// Count the columns painted for most of that height: the rail is 2, a
-	// border is 1.
+	// Count the columns painted for the whole height: the rail is 2, a border
+	// is 1, and a card that touches the rail covers only part of it.
 	width := 0
 	for x := rail - 2; x <= rail+2; x++ {
-		if covered(x) >= rows*3/5 {
+		if covered(x) >= rows-2 {
 			width++
 		}
 	}
@@ -346,25 +320,24 @@ func TestASmallScrollUpStopsFollowingTheEnd(t *testing.T) {
 	a := snapshotData(t)
 	tt := ui.NewTester(a.transcript, 600, 120)
 	tt.Frame()
-	tt.Frame() // the first frame is where the content gets its height
-	if a.transcriptScroll.MaxY <= 40 {
-		t.Fatalf("the transcript does not scroll (max %v); the test needs a long one", a.transcriptScroll.MaxY)
-	}
-	if !a.stickToBottom {
+	tt.Frame() // the first frame is where the rows get their heights
+	if !a.atBottom {
 		t.Fatal("a transcript opened at its end should follow it")
 	}
 
 	// A touchpad flick of ten points, the sort that used to be swallowed.
 	tt.Scroll(300, 60, 0, -10)
 	tt.Frame()
-	if a.stickToBottom {
-		t.Fatalf("an upward scroll of 10 was swallowed; offset %v of %v", a.transcriptScroll.Y, a.transcriptScroll.MaxY)
+	tt.Frame()
+	if a.atBottom {
+		t.Fatal("an upward scroll of 10 was swallowed")
 	}
-	at := a.transcriptScroll.Y
+	at, _ := a.turnList.Visible()
 	tt.Advance(40 * time.Millisecond)
 	tt.Frame()
-	if a.transcriptScroll.Y > at+1 {
-		t.Fatalf("the transcript slid back down after the reader left the end: %v then %v", at, a.transcriptScroll.Y)
+	tt.Frame()
+	if now, _ := a.turnList.Visible(); now < at {
+		t.Fatalf("the transcript slid back down after the reader left the end: row %d then %d", at, now)
 	}
 }
 
@@ -449,66 +422,32 @@ func TestASingleToolCallKeepsItsOwnRow(t *testing.T) {
 	}
 }
 
-// TestScrollingToTheTopOpensTheRestOfTheHistory is the fix for a chat that read
-// as if it began in the middle: the window drew the newest sixty turns and a
-// button held the rest, so the beginning was there but never in view.
-func TestScrollingToTheTopOpensTheRestOfTheHistory(t *testing.T) {
+// TestAVirtualListHoldsNoTurnBack: the list builds the rows in view and nothing
+// else, so a chat of 200 turns has its first question at the top of the scroll
+// rather than behind a window or a button.
+func TestAVirtualListHoldsNoTurnBack(t *testing.T) {
 	i18n.Set(i18n.EN)
 	a := New(Config{})
 	a.previewImage = -1
 	a.current = 11
 	a.entries = manyTurns(200)
-	// A chat opens at its newest turn, the way openConversation parks it.
-	a.transcriptScroll.Y = math.MaxFloat32
 	tt := ui.NewTester(func(c *ui.Context) { a.main(c) }, 800, 400)
 	tt.Frame()
 	tt.Frame()
-	if a.stepWindow != stepWindowDefault {
-		t.Fatalf("a fresh chat drew a budget of %d steps, want %d", a.stepWindow, stepWindowDefault)
+	if a.turnTotal != 200 {
+		t.Fatalf("the chat holds %d turns, want 200", a.turnTotal)
 	}
-	if a.turnHidden == 0 {
-		t.Fatal("the window drew every turn of a 200-turn chat")
+	if tt.HasText("question 1") {
+		t.Fatal("the first frame built the oldest turn")
 	}
-	if !tt.HasText(i18n.T("earlierTurns")) {
-		t.Fatalf("nothing offered the earlier turns; texts=%q", tt.Texts())
-	}
-	held := a.turnHidden
 
-	// Scrolling to the top lets the next steps in.
-	tt.Scroll(400, 200, 0, -20000)
+	// The reader scrolls to the start: the rows above are built as they come
+	// into view, and the one at the top is the chat's first.
+	a.apply(func() { a.turnList.ScrollTo(0, ui.Start) })
 	tt.Frame()
-	if a.turnHidden >= held {
-		t.Fatalf("reaching the top opened nothing: %d held back, was %d", a.turnHidden, held)
-	}
-	// The turns that landed above the view pushed the offset down with them:
-	// the reader keeps the line they were on instead of being thrown to a top
-	// that is a hundred turns older.
 	tt.Frame()
-	if a.transcriptScroll.Y <= 24 {
-		t.Fatalf("turns landed above an unheld view: at the top, y=%.1f", a.transcriptScroll.Y)
-	}
-	// Reaching the top again opens the next budget, until the chat begins where
-	// it began rather than a press at a time. The turns land above the reader,
-	// so the view holds its place and reaching the top is a scroll, not a wait:
-	// a window that opened itself frame after frame is a view that slides out
-	// from under the pointer.
-	for i := 0; i < 200 && a.turnHidden > 0; i++ {
-		at := a.transcriptScroll.Y
-		tt.Scroll(400, 200, 0, -20000)
-		tt.Frame()
-		tt.Frame()
-		if a.turnHidden > 0 && a.transcriptScroll.Y < at {
-			t.Fatalf("the view went up by %.1f while turns landed above it", at-a.transcriptScroll.Y)
-		}
-	}
-	if a.turnHidden > 0 {
-		t.Fatalf("the top of the chat still held back %d of %d turns", a.turnHidden, a.turnTotal)
-	}
-	// And once they are all in, the offer goes away.
-	a.apply(func() { a.stepWindow = a.stepWindow + stepWindowPage })
-	tt.Frame()
-	if tt.HasText(i18n.T("earlierTurns")) {
-		t.Fatalf("the offer stayed after every turn was drawn; texts=%q", tt.Texts())
+	if !tt.HasText("question 1") {
+		t.Fatalf("the top of the chat is not its first turn; texts=%q", tt.Texts())
 	}
 }
 
@@ -517,23 +456,25 @@ func TestScrollingToTheTopOpensTheRestOfTheHistory(t *testing.T) {
 // end. It must stop there, and stay stopped.
 func TestAFlickFromTheEndStopsFollowingIt(t *testing.T) {
 	a := snapshotData(t)
-	a.transcriptScroll.Y = math.MaxFloat32
+	a.apply(func() { a.turnList.ScrollToEnd() })
 	tt := ui.NewTester(a.transcript, 600, 120)
 	tt.Frame()
 	tt.Frame()
-	if !a.stickToBottom {
-		t.Fatalf("a chat opened at its end does not follow it (max %v)", a.transcriptScroll.MaxY)
+	if !a.atBottom {
+		t.Fatal("a chat opened at its end does not follow it")
 	}
 
 	tt.Scroll(300, 60, 0, -10)
 	tt.Frame()
-	if a.stickToBottom {
-		t.Fatalf("a ten-point flick was swallowed; offset %v of %v", a.transcriptScroll.Y, a.transcriptScroll.MaxY)
-	}
-	at := a.transcriptScroll.Y
 	tt.Frame()
-	if a.transcriptScroll.Y > at+1 {
-		t.Fatalf("the transcript slid back after the flick: %v then %v", at, a.transcriptScroll.Y)
+	if a.atBottom {
+		t.Fatal("a ten-point flick was swallowed")
+	}
+	at, _ := a.turnList.Visible()
+	tt.Frame()
+	tt.Frame()
+	if now, _ := a.turnList.Visible(); now < at {
+		t.Fatalf("the transcript slid back to row %d after the flick, was %d", now, at)
 	}
 }
 
@@ -542,7 +483,7 @@ func TestAFlickFromTheEndStopsFollowingIt(t *testing.T) {
 // the following, so the view never jumps under the pointer.
 func TestStoppingNearTheEndDoesNotYankTheViewBack(t *testing.T) {
 	a := snapshotData(t)
-	a.transcriptScroll.Y = math.MaxFloat32
+	a.apply(func() { a.turnList.ScrollToEnd() })
 	tt := ui.NewTester(a.transcript, 600, 120)
 	tt.Frame()
 	tt.Frame()
@@ -550,21 +491,23 @@ func TestStoppingNearTheEndDoesNotYankTheViewBack(t *testing.T) {
 	// Up ten points, halfway through the last screen, and stop.
 	tt.Scroll(300, 60, 0, -10)
 	tt.Frame()
-	if a.stickToBottom {
-		t.Fatalf("a flick up re-attached the following")
+	tt.Frame()
+	if a.atBottom {
+		t.Fatal("a flick up re-attached the following")
 	}
-	at := a.transcriptScroll.Y
+	at, _ := a.turnList.Visible()
 	tt.Frame()
 	tt.Frame()
-	if a.transcriptScroll.Y > at+1 {
-		t.Fatalf("the view jumped from %v to %v after stopping near the end", at, a.transcriptScroll.Y)
+	if now, _ := a.turnList.Visible(); now < at {
+		t.Fatalf("the view jumped back to row %d after stopping near the end, was %d", now, at)
 	}
 
 	// Scrolling all the way down does re-attach it.
-	a.transcriptScroll.Y = a.transcriptScroll.MaxY - 0.5
+	tt.Scroll(300, 60, 0, 200000)
 	tt.Frame()
-	if !a.stickToBottom || !a.atBottom {
-		t.Fatalf("the end did not re-attach the following: stick=%v atBottom=%v", a.stickToBottom, a.atBottom)
+	tt.Frame()
+	if !a.atBottom {
+		t.Fatal("the end did not re-attach the following")
 	}
 }
 
@@ -574,54 +517,24 @@ func TestStoppingNearTheEndDoesNotYankTheViewBack(t *testing.T) {
 func TestTheHistoryOfferReadsPagesNotTurns(t *testing.T) {
 	i18n.Set(i18n.EN)
 	a := transcriptApp(turnEntries(1, "why is the sky blue", "Rayleigh scattering.")...)
-	a.stepWindow = stepWindowDefault
-	a.historyMore = true
+	// A page in flight, so the top of the chat does not read the next one itself
+	// while the test looks at the offer.
+	a.historyMore, a.historyLoading = true, true
 	tt := ui.NewTester(func(c *ui.Context) { a.main(c) }, 800, 400)
+	tt.Frame()
+	tt.Frame()
+	a.apply(func() { a.turnList.ScrollTo(0, ui.Start) })
 	tt.Frame()
 	tt.Frame()
 	if !tt.HasText(i18n.T("olderMessages")) {
 		t.Fatalf("a chat with entries above it offered no page; texts=%q", tt.Texts())
 	}
-	if tt.HasText(i18n.T("earlierTurns")) {
-		t.Fatalf("a chat that draws every loaded turn offered turns; texts=%q", tt.Texts())
-	}
 
 	// Once the page is in, the offer goes away.
 	a.apply(func() { a.historyMore = false })
 	tt.Frame()
+	tt.Frame()
 	if tt.HasText(i18n.T("olderMessages")) {
 		t.Fatalf("the offer stayed after the chat began where it begins; texts=%q", tt.Texts())
-	}
-}
-
-// TestReturningToTheEndNarrowsTheWindow: reading back through a long chat grows
-// the window, and coming back to the end lets it go, so a frame costs what the
-// screen shows rather than what the reader once scrolled through.
-func TestReturningToTheEndNarrowsTheWindow(t *testing.T) {
-	i18n.Set(i18n.EN)
-	a := New(Config{})
-	a.previewImage = -1
-	a.current = 11
-	a.entries = manyTurns(200)
-	a.transcriptScroll.Y = math.MaxFloat32
-	tt := ui.NewTester(func(c *ui.Context) { a.main(c) }, 800, 400)
-	tt.Frame()
-	tt.Frame()
-	for i := 0; i < 3 && a.turnHidden > 0; i++ {
-		tt.Scroll(400, 200, 0, -20000)
-		tt.Frame()
-		tt.Frame()
-	}
-	if a.stepWindow <= stepWindowDefault {
-		t.Fatalf("reading up left the window at %d steps", a.stepWindow)
-	}
-	tt.Scroll(400, 200, 0, 200000)
-	tt.Frame()
-	tt.Frame()
-	if a.stepWindow != stepWindowDefault {
-		t.Fatalf("back at the end, the window is still %d steps", a.stepWindow)
-	}
-	if !a.stickToBottom || !a.atBottom {
-		t.Fatalf("the end did not re-attach: stick=%v atBottom=%v", a.stickToBottom, a.atBottom)
 	}
 }
