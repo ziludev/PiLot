@@ -215,7 +215,7 @@ export async function applySuggestions(
         skipped += 1;
         continue;
       }
-      target.notes.push({ at, text });
+      target.notes.push({ at, text, source: "curator" });
       added += 1;
       if (suggestion.scope === "global") globalAdded += 1;
     }

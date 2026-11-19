@@ -4,7 +4,19 @@ import type { Harness } from "@earendil-works/pi-durable";
 import type { Context } from "@earendil-works/chord/context";
 import { ChatPolicy } from "./access.ts";
 
-export type Note = { at: string; text: string };
+/**
+ * One remembered line, plus where it came from. The receipt matters: a fact the
+ * window cannot trace is one the user has to take on faith, and the first thing
+ * they want when a note is wrong is the conversation it was said in.
+ * `chat:<id>` is the agent remembering mid-turn, `curator` the nightly pass,
+ * `feishu` a memo typed into chat.
+ */
+export type Note = { at: string; text: string; source?: string };
+
+/** The receipt for a line the agent wrote while talking in this conversation. */
+export function chatSource(conversationId: number): string {
+  return `chat:${conversationId}`;
+}
 
 /** Notes that belong to one chat. */
 export const ChatMemory = defineDoc<{ notes: Note[] }>({
@@ -97,7 +109,7 @@ const remember = defineTool({
             ? await tx.doc(WorkMemory)
             : await tx.doc(ChatMemory, api.conversationId);
       duplicate = doc.notes.some((note) => note.text.trim() === text);
-      if (!duplicate) doc.notes.push({ at, text });
+      if (!duplicate) doc.notes.push({ at, text, source: chatSource(api.conversationId) });
       total = doc.notes.length;
     }, context);
     return {
@@ -137,7 +149,7 @@ export async function addChatNote(
       total = doc.notes.length;
       return;
     }
-    doc.notes.push({ at: new Date().toISOString(), text: trimmed });
+    doc.notes.push({ at: new Date().toISOString(), text: trimmed, source: "feishu" });
     total = doc.notes.length;
     added = true;
   }, context);
