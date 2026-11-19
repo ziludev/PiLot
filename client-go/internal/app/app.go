@@ -253,6 +253,8 @@ const (
 	evTaskDetail
 	evTaskStop
 	evUsage
+	// A file's text, for the preview beside a patch.
+	evFile
 )
 
 type event struct {
@@ -285,8 +287,12 @@ type event struct {
 	// and what came back.
 	taskID int
 	task   *api.TaskDetail
-	usage  []api.UsageDay
-	err    error
+	// fileText is the preview's answer: the path it was asked for and the text.
+	path      string
+	fileText  string
+	truncated bool
+	usage     []api.UsageDay
+	err       error
 }
 
 type snapshotResult struct {
@@ -619,6 +625,8 @@ func (a *App) apply(ev event) {
 		a.applyTaskStop(ev.taskID, ev.seq, ev.err)
 	case evUsage:
 		a.applyUsage(ev.seq, ev.usage, ev.err)
+	case evFile:
+		a.applyFileText(ev.convID, ev.path, ev.fileText, ev.truncated, ev.err)
 	}
 }
 

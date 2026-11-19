@@ -14,6 +14,7 @@ package app
 
 import (
 	"context"
+
 	"strconv"
 	"strings"
 	"time"
@@ -54,6 +55,15 @@ type changesPanel struct {
 	// openFile is the file whose patch fills the drawer, "" for the list.
 	openFile string
 	lines    []string
+
+	// whole is whether the drawer shows the file rather than its patch. The
+	// patch answers "what moved"; the file answers "what does it say now", and
+	// reading a diff for that is guesswork.
+	whole    bool
+	textPath string
+	text     []string
+	textCut  bool
+	textBusy bool
 
 	commits     []protocol.Commit
 	commitsConv int
@@ -167,8 +177,53 @@ func (a *App) openChangeFile(path string) {
 	lines := filePatch(a.changes.patch, path)
 	a.changes.openFile = path
 	a.changes.lines = lines
+	a.changes.whole = false
+	a.changes.text, a.changes.textPath = nil, ""
 	a.changes.diffList = ui.ListState{}
 	a.invalidate()
+}
+
+// showWholeFile switches the drawer between a file's patch and the file itself,
+// reading the text the first time it is asked for.
+func (a *App) showWholeFile(whole bool) {
+	a.changes.whole = whole
+	a.changes.diffList = ui.ListState{}
+	if whole && a.changes.openFile != "" && a.changes.textPath != a.changes.openFile {
+		a.loadFileText(a.changes.openFile)
+	}
+	a.invalidate()
+}
+
+// loadFileText reads one file from the workspace. textPath is set before the
+// request so a second click on the same file does not start a second read.
+func (a *App) loadFileText(path string) {
+	conv := a.changes.conv
+	a.changes.textPath = path
+	a.changes.text = nil
+	a.changes.textCut = false
+	a.changes.textBusy = true
+	go func() {
+		ctx, cancel := context.WithTimeout(a.ctx, 20*time.Second)
+		defer cancel()
+		file, err := a.api.File(ctx, conv, path)
+		a.post(event{kind: evFile, convID: conv, path: path, fileText: file.Content, err: err, truncated: file.Truncated})
+	}()
+}
+
+// applyFileText fills the preview, unless the drawer moved to another file or
+// another chat while the text was in flight.
+func (a *App) applyFileText(convID int, path, text string, truncated bool, err error) {
+	if convID != a.changes.conv || path != a.changes.textPath {
+		return
+	}
+	a.changes.textBusy = false
+	if err != nil {
+		a.changes.failed = err.Error()
+		return
+	}
+	a.changes.failed = ""
+	a.changes.text = strings.Split(strings.TrimRight(text, "\n"), "\n")
+	a.changes.textCut = truncated
 }
 
 // openCommitFile shows one commit's patch, read when it is asked for: the log
@@ -219,7 +274,11 @@ func (a *App) changesView(c *ui.Context, t theme.Tokens) {
 		switch {
 		case a.changes.openFile != "":
 			a.changesFileHead(c, t, a.changes.openFile)
-			a.diffView(c, t)
+			if a.changes.whole {
+				a.fileTextView(c, t)
+			} else {
+				a.diffView(c, t)
+			}
 		case a.changes.openCommit != "":
 			a.changesFileHead(c, t, a.changes.commitSubject)
 			a.diffView(c, t)
@@ -292,7 +351,71 @@ func (a *App) changesFileHead(c *ui.Context, t theme.Tokens, title string) {
 			a.changes.lines, a.changes.commitSubject = nil, ""
 		})
 		ui.Text(c, title).FontSize(10.5).TextColor(t.Foreground).MaxLines(1).Grow(1)
+		// Only a worktree file has text behind it; a commit's diff is all there
+		// is, so the switch is not offered there.
+		if a.changes.openFile != "" && a.changes.openCommit == "" {
+			for index, label := range [2]string{i18n.T("changesPatch"), i18n.T("changesWhole")} {
+				at, text := index == 1, label
+				on := a.changes.whole == at
+				btn := ui.ButtonBase(c).Height(20).Radius(4).Padding(0, 6).
+					Cursor(ui.CursorPointer)
+				if on {
+					btn = btn.Background(t.Secondary)
+				}
+				btn.Children(func() {
+					color, weight := t.MutedFg, 500
+					if on {
+						color, weight = t.Foreground, 600
+					}
+					ui.Text(c, text).FontSize(10).FontWeight(weight).TextColor(color).MaxLines(1)
+				})
+				btn.OnClick(func() { a.showWholeFile(at) })
+			}
+		}
 	})
+}
+
+// fileTextView is the file itself, numbered: a patch beside it says what
+// changed, and the numbers are what a person quotes back to the agent.
+func (a *App) fileTextView(c *ui.Context, t theme.Tokens) {
+	switch {
+	case a.changes.textBusy && a.changes.text == nil:
+		ui.Column(c).FillWidth().Padding(12, 12).Children(func() {
+			ui.Text(c, i18n.T("loading")).FontSize(11).TextColor(t.MutedFg)
+		})
+		return
+	case len(a.changes.text) == 0:
+		ui.Column(c).FillWidth().Padding(12, 12).Children(func() {
+			ui.Text(c, i18n.T("fileEmpty")).FontSize(11).TextColor(t.MutedFg).MaxLines(2)
+		})
+		return
+	}
+	lines := a.changes.text
+	gutter := len(strconv.Itoa(len(lines)))
+	if gutter < 3 {
+		gutter = 3
+	}
+	ui.Column(c).FillWidth().Padding(0, 8).Grow(1).Children(func() {
+		ui.List(c, &a.changes.diffList, len(lines), func(row int) {
+			// One string rather than a column of numbers beside a column of
+			// code: inside a list row only the growing child gets painted, so
+			// a fixed gutter has to be part of the line itself.
+			// The number lives in the same string as the line: a text laid out
+			// beside a growing sibling inside a list row is not painted, so a
+			// separate gutter column would be invisible.
+			number := strconv.Itoa(row + 1)
+			// Right-aligned with a figure space: plain spaces at the start of a
+			// line are trimmed away, which would leave the numbers hugging the
+			// file's own indentation.
+			number = strings.Repeat("\u2007", gutter-len(number)) + number
+			ui.Text(c, number+"  "+lines[row]).
+				Font(monoFont).FontSize(10.5).TextColor(t.Foreground).
+				MaxLines(1).Padding(0, 4)
+		}).Grow(1).Width(changesWidth - 16)
+	})
+	if a.changes.textCut {
+		ui.Text(c, i18n.T("fileTruncated")).FontSize(10).TextColor(t.MutedFg).Padding(4, 12)
+	}
 }
 
 func (a *App) changesBody(c *ui.Context, t theme.Tokens) {
