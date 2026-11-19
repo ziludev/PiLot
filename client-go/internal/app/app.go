@@ -702,6 +702,7 @@ func (a *App) selectConversation(convID int) {
 		return
 	}
 	a.active = convID
+	a.revealChatSection(convID)
 	a.vm.unread[convID] = false
 	delete(a.vm.unread, convID)
 	a.draft, a.draftImage = "", nil
