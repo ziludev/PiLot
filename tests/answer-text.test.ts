@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { answerBlocksOf, answerTextInTx, answerTextOf, composeAnswer, textPartsOf } from "../src/answer.ts";
+import { answerBlocksOf, answerHead, answerTextInTx, answerTextOf, composeAnswer, textPartsOf } from "../src/answer.ts";
 
 const assistant = (...parts: unknown[]) => ({ model: [{ role: "assistant", content: parts }] });
 const text = (value: string) => ({ type: "text", text: value });
@@ -152,4 +152,21 @@ test("a narration with no sentence inside the limit cuts on a clause", () => {
   const line = (text.split("\n").find((item) => item.startsWith("· ")) ?? "").replace(/（bash）$/, "");
   assert.ok(line.endsWith("…") || line.endsWith("。"), line);
   assert.ok(line.includes("，"), "the visible part is whole clauses, not a chopped word");
+});
+
+test("the notification line is the first thing worth reading, not the markup", () => {
+  // The ping is the only thing that reaches a locked phone, so it has to be the sentence, not
+  // "## 结论" or a table rule.
+  assert.equal(answerHead("## 结论\n\n定位到了：轮询把 startedAt 覆盖了。"), "结论");
+  assert.equal(answerHead("\n\n| 项 | 值 |\n| --- | --- |\n| 分支 | main |"), "项 · 值");
+  assert.equal(answerHead("```\ngo test ./...\n```\n\n全绿。"), "全绿。");
+  assert.equal(answerHead("- **已修**：审批条"), "已修：审批条");
+});
+
+test("a long first line is cut where a lock screen ends, without losing the marker", () => {
+  const head = answerHead("一".repeat(60));
+  assert.equal(head.length, 41);
+  assert.ok(head.endsWith("…"));
+  assert.equal(answerHead(""), "");
+  assert.equal(answerHead("---"), "");
 });

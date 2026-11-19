@@ -7,7 +7,7 @@ import { config, requireFeishuCredentials, requireFeishuOwner } from "./config.t
 import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
 import { watchLive, type LiveSnapshot } from "./live.ts";
 import { advance, renderSteps, stepCount, type Trail } from "./steps.ts";
-import { composeAnswer, type AnswerBlock } from "./answer.ts";
+import { answerHead, composeAnswer, type AnswerBlock } from "./answer.ts";
 import { setApprovalDecider, setNotifier, type ApprovalRequest } from "./channel.ts";
 import { log, logError } from "./log.ts";
 import { record } from "./audit.ts";
@@ -1289,9 +1289,14 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       if (done === 0) return `▶️ 处理中 · ${age()}`;
       return `▶️ 处理中 · ${done} 步完成${running ? " · 正在跑" : ""} · ${age()}`;
     };
+    // Stopping used to mean finding the input box and typing /stop, on a phone, while the run kept
+    // going. The card is where the progress lives, so the way to stop lives there too.
+    const stopButtons = (): CardButton[] => [
+      { label: "停止", value: { kind: "stop", conversationId: conversation.id as unknown as number }, type: "danger" },
+    ];
     const paint = (): void => {
       if (phase !== "live") return;
-      void patchCard(cardId, body(), status === "" ? working() : status, undefined, WORKING_HEADER).catch((error) => {
+      void patchCard(cardId, body(), status === "" ? working() : status, stopButtons(), WORKING_HEADER).catch((error) => {
         if (streamErrors < 3) {
           streamErrors += 1;
           logError("feishu", "stream patch failed", error);
@@ -1325,7 +1330,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       /** Warn once if the run looks stuck, without cutting it. */
       stall(afterMs: number): void {
         watchdog = setTimeout(() => {
-          status = `⏳ ${age()} · 超过 ${Math.round(afterMs / 60_000)} 分钟，可 /stop 中断`;
+          status = `⏳ ${age()} · 超过 ${Math.round(afterMs / 60_000)} 分钟，点「停止」中断`;
           paint();
         }, afterMs);
       },
@@ -1459,6 +1464,20 @@ const continuing = new Set<string>();
         void patchCard(messageId, `✅ 已开放 ${chatId.slice(-6)}`, "只读：查代码 / test 和 prod 的库与日志，不改文件").catch(() => {});
       }
       return { toast: { type: "success", content: "已开放，并通知了对方" } };
+    }
+
+    if (value["kind"] === "stop") {
+      const operator = payload.operator?.open_id ?? "";
+      if (!isOwnerOperator(operator)) return { toast: { type: "warning", content: "只有 alex 能停" } };
+      const target = Number(value["conversationId"]);
+      if (!Number.isFinite(target)) return { toast: { type: "error", content: "缺少会话" } };
+      const stopped = await runtime.harness.conversation(target as never, context).catch(() => undefined);
+      if (stopped === undefined) return { toast: { type: "error", content: "会话不在了" } };
+      // Abort is a request, not an outcome: the run unwinds on its own clock and the settle path
+      // repaints the card as 已中断. Answer the tap now so the button feels pressed.
+      void stopped.abort(context).catch((error: unknown) => logError("feishu", "card stop failed", error));
+      log("feishu", "stop pressed on a card", { conversationId: target });
+      return { toast: { type: "success", content: "已按停止，正在收尾" } };
     }
 
     if (value["kind"] === "continue") {
@@ -2184,6 +2203,26 @@ const continuing = new Set<string>();
 
       // Freeze live output first, then write the answer.
       await card.finish();
+      // The ping is the only notification Feishu gives: a card patch is silent, and "✅ 答完了 ·
+      // 62s" tells a locked phone that something finished without saying what. So the ping carries
+      // the head of the answer. A group's root message is a broadcast, not somebody waiting, so it
+      // stays silent; a topic thread is somebody watching, so it pings even inside a group.
+      const ping = async (text: string): Promise<void> => {
+        if (seconds < config.feishu.donePingSeconds) return;
+        if (replyOptions.thread !== true && message.chat_type === "group") return;
+        await pingDone(chatId, message.message_id ?? "", text, { thread: replyOptions.thread === true });
+      };
+      // One builder for all four exits. The failure paths used to hand over a card with a reason
+      // and nothing to look at, exactly when "which step broke, and what did it print" is the
+      // question the owner is about to ask.
+      const turnPanel = async (spentUsd: number): Promise<Omit<TurnDetails, "at"> | undefined> => {
+        if (settled.entry === undefined) return undefined;
+        const taken = await runtime
+          .turnSteps(conversation, settled.entry as unknown as number, settled.answer as unknown as number)
+          .catch(() => []);
+        if (taken.length === 0 && decisions.length === 0) return undefined;
+        return { steps: taken, seconds, costUsd: spentUsd, decisions };
+      };
       if (settled.entry !== undefined) {
         // Remember where this message landed so a later reply can fork at it. The card is
         // indexed too: people reply to the answer, not to their own question, and a thread
@@ -2247,38 +2286,27 @@ const continuing = new Set<string>();
         });
         // The steps are always recorded (the client reads them) and now ride along in the answer
         // card as a folded panel, so a group sees the work too and nothing has to be pressed.
-        let steps: Omit<TurnDetails, "at"> | undefined;
-        if (settled.entry !== undefined) {
-          const taken = await runtime
-            .turnSteps(conversation, settled.entry as unknown as number, settled.answer as unknown as number)
-            .catch(() => []);
-          if (taken.length > 0 || decisions.length > 0) {
-            steps = { steps: taken, seconds, costUsd: cost, decisions };
-            await saveTurnDetails(runtime.harness, context, message.message_id, steps).catch((error) =>
-              logError("feishu", "could not save turn details", error),
-            );
-          }
+        const steps = await turnPanel(cost);
+        if (steps !== undefined) {
+          await saveTurnDetails(runtime.harness, context, message.message_id, steps).catch((error) =>
+            logError("feishu", "could not save turn details", error),
+          );
         }
         const blocks = await runtime
           .answerBlocks(conversation, settled.answer, settled.entry)
           .catch(() => [] as AnswerBlock[]);
+        const text = blocks.length > 0 ? composeAnswer(blocks) : answer || "（模型没有返回文本）";
         await deliverAnswer(
           chatId,
           cardId,
-          blocks.length > 0 ? composeAnswer(blocks) : answer || "（模型没有返回文本）",
+          text,
           meta,
           undefined,
           claim === undefined ? { template: "green", title: "✅ 答完了" } : doneVerdict(claim),
           steps,
         );
-        if (seconds >= config.feishu.donePingSeconds) {
-          await pingDone(
-            chatId,
-            message.message_id,
-            `✅ 答完了 · ${seconds}s`,
-            { thread: replyOptions.thread === true },
-          );
-        }
+        const head = answerHead(text);
+        await ping(`✅ 答完了 · ${seconds}s${head === "" ? "" : `\n\n${head}`}`);
         // A conversation this long makes every step cost about a minute, and the tokens still fit the
         // window, so threshold compaction never fires. Compact on message count instead, after the
         // answer is out, so the user is not left waiting for the next turn to be slow.
@@ -2319,17 +2347,12 @@ const continuing = new Set<string>();
             undefined,
             claim === undefined ? { template: "green", title: "✅ 答完了（续跑一次）" } : doneVerdict(claim),
           );
-          if (total >= config.feishu.donePingSeconds) {
-              await pingDone(
-              chatId,
-              message.message_id,
-              `✅ 答完了（自动续跑一次） · ${total}s`,
-              { thread: replyOptions.thread === true },
-            );
-          }
+          const head = answerHead(answer);
+          await ping(`✅ 答完了（自动续跑一次） · ${total}s${head === "" ? "" : `\n\n${head}`}`);
           await note(conversation, context, `跑到 ${config.maxTurns} 步上限，自动续跑了一次`);
           return;
         }
+        const spent = await runtime.budget(chatId).catch(() => undefined);
         await deliverAnswer(
           chatId,
           cardId,
@@ -2337,20 +2360,29 @@ const continuing = new Set<string>();
           `⏸️ ${seconds}s · 步数上限`,
           continueButton(message.message_id),
           { template: "orange", title: `⏸️ 到了 ${config.maxTurns} 步上限` },
+          await turnPanel(spent === undefined ? 0 : Math.max(0, spent.spentToday - budget.spentToday)),
         );
-        if (seconds >= config.feishu.donePingSeconds) {
-          await pingDone(
-            chatId,
-            message.message_id,
-            `⏸️ 这轮到了 ${config.maxTurns} 步上限，续跑后仍未收尾 · ${seconds}s`,
-            { thread: replyOptions.thread === true },
-          );
-        }
+        await ping(`⏸️ 这轮到了 ${config.maxTurns} 步上限，续跑后仍未收尾 · ${seconds}s`);
+      } else if (settled.reason === "aborted") {
+        // A turn the owner stopped is not a turn that broke. Same grey card — the work did not
+        // finish — but it should read as the stop working, not as a fault.
+        const spent = await runtime.budget(chatId).catch(() => undefined);
+        await deliverAnswer(
+          chatId,
+          cardId,
+          "已经停在这里了。进度都在，点「继续」可以接着做。",
+          `⏹️ ${seconds}s`,
+          continueButton(message.message_id),
+          { template: "grey", title: "⏹️ 已中断" },
+          await turnPanel(spent === undefined ? 0 : Math.max(0, spent.spentToday - budget.spentToday)),
+        );
+        await ping(`⏹️ 已中断 · ${seconds}s`);
       } else {
         // The header already carries the status and the reason; repeating them in the body made the
         // card say 这次没答出来 twice.
         const reason = settled.reason ?? "unanswered";
         const text = settled.detail === undefined ? "" : `${String(settled.detail)}\n\n`;
+        const spent = await runtime.budget(chatId).catch(() => undefined);
         await deliverAnswer(
           chatId,
           cardId,
@@ -2358,12 +2390,9 @@ const continuing = new Set<string>();
           `⏹️ ${seconds}s`,
           continueButton(message.message_id),
           { template: "grey", title: `⚠️ 这次没答出来 · ${reason}` },
+          await turnPanel(spent === undefined ? 0 : Math.max(0, spent.spentToday - budget.spentToday)),
         );
-        if (seconds >= config.feishu.donePingSeconds) {
-          await pingDone(chatId, message.message_id, `⚠️ 这条没答出来（${settled.reason ?? "unanswered"}）· ${seconds}s`, {
-            thread: replyOptions.thread === true,
-          });
-        }
+        await ping(`⚠️ 这条没答出来（${reason}）· ${seconds}s`);
       }
     } catch (error) {
       logError("feishu", "turn failed", error);
