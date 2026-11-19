@@ -17,8 +17,14 @@ import { recordVerdict } from "./verdicts.ts";
 import { note } from "./notes.ts";
 import { lastRequestMessages } from "./context-guard.ts";
 
-/** Above this many request messages a turn starts costing about a minute per step. */
-const COMPACT_AFTER_MESSAGES = 400;
+/**
+ * Above this many request messages, compact — but only once the count exceeds what a compaction
+ * *leaves behind*, or every turn compacts again for nothing. A compaction keeps `keepRecentTokens`
+ * (10k, set in harness.ts) of recent history, which at the ~18 tokens a short message costs here is
+ * some 500 messages; 400 sat below that, so the trigger fired on every turn and, worse, the view was
+ * usually still under the keep budget, so `selectCut` found nothing and the compaction was a no-op.
+ */
+const COMPACT_AFTER_MESSAGES = 900;
 import { agentName } from "./identity.ts";
 import { SurfaceMetaDoc, updateSurfaceMeta } from "./surface-meta.ts";
 import { transcribeAudio } from "./asr.ts";

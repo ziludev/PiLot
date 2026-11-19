@@ -232,7 +232,12 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
       env: ({ cwd }) => new NodeExecutionEnv({ cwd: cwd ?? workspace }),
       settings: {
         retry: { maxRetries: 3 },
-        compaction: { reserveTokens: 16384 },
+        // `keepRecentTokens` decides how much of the conversation survives a compaction verbatim,
+        // and it is what every round of every turn re-reads: at the 20k default a request carried
+        // ~26k tokens and a 40-round turn cost ~1M. 10k keeps the last few turns in full and pushes
+        // the rest into the summary. `reserveTokens` stays as it is — it only decides when the
+        // window itself gets tight.
+        compaction: { reserveTokens: 16384, keepRecentTokens: 10_000 },
         toolExecution: "parallel",
         // Only when set: the provider's own timeouts/retries stay the default otherwise.
         ...(config.stream.timeoutMs > 0 || config.stream.maxRetries > 0

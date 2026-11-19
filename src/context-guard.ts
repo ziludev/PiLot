@@ -1,5 +1,6 @@
 import { defineExtension, hook, GenerationTask } from "@earendil-works/pi-durable";
 import type { Message } from "@earendil-works/pi-ai";
+import { estimateMessageTokens } from "@earendil-works/pi-ai/utils/estimate";
 import { log } from "./log.ts";
 
 /**
@@ -28,6 +29,16 @@ let lastCount = 0;
 export function lastRequestMessages(): number {
   return lastCount;
 }
+
+/**
+ * One request in eight, write down how big it was.
+ *
+ * A turn costs its rounds times this number, and nothing else reports it: the usage sampler sees the
+ * bill hours later, and compaction only speaks when it actually cuts. Logging every request would
+ * drown the log, so this keeps a window-scale sample to check a settings change against.
+ */
+const LOG_EVERY = 8;
+let requests = 0;
 
 const PLACEHOLDER = (name: string, chars: number) =>
   `[较早的工具输出已省略：${name}，原文约 ${Math.round(chars / 100) / 10}k 字符。需要时重新运行这个工具]`;
@@ -71,6 +82,11 @@ export const contextGuardExtension = defineExtension({
       beforeRequest: (request) => {
         lastCount = request.messages.length;
         const { messages, elided } = elideOldToolOutputs(request.messages);
+        requests += 1;
+        if (requests % LOG_EVERY === 0) {
+          const tokens = messages.reduce((sum, message) => sum + estimateMessageTokens(message), 0);
+          log("context", "request size", { messages: messages.length, tokens });
+        }
         if (elided === 0) return undefined;
         log("context", "elided old tool output", { elided, messages: messages.length });
         return { messages };
