@@ -20,8 +20,9 @@ import (
 // 117 keys: the memory drawer named its three scopes, the settings panel took the
 // rail footer's switches, the find bar counts its hits, and the changes drawer
 // names a patch, a branch and a way back. The point of the ceiling is that it
-// only moves with a reason.
-const maxKeys = 201
+// only moves with a reason. 196 keys: the base picker went away, and with it the
+// five strings that asked which branch to measure from — the chip only names it.
+const maxKeys = 196
 
 func TestDictionariesMatch(t *testing.T) {
 	keys := Keys()
