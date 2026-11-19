@@ -122,6 +122,22 @@ func Current(c *ui.Context) Tokens {
 // Radius is --radius: 0.625rem from the client's stylesheet, in DIPs.
 const Radius float32 = 10
 
+// Use installs the palette for this frame and flips the light/dark flag that
+// Current reads. Apply alone only recolours widgets, so a painter that asks
+// Current for tokens still got light ones — which is how a dark snapshot ends
+// up with white cards.
+func Use(c *ui.Context, dark bool) Tokens {
+	t := Light()
+	if dark {
+		t = Dark()
+	}
+	base := *c.Theme()
+	base.Dark = dark
+	c.SetTheme(&base)
+	Apply(c, t)
+	return t
+}
+
 // Apply sets the widget theme for this frame from t.
 func Apply(c *ui.Context, t Tokens) {
 	base := *c.Theme()

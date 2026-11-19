@@ -1094,9 +1094,7 @@ func (a *App) applyThemeChoice(c *ui.Context) {
 	if a.prefs.Theme != "light" && a.prefs.Theme != "dark" {
 		return
 	}
-	base := *c.Theme()
-	base.Dark = a.prefs.Theme == "dark"
-	c.SetTheme(&base)
+	theme.Use(c, a.prefs.Theme == "dark")
 }
 
 // toggleTheme flips between light and dark and remembers it.

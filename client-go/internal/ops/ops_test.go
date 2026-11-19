@@ -121,6 +121,12 @@ func usageFixture() UsageProps {
 	return UsageProps{Days: days}
 }
 
+// ago is a wall clock instant a fixed distance back, for stage timing.
+func ago(d time.Duration) *int64 {
+	at := time.Now().Add(-d).UnixMilli()
+	return &at
+}
+
 func taskFixture() TaskProps {
 	return TaskProps{
 		Task: &protocol.TaskDetail{
@@ -316,7 +322,7 @@ func TestTaskDialogShowsTaskAndCloses(t *testing.T) {
 		"app.feature",
 		"#42",
 		"running",
-		"Chat #7 · background",
+		"Chat #7",
 		"Write the 0.2 release notes from the merged PRs",
 		"LOGS",
 		"Cancel",
@@ -350,21 +356,35 @@ func TestTaskDialogShowsSubAgentProgress(t *testing.T) {
 	p.Task.Status = "running"
 	p.Task.Outcome = nil
 	p.Task.SubAgents = []protocol.TaskSubAgent{
-		{ConversationID: 60833, Role: "写技术设计文档", Steps: 419, Tool: "bash", Live: false},
-		{ConversationID: 63983, Role: "为已实现的代码写测试用例", Steps: 152, Tool: "go test", Live: true},
+		{
+			ConversationID: 60833, Role: "写技术设计文档", Steps: 419, Tool: "bash",
+			StartedAt: ago(10 * time.Minute), EndedAt: ago(6 * time.Minute), State: "done",
+		},
+		{
+			ConversationID: 63983, Role: "为已实现的代码写测试用例", Steps: 152, Tool: "go test",
+			StartedAt: ago(6 * time.Minute), Live: true, State: "live",
+		},
+		{ConversationID: 66001, Role: "评审改动", State: "pending"},
 	}
 
 	tt := frame(t, 720, 720, func(c *ui.Context) { TaskDialog(c, p) })
 	for _, want := range []string{
 		"SUB-AGENTS",
 		"写技术设计文档",
-		"419 steps · bash",
+		"4m · 419 steps · bash",
 		"为已实现的代码写测试用例",
-		"152 steps · go test",
+		"6m · 152 steps · go test",
+		"评审改动",
 	} {
 		if !tt.HasText(want) {
 			t.Errorf("running task dialog is missing %q; it painted %v", want, tt.Texts())
 		}
+	}
+	if tt.HasText("0 steps") {
+		t.Errorf("a stage that has not started should say nothing, not \"0 steps\"; it painted %v", tt.Texts())
+	}
+	if tt.HasText("background") {
+		t.Errorf("task meta still carries the untranslated word; it painted %v", tt.Texts())
 	}
 	savePNG(t, frame(t, 720, 760, func(c *ui.Context) { TaskDialog(c, p) }), "/tmp/pitta-task-subagents.png")
 }
