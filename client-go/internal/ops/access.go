@@ -188,15 +188,25 @@ func accessAudit(c *ui.Context, t theme.Tokens, events []protocol.AuditEvent) {
 		if len(events) > auditShown {
 			events = events[len(events)-auditShown:]
 		}
+		// The clock is a gutter, so it is printed when it changes and left
+		// blank otherwise — five decisions in the same minute read as one
+		// moment, not as five timestamps to compare.
+		prev := ""
 		for i := len(events) - 1; i >= 0; i-- {
-			auditRow(c, t, events[i])
+			at := clock(events[i].At)
+			auditRow(c, t, events[i], at != prev)
+			prev = at
 		}
 	})
 }
 
-func auditRow(c *ui.Context, t theme.Tokens, event protocol.AuditEvent) {
+func auditRow(c *ui.Context, t theme.Tokens, event protocol.AuditEvent, showClock bool) {
 	ui.Row(c).FillWidth().Padding(3, 4).Gap(6).AlignItems(ui.Start).Children(func() {
-		ui.Text(c, clock(event.At)).FontSize(9).TextColor(t.MutedFg).Width(72).MaxLines(1)
+		stamp := ""
+		if showClock {
+			stamp = clock(event.At)
+		}
+		ui.Text(c, stamp).FontSize(9).TextColor(t.MutedFg).Width(72).MaxLines(1)
 		auditKindBadge(c, t, event.Kind)
 		ui.Text(c, auditDetail(event)).FontSize(10).TextColor(t.MutedFg).Wrap().Grow(1)
 	})
