@@ -292,10 +292,15 @@ export function bodyElements(markdown: string): Array<Record<string, unknown>> {
 /**
  * Card JSON **2.0**, and every card goes through here.
  *
- * The detail block is a `collapsible_panel`, which only exists in 2.0 — in a 1.0 card the client
- * prints 「请升级至最新版本客户端，以查看内容」 in its place, so the steps of a turn were invisible
- * on every answer card. 2.0 also *forbids* `note` and `action` (the API answers 200861), so the
- * meta line is a notation-size markdown and the buttons sit in a `column_set`.
+ * 2.0 is what makes the detail block possible at all: `collapsible_panel` has no 1.0 form, and
+ * without it the steps of a turn either vanished or turned every answer into a form to fill in.
+ * 2.0 also *forbids* `note` and `action` (the API answers 200861), so the meta line is a
+ * notation-size markdown and the buttons sit in a `column_set`.
+ *
+ * Do not read a card back with `im.message.get` to check how it looks: Feishu hands a 2.0 message
+ * back in the legacy shape, and every element list becomes 「请升级至最新版本客户端，以查看内容」.
+ * That placeholder is the read API talking, not the client — a card that renders perfectly still
+ * reads back that way.
  */
 function card(
   markdown: string,
