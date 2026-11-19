@@ -4,6 +4,7 @@ import { join } from "node:path";
 import * as Lark from "@larksuiteoapi/node-sdk";
 import { UsageDoc } from "@earendil-works/pi-durable";
 import { config, requireFeishuCredentials, requireFeishuOwner } from "./config.ts";
+import { gatewayClient, gatewayEnabled, gatewayEndpoint, type FeishuIm, type ImResponse } from "./feishu-gw.ts";
 import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
 import { watchLive, type LiveSnapshot } from "./live.ts";
 import { advance, renderSteps, stepCount, type Trail } from "./steps.ts";
@@ -793,6 +794,28 @@ function larkClient(): Lark.Client {
   return sharedClient;
 }
 
+/**
+ * The SDK behind the same five-operation surface as feishu-gw. Shaped alike on purpose: that is what
+ * makes FEISHU_TRANSPORT a one-line switch rather than two code paths through the send logic.
+ */
+function sdkTransport(client: Lark.Client): FeishuIm {
+  const cast = (answer: unknown) => answer as ImResponse;
+  return {
+    message: {
+      create: async (input) => cast(await client.im.message.create(input as never)),
+      reply: async (input) => cast(await client.im.message.reply(input as never)),
+      patch: async (input) => cast(await client.im.message.patch(input as never)),
+      get: async (input) => cast(await client.im.message.get(input as never)),
+    },
+    messageResource: {
+      get: async (input) => (await client.im.messageResource.get(input as never)) as never,
+    },
+    botOpenId: async () =>
+      ((await client.request({ method: "GET", url: "/open-apis/bot/v3/info" })) as { bot?: { open_id?: string } })?.bot
+        ?.open_id,
+  };
+}
+
 async function senderName(openId: string): Promise<string | undefined> {
   if (openId.length === 0) return undefined;
   const known = senderNames.get(openId);
@@ -938,6 +961,23 @@ type FeishuStatus = {
   lastError?: string;
 };
 
+/** One event forwarded by feishu-gw: the envelope's type, id and inner body. */
+export type GatewayEvent = { type: "message" | "card"; eventId?: string; eventType?: string; event: unknown };
+
+let gatewayIngress: ((payload: GatewayEvent) => Promise<unknown>) | undefined;
+
+/**
+ * One event handed over by feishu-gw. The same dispatcher the long connection fed handles it, so the
+ * handlers, the dedupe and the card answers are untouched — only the transport differs. The answer is
+ * returned rather than swallowed because a card action's answer is what Feishu shows.
+ */
+export async function handleGatewayEvent(payload: GatewayEvent): Promise<unknown> {
+  if (gatewayIngress === undefined) {
+    return {};
+  }
+  return await gatewayIngress(payload);
+}
+
 const feishuStatus: FeishuStatus = { ready: false, since: Date.now(), flaps: 0 };
 let feishuStarted = false;
 
@@ -965,12 +1005,16 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
   await adoptChatLevels(runtime.harness, context, config.feishu.allowedChatIds);
   const client = new Lark.Client({ appId, appSecret });
   sharedClient = client;
+  // `FEISHU_TRANSPORT=go` hands the five Feishu operations to feishu-gw over localhost. Every call
+  // site below goes through `im`, so the switch is here and nowhere else.
+  const goTransport = gatewayEnabled();
+  const im: FeishuIm = goTransport ? gatewayClient(gatewayEndpoint()) : sdkTransport(client);
 
   // Who we are, so an @ of the bot can be dropped from the text instead of leaving "@".
-  await client
-    .request({ method: "GET", url: "/open-apis/bot/v3/info" })
-    .then((response: { bot?: { open_id?: string } }) => {
-      botOpenId = response?.bot?.open_id;
+  await im
+    .botOpenId()
+    .then((openId) => {
+      botOpenId = openId;
       log("feishu", "bot identity", { openId: botOpenId ?? "unknown" });
     })
     .catch((error: unknown) => logError("feishu", "could not read bot identity", error));
@@ -978,7 +1022,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
   const handled = new Set<string>();
 
   async function sendText(chatId: string, text: string): Promise<void> {
-    await client.im.message.create({
+    await im.message.create({
       params: { receive_id_type: "chat_id" },
       data: { receive_id: chatId, msg_type: "text", content: JSON.stringify({ text }) },
     });
@@ -986,7 +1030,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
 
   /** A card when there is no message to reply to — text would show `**bold**` and `|` as they are. */
   async function sendMarkdown(chatId: string, markdown: string, meta?: string, header?: CardHeader): Promise<void> {
-    await client.im.message.create({
+    await im.message.create({
       params: { receive_id_type: "chat_id" },
       data: {
         receive_id: chatId,
@@ -1015,7 +1059,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       await sendMarkdown(chatId, markdown, meta, header);
       return;
     }
-    await client.im.message.reply({
+    await im.message.reply({
       path: { message_id: messageId },
       data: {
         msg_type: "interactive",
@@ -1033,7 +1077,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     header?: CardHeader,
     details?: Omit<TurnDetails, "at">,
   ): Promise<void> {
-    const response = await client.im.message.patch({
+    const response = await im.message.patch({
       path: { message_id: messageId },
       data: { content: JSON.stringify(card(markdown, meta, buttons, header, details)) },
     });
@@ -1058,7 +1102,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     options: { thread?: boolean },
   ): Promise<void> {
     try {
-      await client.im.message.reply({
+      await im.message.reply({
         path: { message_id: messageId },
         data: {
           msg_type: "text",
@@ -1106,7 +1150,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     options: { thread?: boolean; mention?: string; buttons?: CardButton[]; header?: CardHeader } = {},
   ): Promise<string | undefined> {
     const body = options.mention === undefined ? markdown : `<at id=${options.mention}></at> ${markdown}`;
-    const response = await client.im.message.reply({
+    const response = await im.message.reply({
       path: { message_id: messageId },
       data: {
         msg_type: "interactive",
@@ -1126,7 +1170,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     options: { thread?: boolean; mention?: string } = {},
   ): Promise<void> {
     const body = options.mention === undefined ? text : `<at id=${options.mention}></at> ${text}`;
-    await client.im.message.reply({
+    await im.message.reply({
       path: { message_id: messageId },
       data: {
         msg_type: "text",
@@ -1142,7 +1186,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     type: "image" | "file",
   ): Promise<Buffer | undefined> {
     try {
-      const resource = (await client.im.messageResource.get({
+      const resource = (await im.messageResource.get({
         path: { message_id: messageId, file_key: fileKey },
         params: { type },
       })) as unknown as {
@@ -1194,7 +1238,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       await sendText(chatId, text);
       return;
     }
-    await client.im.message.create({
+    await im.message.create({
       params: { receive_id_type: "chat_id" },
       data: {
         receive_id: chatId,
@@ -1226,7 +1270,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     // to be deleted, and a group member could not answer it anyway.
     const ownerChat = await ownerChatId(runtime.harness, context).catch(() => undefined);    const target = ownerChat ?? request.surfaceId;
     const sent = target.startsWith("oc_")
-      ? await client.im.message
+      ? await im.message
           .create({
             params: { receive_id_type: "chat_id" },
             data: {
@@ -1555,7 +1599,7 @@ const continuing = new Set<string>();
       if (details === undefined) return { toast: { type: "info", content: "这轮没有工具调用记录" } };
       if (chatId.length > 0) {
         // Fire and forget: the callback response has a ~3s budget.
-        void client.im.message
+        void im.message
           .create({
             params: { receive_id_type: "chat_id" },
             data: {
@@ -1631,7 +1675,7 @@ const continuing = new Set<string>();
       { label: "开放此会话（只读）", value: { kind: "open-chat", chatId: message.chat_id }, type: "primary" as const },
     ];
     try {
-      await client.im.message.create({
+      await im.message.create({
         params: { receive_id_type: "chat_id" },
         data: {
           receive_id: ownerChat,
@@ -1679,7 +1723,7 @@ const continuing = new Set<string>();
     if (known !== undefined) return known;
     let ours = false;
     try {
-      const response = await client.im.message.get({ path: { message_id: parentId } });
+      const response = await im.message.get({ path: { message_id: parentId } });
       const sender = response?.data?.items?.[0]?.sender as { id?: string; open_id?: string } | undefined;
       ours = (sender?.id ?? sender?.open_id) === botOpenId;
     } catch {
@@ -2559,6 +2603,8 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
     const threadId = message.thread_id ?? "";
     if (threadId.length === 0) return "";
     if (threadRead === "unsupported") return "";
+    // Not one of the five operations the gateway owns: this is a read-only history page for the
+    // digest, and it stays on the SDK even in gateway mode.
     const response = await client.im.message
       .list({
         params: {
@@ -2599,7 +2645,7 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
   async function readQuoted(parentId: string): Promise<Quoted | undefined> {
     const hit = quotedCache.get(parentId);
     if (hit !== undefined && Date.now() - hit.at < QUOTED_TTL_MS) return hit.value;
-    const response = await client.im.message
+    const response = await im.message
       .get({ path: { message_id: parentId } })
       .catch((error: unknown) => {
         logError("feishu", "could not read the quoted message", error);
@@ -2619,7 +2665,11 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
               item.msg_type ?? "",
               item.body?.content ?? "",
               // The API's mentions carry the open_id as a string; ours carry it one level down.
-              (item.mentions ?? []).map((mention) => ({ key: mention.key, name: mention.name, id: { open_id: mention.id } })),
+              (item.mentions ?? []).map((mention: { key?: string; name?: string; id?: string }) => ({
+                key: mention.key,
+                name: mention.name,
+                id: { open_id: mention.id },
+              })),
             ),
           };
     quotedCache.set(parentId, { at: Date.now(), value });
@@ -2696,73 +2746,125 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
     );
   }
 
-  const loggerLevel =
-    (process.env.FEISHU_LOG_LEVEL ?? "info") === "debug" ? Lark.LoggerLevel.debug : Lark.LoggerLevel.info;
-  const wsOptions = {
-    appId,
-    appSecret,
-    loggerLevel,
-    // Connection state is not obvious from the SDK's own logs; make flapping visible.
-    onReady: () => {
-      console.log("[feishu] ws ready");
-      feishuStatus.ready = true;
-      feishuStatus.since = Date.now();
-    },
-    onError: (error: unknown) => {
-      feishuStatus.ready = false;
-      feishuStatus.flaps += 1;
-      feishuStatus.lastError = (error as Error)?.message ?? String(error);
-      console.error(`[feishu] ws error: ${feishuStatus.lastError}`);
-    },
-    onReconnecting: () => {
-      feishuStatus.ready = false;
-      console.warn("[feishu] ws reconnecting");
-    },
-    onReconnected: () => {
-      feishuStatus.ready = true;
-      feishuStatus.since = Date.now();
-      console.log("[feishu] ws reconnected");
-    },
-  };
-  const makeWSClient = (): Lark.WSClient => new Lark.WSClient(wsOptions);
-  let wsClient = makeWSClient();
-  await wsClient.start({ eventDispatcher });
-  log("feishu", `long connection established for app ${appId}`);
-  void backfillChatNames().catch((error: unknown) => logError("feishu", "could not backfill chat names", error));
+  // Set only by the SDK branch; stop() closes whatever transport is actually running.
+  let stopTransport = (): void => {};
 
-  // The SDK stops retrying once it gives up, and a long connection that dies silently
-  // is indistinguishable from a bot nobody talks to. Restart it ourselves when it stays
-  // down; while it is down, events published by Feishu are lost, not queued.
-  let lastAttempt = Date.now();
-  let restarts = 0;
-  const supervisor = setInterval(() => {
-    if (feishuStatus.ready) return;
-    const down = Date.now() - feishuStatus.since;
-    if (down < 120_000 || Date.now() - lastAttempt < 120_000) return;
-    lastAttempt = Date.now();
-    restarts += 1;
-    // A client that keeps failing to connect caches what it resolved the first time. After a
-    // network change (Wi-Fi off/on, a proxy whose routes moved) only a fresh instance re-resolves:
-    // observed as ENETUNREACH to Feishu's IPs for minutes, until the process was restarted.
-    if (restarts % 3 === 0) {
-      logError("feishu", `long connection down ${Math.round(down / 1000)}s, rebuilding the client`, undefined);
-      // Retire the old client first: a half-open socket still counts as a listener, and two
-      // connections on one app make Feishu push every event to both.
-      const stale = wsClient;
-      wsClient = makeWSClient();
-      try {
-        stale.close({ force: true });
-      } catch {
-        // already torn down
+  if (goTransport) {
+    // feishu-gw owns the long connection and forwards each event here. The answer is returned
+    // synchronously because a card action has to be: the gateway hands our reply straight back to
+    // Feishu, which shows its own error if that takes more than about three seconds.
+    gatewayIngress = async (payload) =>
+      await eventDispatcher.invoke(
+        {
+          schema: "2.0",
+          header: {
+            event_id: payload.eventId ?? "",
+            event_type: payload.eventType ?? (payload.type === "card" ? "card.action.trigger" : "im.message.receive_v1"),
+            create_time: String(Date.now()),
+          },
+          event: payload.event,
+        },
+        { needCheck: false },
+      );
+    // Only the url: the endpoint object also carries the shared token, and a token in the log is a
+    // token in every screenshot of the log.
+    const endpoint = gatewayEndpoint();
+    log("feishu", "transport go: events arrive from feishu-gw", { url: endpoint.url });
+    // Ready is the gateway's word, not ours: a connection can be open while Feishu routes nothing
+    // to it, which is why the gateway reports `connected` and `ready` separately.
+    setInterval(() => {
+      void fetch(`${endpoint.url}/healthz`, { signal: AbortSignal.timeout(5_000) })
+        .then(async (response) => (await response.json()) as { ready?: boolean; dropped?: number })
+        .then((health) => {
+          const ready = health.ready === true;
+          if (!ready && feishuStatus.ready) {
+            feishuStatus.flaps += 1;
+            feishuStatus.since = Date.now();
+          }
+          if (ready && !feishuStatus.ready) feishuStatus.since = Date.now();
+          feishuStatus.ready = ready;
+          if ((health.dropped ?? 0) > 0) {
+            feishuStatus.lastError = `feishu-gw dropped ${health.dropped} event(s)`;
+          }
+        })
+        .catch((error: unknown) => {
+          feishuStatus.ready = false;
+          feishuStatus.lastError = (error as Error)?.message ?? String(error);
+        });
+    }, 30_000).unref();
+  } else {
+    const loggerLevel =
+      (process.env.FEISHU_LOG_LEVEL ?? "info") === "debug" ? Lark.LoggerLevel.debug : Lark.LoggerLevel.info;
+    const wsOptions = {
+      appId,
+      appSecret,
+      loggerLevel,
+      // Connection state is not obvious from the SDK's own logs; make flapping visible.
+      onReady: () => {
+        console.log("[feishu] ws ready");
+        feishuStatus.ready = true;
+        feishuStatus.since = Date.now();
+      },
+      onError: (error: unknown) => {
+        feishuStatus.ready = false;
+        feishuStatus.flaps += 1;
+        feishuStatus.lastError = (error as Error)?.message ?? String(error);
+        console.error(`[feishu] ws error: ${feishuStatus.lastError}`);
+      },
+      onReconnecting: () => {
+        feishuStatus.ready = false;
+        console.warn("[feishu] ws reconnecting");
+      },
+      onReconnected: () => {
+        feishuStatus.ready = true;
+        feishuStatus.since = Date.now();
+        console.log("[feishu] ws reconnected");
+      },
+    };
+    const makeWSClient = (): Lark.WSClient => new Lark.WSClient(wsOptions);
+    let wsClient = makeWSClient();
+    stopTransport = () => {
+      clearInterval(supervisor);
+      wsClient.close({ force: true });
+    };
+    await wsClient.start({ eventDispatcher });
+    log("feishu", `long connection established for app ${appId}`);
+    void backfillChatNames().catch((error: unknown) => logError("feishu", "could not backfill chat names", error));
+
+    // The SDK stops retrying once it gives up, and a long connection that dies silently
+    // is indistinguishable from a bot nobody talks to. Restart it ourselves when it stays
+    // down; while it is down, events published by Feishu are lost, not queued.
+    let lastAttempt = Date.now();
+    let restarts = 0;
+    const supervisor = setInterval(() => {
+      if (feishuStatus.ready) return;
+      const down = Date.now() - feishuStatus.since;
+      if (down < 120_000 || Date.now() - lastAttempt < 120_000) return;
+      lastAttempt = Date.now();
+      restarts += 1;
+      // A client that keeps failing to connect caches what it resolved the first time. After a
+      // network change (Wi-Fi off/on, a proxy whose routes moved) only a fresh instance re-resolves:
+      // observed as ENETUNREACH to Feishu's IPs for minutes, until the process was restarted.
+      if (restarts % 3 === 0) {
+        logError("feishu", `long connection down ${Math.round(down / 1000)}s, rebuilding the client`, undefined);
+        // Retire the old client first: a half-open socket still counts as a listener, and two
+        // connections on one app make Feishu push every event to both.
+        const stale = wsClient;
+        wsClient = makeWSClient();
+        try {
+          stale.close({ force: true });
+        } catch {
+          // already torn down
+        }
+      } else {
+        logError("feishu", `long connection down ${Math.round(down / 1000)}s, restarting it`, undefined);
       }
-    } else {
-      logError("feishu", `long connection down ${Math.round(down / 1000)}s, restarting it`, undefined);
-    }
-    void wsClient.start({ eventDispatcher }).catch((error: unknown) => {
-      feishuStatus.lastError = (error as Error)?.message ?? String(error);
-      logError("feishu", "could not restart long connection", error);
-    });
-  }, 30_000);
+      void wsClient.start({ eventDispatcher }).catch((error: unknown) => {
+        feishuStatus.lastError = (error as Error)?.message ?? String(error);
+        logError("feishu", "could not restart long connection", error);
+      });
+    }, 30_000);
+  }
 
   // A crash or redeploy leaves the conversation resuming in this process while the
   // old card has no owner. Reacquire the submission, wait for it, deliver the answer
@@ -2892,11 +2994,10 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
       await sendNotice(chat, text);
     },
     stop() {
-      clearInterval(supervisor);
       // Every waiter is told no and no timer survives; the registry is the only place that knows
       // what was still pending.
       dropAllApprovals();
-      wsClient.close({ force: true });
+      stopTransport();
     },
   };
 }
