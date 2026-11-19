@@ -10,7 +10,7 @@ import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
 import { runInFlight, watchLive, type LiveSnapshot } from "./live.ts";
 import { advance, renderSteps, stepCount, type Trail } from "./steps.ts";
 import { answerHead, composeAnswer, type AnswerBlock } from "./answer.ts";
-import { setApprovalDecider, setNotifier, type ApprovalRequest } from "./channel.ts";
+import { setApprovalDecider, setNotifier, setTurnStarter, type ApprovalRequest } from "./channel.ts";
 import { log, logError } from "./log.ts";
 import { record } from "./audit.ts";
 import { collectKetchup, elapsed, formatKetchup } from "./ketchup.ts";
@@ -1113,9 +1113,17 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     if ((response?.code ?? 0) !== 0) throw new Error(response?.msg ?? "direct send refused");
   }
 
-  /** A card when there is no message to reply to — text would show `**bold**` and `|` as they are. */
-  async function sendMarkdown(chatId: string, markdown: string, meta?: string, header?: CardHeader): Promise<void> {
-    await im.message.create({
+  /**
+   * A card when there is no message to reply to — text would show `**bold**` and `|` as they are.
+   * Returns the message id: a routine created the card itself, so it has to name it to patch it.
+   */
+  async function sendMarkdown(
+    chatId: string,
+    markdown: string,
+    meta?: string,
+    header?: CardHeader,
+  ): Promise<string | undefined> {
+    const response = await im.message.create({
       params: { receive_id_type: "chat_id" },
       data: {
         receive_id: chatId,
@@ -1123,6 +1131,8 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         content: JSON.stringify(card(markdown, meta, undefined, header)),
       },
     });
+    const messageId = (response as { data?: { message_id?: unknown } } | undefined)?.data?.message_id;
+    return typeof messageId === "string" ? messageId : undefined;
   }
 
   /**
@@ -1357,6 +1367,162 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     });
   }
 
+  /**
+   * A routine's turn. Same skeleton as a message turn — card, queue slot, submission, answer in the
+   * card — minus everything that only makes sense for a message that arrived: no reply chain, no
+   * quote, no thread, no mention, no images, no read-only correction. A routine fires with nobody
+   * watching, so the card *is* the answer; a failure has to be visible on it, never only in a log.
+   */
+  async function runRoutineTurn(chatId: string, instruction: string, key: string): Promise<boolean> {
+    if (!chatId.startsWith("oc_") && !chatId.startsWith("on_")) {
+      log("feishu", "routine skipped a surface that is not a chat", { surfaceId: chatId });
+      return false;
+    }
+    const conversation = await runtime.conversationFor(chatId);
+    const budget = await runtime.budget(chatId);
+    if (!budget.allowed) {
+      await sendNotice(
+        chatId,
+        `⏰ 定时任务没跑：今日额度已用完（$${budget.spentToday.toFixed(2)} / $${budget.limit.toFixed(2)}）。`,
+      ).catch((error) => logError("feishu", "could not report an exhausted budget", error));
+      return false;
+    }
+
+    const startedAt = Date.now();
+    const digest =
+      instruction
+        .split("\n")
+        .map((line) => line.trim())
+        .find((line) => line.length > 0 && !line.startsWith("⏰")) ?? "定时任务";
+    const cardId = await sendMarkdown(
+      chatId,
+      `> ${digest.slice(0, 240)}\n\n⏳ 定时任务开跑…`,
+      undefined,
+      { title: "⏰ 定时任务", template: "blue" },
+    );
+    if (cardId === undefined) {
+      log("feishu", "routine card creation failed, skipping the turn", { chatId });
+      return false;
+    }
+    log("feishu", "routine card created", { chatId, cardId, key });
+
+    const card = liveCard(conversation, cardId, digest, startedAt);
+    card.stall(300_000);
+    const slot = enqueueTurn(conversation.id as unknown as number);
+    if (slot.queued) {
+      card.setStatus("⏸️ 排队中 · 上一条还在跑");
+      await slot.wait;
+      card.clearStatus();
+    }
+
+    try {
+      // The key carries the scheduled instant, so a fire retried after a crash dedupes instead of
+      // running the same routine twice.
+      const tokensBefore = await tokenTotals(conversation.id as unknown as number).catch(() => ({
+        total: 0,
+        byModel: new Map<string, number>(),
+      }));
+      const submission = await conversation.submit({ type: "input", content: instruction, requestId: key }, context);
+      await card.start();
+      const settled = await submission.wait(context);
+      const seconds = Math.round((Date.now() - startedAt) / 100) / 10;
+      log("feishu", "routine turn settled", {
+        chatId,
+        status: settled.status,
+        reason: settled.reason ?? null,
+        seconds,
+      });
+      const decisions = takeDecisions(String(conversation.id));
+      const claim = takeDone(String(conversation.id));
+      if (claim !== undefined) {
+        decisions.push({
+          at: claim.at,
+          kind: "stop",
+          text: `声明：${claim.met ? "目标达成" : "目标未达成"} — ${claim.why}`,
+        });
+        // A routine's outcome belongs in the morning digest like any other turn: it is the only
+        // place the owner finds out an unattended job has been quietly failing.
+        await recordVerdict(runtime.harness, context, {
+          chat: chatId,
+          met: claim.met,
+          why: claim.why,
+          seconds,
+          ...(settled.reason === undefined ? {} : { reason: settled.reason }),
+        });
+      }
+      if (settled.reason !== undefined) {
+        decisions.push({ at: Date.now(), kind: "stop", text: `结束：${settled.reason}` });
+      }
+      await card.finish();
+
+      if (settled.status === "done" && settled.answer !== undefined) {
+        const answer = await runtime.answerText(conversation, settled.answer, settled.entry);
+        const blocks = await runtime
+          .answerBlocks(conversation, settled.answer, settled.entry)
+          .catch(() => [] as AnswerBlock[]);
+        const text = blocks.length > 0 ? composeAnswer(blocks) : answer || "（模型没有返回文本）";
+        // What it cost, in the same words a normal turn uses: a routine that is quietly expensive
+        // should look expensive where the owner sees it.
+        const tokensAfter = await tokenTotals(conversation.id as unknown as number).catch(() => ({
+          total: tokensBefore.total,
+          byModel: new Map<string, number>(),
+        }));
+        const spentAfter = await runtime.budget(chatId).catch(() => undefined);
+        const cost = spentAfter === undefined ? 0 : Math.max(0, spentAfter.spentToday - budget.spentToday);
+        let modelUsed = "";
+        let biggest = 0;
+        for (const [name, tokens] of tokensAfter.byModel) {
+          const delta = tokens - (tokensBefore.byModel.get(name) ?? 0);
+          if (delta > biggest) {
+            biggest = delta;
+            modelUsed = name.split("/").pop() ?? name;
+          }
+        }
+        const agentPlan = await conversation.agent(context).catch(() => undefined);
+        const meta = turnMeta({
+          tools: card.tools.size,
+          tokens: Math.max(0, tokensAfter.total - tokensBefore.total),
+          costUsd: cost,
+          model: modelUsed,
+          thinking: String(agentPlan?.thinkingLevel ?? ""),
+        });
+        await deliverAnswer(
+          chatId,
+          cardId,
+          text,
+          meta,
+          undefined,
+          claim === undefined ? { template: "green", title: "✅ 定时任务跑完了" } : doneVerdict(claim),
+          decisions.length === 0 ? undefined : { steps: [], seconds, costUsd: 0, decisions },
+        );
+        return true;
+      }
+      await deliverAnswer(
+        chatId,
+        cardId,
+        `这一轮没跑完：${settled.reason ?? settled.status}`,
+        "",
+        undefined,
+        { template: "orange", title: "⚠️ 定时任务中断" },
+        decisions.length === 0 ? undefined : { steps: [], seconds, costUsd: 0, decisions },
+      );
+      return false;
+    } catch (error) {
+      logError("feishu", "routine turn failed", error);
+      await deliverAnswer(
+        chatId,
+        cardId,
+        `定时任务出错：${(error as Error)?.message ?? String(error)}`,
+        "",
+        undefined,
+        { template: "red", title: "❌ 定时任务失败" },
+      ).catch(() => undefined);
+      return false;
+    } finally {
+      slot.done();
+    }
+  }
+
   // The extensions reach back through these two hooks.
   setNotifier(async (surfaceId, text) => {
     // Only a Feishu chat can receive a message here; other surfaces (cli, client) are
@@ -1367,6 +1533,8 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     }
     await sendNotice(surfaceId, text);
   });
+  // A routine knocks on the same door a message does; it just has no message behind it.
+  setTurnStarter(runRoutineTurn);
   setApprovalDecider(async (request) => {
     // The owner answers in their own DM. A card in the group would show everyone what is about
     // to be deleted, and a group member could not answer it anyway.

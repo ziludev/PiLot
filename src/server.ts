@@ -4,6 +4,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { UsageDoc, type Conversation, type EntryId } from "@earendil-works/pi-durable";
 import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
 import { getFeishuStatus, handleGatewayEvent } from "./feishu.ts";
+import { startTurn } from "./channel.ts";
 import { log, logError } from "./log.ts";
 import { config } from "./config.ts";
 import { subAgentActivity } from "./activity.ts";
@@ -538,6 +539,27 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
           });
         }
         return send(res, 200, { submissionId: submission.id as unknown as number });
+      }
+
+      // An entry point for anything that is not Feishu: a git hook, an alarm, a cron on another
+      // box. A hook starts a full turn in the owner's chat — card, streaming, answer — instead of
+      // only poking a notification, because a poke leaves the thinking to whoever is not there.
+      if (req.method === "POST" && (path === "/api/hook" || path.startsWith("/api/hook/"))) {
+        const body = await readJson(req);
+        const name = path === "/api/hook" ? "hook" : path.slice("/api/hook/".length).slice(0, 40) || "hook";
+        const text = typeof body["text"] === "string" ? body["text"].trim() : "";
+        if (text.length === 0) return send(res, 400, { error: "text required" });
+        const chatId =
+          typeof body["chatId"] === "string" && body["chatId"].length > 0
+            ? body["chatId"]
+            : await ownerChatId(runtime.harness, context);
+        if (chatId === undefined) return send(res, 503, { error: "no owner chat yet: say something to the bot once" });
+        // A caller that retries sends its own key; a keyless hook is one-shot by design.
+        const key = `hook:${name}:${typeof body["key"] === "string" ? body["key"].slice(0, 60) : Date.now()}`;
+        log("http", "hook received", { name, chatId, key });
+        // 202, not 200: the turn runs for minutes, the hook must not hold a caller's socket open.
+        void startTurn(chatId, text, key).catch((error) => logError("http", "hook could not start a turn", error));
+        return send(res, 202, { ok: true, chatId, key });
       }
 
       if (req.method === "POST" && path === "/api/abort") {
