@@ -80,36 +80,6 @@ func TestSidePanelTabSlidesIn(t *testing.T) {
 	}
 }
 
-// TestApprovalBarSlidesIn checks a waiting call brings the bar up rather than
-// appearing between two frames.
-func TestApprovalBarSlidesIn(t *testing.T) {
-	a := snapshotData(t)
-	a.approvals = nil
-	tt := ui.NewTester(a.View, 1180, 820)
-	tt.Frame()
-	a.apply(func() {
-		a.approvals = []protocol.PendingApproval{{
-			CallID: "call_1", Tool: "bash", Reason: "rm -rf ./build",
-			Summary: "rm -rf ./build && go build ./...", CreatedAt: time.Now().UnixMilli(),
-		}}
-		a.invalidate()
-	})
-	tt.Frame()
-	mid, ok := tt.Find("rm -rf ./build && go build ./...")
-	if !ok {
-		t.Skipf("the approval summary is not on screen; texts: %v", tt.Texts())
-	}
-	tt.Advance(120 * time.Millisecond)
-	tt.Frame()
-	settled, ok := tt.Find("rm -rf ./build && go build ./...")
-	if !ok {
-		t.Fatal("the bar left the screen while animating in")
-	}
-	if settled.Y >= mid.Y {
-		t.Fatalf("the bar did not rise: mid %.1f → settled %.1f", mid.Y, settled.Y)
-	}
-}
-
 // TestStreamingCaretBlinks checks the caret at the end of a streaming answer
 // comes and goes. It follows the caret's own element rather than a band of
 // pixels: the logo beside the phase animates now, and a band also caught the

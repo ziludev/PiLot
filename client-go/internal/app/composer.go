@@ -9,7 +9,6 @@ import (
 
 	"pitta/internal/i18n"
 	"pitta/internal/icons"
-	"pitta/internal/motion"
 	"pitta/internal/theme"
 )
 
@@ -79,10 +78,11 @@ func (a *App) modelLabel() string {
 // approvalBar lists the tool calls waiting for a decision. A blocked run burns
 // wall-clock time, so each row says how long it waited.
 func (a *App) approvalBar(c *ui.Context, t theme.Tokens) {
-	// A call that starts waiting slides up into the composer rather than
-	// appearing between two frames.
-	ui.Column(c).Fill().Padding(6, 8).Gap(6).Radius(6).Background(t.Muted).
-		Transition(motion.PopoverEnter()).Children(func() {
+	// No slide-in, and not only for taste: a Transition pins the size the node
+	// was measured at, so a bar laid out before the side panel opened kept that
+	// width — at 900 points the last button was painted under the panel instead
+	// of moving left with the column. A wrapping node behaves the same way.
+	ui.Column(c).Fill().Padding(6, 8).Gap(6).Radius(6).Background(t.Muted).Children(func() {
 		for _, approval := range a.approvals {
 			approval := approval
 			// The ask reads on its own line and the buttons sit under it: a
