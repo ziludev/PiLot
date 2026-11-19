@@ -72,11 +72,21 @@ func (a *App) railTaskRow(c *ui.Context, t theme.Tokens, task protocol.Task) {
 			Background(railTaskColor(t, task.State))
 		ui.Column(c).Grow(1).Gap(1).Children(func() {
 			ui.Text(c, railTaskTitle(task)).FontSize(11).TextColor(t.SidebarFg).MaxLines(1)
-			ui.Text(c, "#"+itoa(task.ID)+" · "+railTaskLabel(task.Kind)).
-				FontSize(9).TextColor(t.MutedFg).MaxLines(1)
+			ui.Text(c, railTaskMeta(task)).FontSize(9).TextColor(t.MutedFg).MaxLines(1)
 		})
 		ui.Text(c, a.taskRightLabel(task)).FontSize(9.5).TextColor(t.MutedFg).Shrink(0)
 	})
+}
+
+// railTaskMeta is the line under a job's name: its id, and the kind only when
+// the name is not already the kind — a task without a name is titled by its kind,
+// and "#84338 · Routine" under "Routine" says the same thing twice.
+func railTaskMeta(task protocol.Task) string {
+	meta := "#" + itoa(task.ID)
+	if kind := railTaskLabel(task.Kind); task.Title != "" && kind != task.Title {
+		meta += " · " + kind
+	}
+	return meta
 }
 
 // railTaskGroup is one heading of the jobs view and what sits under it.
