@@ -7,7 +7,7 @@ import { UsageDoc } from "@earendil-works/pi-durable";
 import { config, requireFeishuCredentials, requireFeishuOwner } from "./config.ts";
 import { gatewayClient, gatewayEndpoint, type FeishuIm, type ImResponse } from "./feishu-gw.ts";
 import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
-import { watchLive, type LiveSnapshot } from "./live.ts";
+import { runInFlight, watchLive, type LiveSnapshot } from "./live.ts";
 import { advance, renderSteps, stepCount, type Trail } from "./steps.ts";
 import { answerHead, composeAnswer, type AnswerBlock } from "./answer.ts";
 import { setApprovalDecider, setNotifier, type ApprovalRequest } from "./channel.ts";
@@ -158,6 +158,7 @@ const HELP = [
   "**命令**",
   "- `/new` 换新上下文（历史不删，记忆保留）",
   "- `/stop` 中断当前任务",
+  "- `/steer 内容` 插话：不排队，直接插进正在跑的那一轮（空闲时就是一条普通消息）",
   "- `/cost` 今日花费",
   "- `/memory` 看记忆内容",
   "- `/memo` 看本群专属记忆；`/memo add 内容` 添加；`/memo del 3` 删第 3 条；`/memo clear` 清空",
@@ -560,6 +561,16 @@ export function renderLive(live: LiveSnapshot, trace?: CardTrace, trail?: Trail,
 
 type PostElement = { tag?: string; text?: string; image_key?: string };
 type ParsedContent = { text: string; imageKeys: string[]; audioKey?: string };
+
+/**
+ * `/steer 内容`（或 `/插话 内容`）→ 内容；`""` = 只有命令没有内容；`undefined` = 不是插话命令。
+ * 这个分界决定了「插进在跑的这轮」还是「当普通消息走」，所以单独拎出来测。
+ */
+export function parseSteer(command: string): string | undefined {
+  const match = /^\/(?:steer|插话)(?:\s+([\s\S]+))?$/i.exec(command.trim());
+  if (match === null) return undefined;
+  return (match[1] ?? "").trim();
+}
 
 /** The bot's own open_id, learned at startup, so an @ of itself can be dropped entirely. */
 let botOpenId: string | undefined;
@@ -2134,7 +2145,41 @@ const continuing = new Set<string>();
     }
 
     if (/^\/(cost|花费|额度)$/i.test(command)) {
-      const budget = await runtime.budget(chatId);
+      // Steering bends a run that is already going, which is why it is a command and not what a
+    // message does by default: a stray "对了…" sent mid-run should wait its turn, not redirect work
+    // in flight. Queued messages are the normal path and they cost nothing to correct.
+    const steerText = parseSteer(command);
+    if (steerText === "") {
+      await say("用法：/steer 要它改的地方（这条会插进正在跑的那一轮）");
+      return;
+    }
+    if (steerText !== undefined) {
+      // Nothing running: the words are just a message. Starting a run from a steer would need its
+      // own card and its own answer delivery, which is the path below — so take that path.
+      if (await runInFlight(conversation).catch(() => false)) {
+        const speaker =
+          message.chat_type === "p2p"
+            ? undefined
+            : speakerTag(isOwner, senderId, isOwner ? undefined : await senderName(senderId).catch(() => undefined));
+        const content = await buildUserContent(message, { ...parsed, text: steerText }, speaker);
+        // The request id is the message id, so a redelivered event steers once, not twice.
+        const steered = await conversation.submit(
+          { type: "input", content, whenBusy: "steer", requestId: `steer:${message.message_id}` },
+          context,
+        );
+        log("feishu", "steered a running turn", {
+          chatId,
+          conversationId: conversation.id,
+          submissionId: steered.id,
+          status: steered.status,
+        });
+        await say("已插话：这一轮在下个工具调用边界看到它（要是它已经收尾了，就并进收尾）。");
+        return;
+      }
+      parsed.text = steerText;
+    }
+
+    const budget = await runtime.budget(chatId);
       const limit = budget.limit <= 0 ? "未设上限" : `$${budget.limit.toFixed(2)}`;
       await say(`今日花费 $${budget.spentToday.toFixed(4)} / ${limit}`);
       return;
