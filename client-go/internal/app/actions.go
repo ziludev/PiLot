@@ -182,3 +182,30 @@ func (a *App) NewChat() { a.newChat() }
 func (a *App) AttachImages() { a.attachImages() }
 
 func (a *App) RestartAgent() { a.restartAgent() }
+
+// toggleLang switches the window between Chinese and English and remembers it:
+// the language of a button is not something to re-pick on every launch.
+func (a *App) toggleLang() {
+	lang := i18n.EN
+	if i18n.Current() == i18n.EN {
+		lang = i18n.ZH
+	}
+	i18n.Set(lang)
+	a.prefs.Lang = string(lang)
+	a.stamp++
+	go savePrefs(a.prefs)
+	a.invalidate()
+}
+
+// toggleTheme flips between the two themes and remembers it. The first press
+// settles the choice: once made, the macOS setting no longer moves the window.
+func (a *App) toggleTheme() {
+	dark := !a.dark
+	if dark {
+		a.prefs.Theme = "dark"
+	} else {
+		a.prefs.Theme = "light"
+	}
+	go savePrefs(a.prefs)
+	a.invalidate()
+}

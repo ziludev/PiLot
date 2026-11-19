@@ -58,6 +58,13 @@ type App struct {
 	active  int
 	threads map[int]*threadStore
 
+	// prefs is what the window keeps between launches: language and theme, which
+	// have no dialog of their own.
+	prefs prefs
+	// dark is the theme the last frame drew with, so a toggle flips what is on
+	// screen rather than what macOS says.
+	dark bool
+
 	// watch is the live subscription for the active chat.
 	watchCancel context.CancelFunc
 	watchConv   int
@@ -110,6 +117,10 @@ type threadStore struct {
 // reconcile and a staggered tail probe for the rail's relative times.
 func New(cfg Config) *App {
 	a := newApp(cfg)
+	// The saved language and theme are the window's own, read once at startup so
+	// the frames a test draws by hand stay independent of the owner's settings.
+	a.prefs = loadPrefs()
+	a.prefs.applyLang()
 	go a.reconcileLoop()
 	go a.tailLoop()
 	return a
@@ -602,7 +613,8 @@ func (a *App) running() bool {
 func (a *App) View(c *ui.Context) {
 	a.drain()
 	a.now = time.Now()
-	t := theme.Use(c, c.Theme().Dark)
+	a.dark = a.prefs.dark(c.Theme().Dark)
+	t := theme.Use(c, a.dark)
 	a.shell(c, t)
 }
 
