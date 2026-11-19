@@ -22,16 +22,18 @@ Palette: blue `#1069EB`, coral `#FD713C`, purple `#8654FC`, yellow `#FEAE2C`; th
 
 ## What the app uses, and how it is derived
 
-`client-go/resources/` holds copies because `go:embed` and `go tool mygo build` read only from the
-module:
+The fox is the icon, and the wordmark is still this kit's lettering — the one place both appear
+together is the README lockup.
 
-| App file | From | Note |
+| Output | From | Script |
 | --- | --- | --- |
-| `pilot-app-icon.svg` | `PiLot_app_icon.svg` | rendered to `icon.png` (1024) by `client-go/scripts/render-icon.sh`, which mygo turns into `AppIcon.icns` |
-| `pilot-logo.svg` | `PiLot_brand_master.svg` | |
-| `pilot-logo-dark.svg` | `PiLot_monochrome_white.svg` | |
-| `pilot-mark.svg` | `PiLot_symbol_master.svg` | symbol only, recoloured to a single ink, viewBox squared for the rail |
-| `tray.png` | `pilot-mark.svg` | 32×32 template icon, rendered by the same script |
+| `client-go/resources/icon.png` (1024) | `PiLot_fox.jpg` — head + tile, squircle generated | `client-go/scripts/render-icon.sh` |
+| `client-go/internal/app/avatar.png` (128) | the same master, head only | `client-go/scripts/render-icon.sh` |
+| `assets/readme/logo.png`, `logo-dark.png` | the icon above + the wordmark out of `PiLot_brand_master.svg` / `PiLot_monochrome_white.svg` | `scripts/render-brand` |
 
-The `.icns` and the `PiLot.iconset/` in the kit are not stored: the build regenerates the icon from
-the vector, and a checked-in `.icns` would only drift from it.
+Both scripts cut from the master rather than copying a checked-in mask: a stored `.icns` or a stored
+squircle alpha would only drift from the art.
+
+Nothing in `client-go/resources/` is a stale copy of the vector kit any more — the SVGs and the
+32×32 template `tray.png` were removed with the old monochrome mark, because nothing read them and
+`go tool mygo build` copies that directory into the bundle wholesale.
