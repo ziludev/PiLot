@@ -97,6 +97,19 @@ export type ReclaimResult = {
 };
 
 /**
+ * Whether a checkout has anything in it that git does not already have elsewhere.
+ *
+ * Submodules have to be asked separately: the parent's `status` says nothing about files a
+ * submodule's own working tree has lying around, and a removal takes those with it.
+ */
+async function unsaved(target: string): Promise<string | undefined> {
+  const top = await git(target, ["status", "--porcelain", "--ignore-submodules=none"]).catch(() => undefined);
+  if (top === undefined || top.trim().length > 0) return top;
+  const sub = await git(target, ["submodule", "foreach", "--recursive", "--quiet", "git status --porcelain"]).catch(() => "");
+  return sub.trim().length > 0 ? sub : "";
+}
+
+/**
  * Drops the checkouts of conversations that no longer exist. Nothing deletes them on
  * purpose — the storage can be reset, migrated, or lose rows while `.worktrees` stays
  * on disk — so a boot is the only place that can notice.
@@ -138,7 +151,7 @@ export async function reclaimWorktrees(
       kept.push({ conversationId, branch: target.branch, reason: "unmerged", detail: `${ahead} commit(s)` });
       continue;
     }
-    const dirty = await git(target.dir, ["status", "--porcelain"]).catch(() => undefined);
+    const dirty = await unsaved(target.dir);
     if (dirty === undefined || dirty.trim().length > 0) {
       kept.push({
         conversationId,
@@ -149,8 +162,10 @@ export async function reclaimWorktrees(
       continue;
     }
     try {
-      // No --force: the two checks above say it is safe, and if git disagrees it should say so.
-      await git(repoRoot, ["worktree", "remove", target.dir]);
+      // --force is not the safety decision here — the two checks above are. It is only for git's
+      // own refusals that have nothing to do with whether the work is safe to drop: a checkout
+      // with submodules is refused outright, and those have been checked separately above.
+      await git(repoRoot, ["worktree", "remove", "--force", target.dir]);
       await git(repoRoot, ["branch", "-D", target.branch]).catch(() => "");
       removed.push({ conversationId, branch: target.branch });
     } catch (error) {
