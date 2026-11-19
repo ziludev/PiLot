@@ -175,6 +175,16 @@ var zh = map[string]string{
 	"weekdayMon":  "一",
 	"weekdayWed":  "三",
 	"weekdayFri":  "五",
+	// The comparison base: what a chat's work is measured against, and where a
+	// merge lands.
+	"baseChip":       "基准 {branch}",
+	"baseTooltip":    "改动从哪儿算起；合并也落到这个分支",
+	"baseTitle":      "对比基准",
+	"baseHint":       "改动和未合并的提交都从这个分支算起，合并也落到这里。",
+	"baseNoBranches": "还没拿到分支列表，点上面的刷新再试",
+	"baseCurrent":    "当前",
+	"baseFailed":     "没切换成功",
+
 	// The projects drawer: the repositories a chat can live in.
 	"projects":              "项目",
 	"projectBuiltin":        "内置",
@@ -415,6 +425,15 @@ var en = map[string]string{
 	"writeRunning":  "Working…",
 	"noFiles":       "(it did not say which)",
 	"andMore":       " and {n} more",
+	// The comparison base.
+	"baseChip":       "base {branch}",
+	"baseTooltip":    "What changes are measured from; a merge lands here too",
+	"baseTitle":      "Comparison base",
+	"baseHint":       "Changes and unmerged commits are counted from this branch, and a merge lands here.",
+	"baseNoBranches": "No branch list yet; hit refresh above",
+	"baseCurrent":    "current",
+	"baseFailed":     "Could not switch it",
+
 	// The projects drawer.
 	"projects":              "Projects",
 	"projectBuiltin":        "built in",
