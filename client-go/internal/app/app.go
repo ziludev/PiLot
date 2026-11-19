@@ -108,6 +108,9 @@ type App struct {
 	thinking     string
 	defaultModel *protocol.ModelRef
 	pick         modelPick
+
+	// mem is the memory drawer: closed until the header button opens it.
+	mem memoryPanel
 }
 
 type viewModel struct {
@@ -228,6 +231,10 @@ const (
 	// The model panel: the catalog's reply, and the write's outcome.
 	evModels
 	evModelSet
+	// The memory drawer: its three lists, a curation pass, and the write.
+	evMemory
+	evCurate
+	evMemorySaved
 )
 
 type event struct {
@@ -249,6 +256,9 @@ type event struct {
 	hits     []protocol.SearchHit
 	undo     *surfaceUndo
 	models   *protocol.Models
+	memory   *protocol.Memory
+	curation *protocol.Curation
+	applied  *protocol.MemoryApplied
 	err      error
 }
 
@@ -564,6 +574,12 @@ func (a *App) apply(ev event) {
 		a.applyModels(ev.models, ev.err)
 	case evModelSet:
 		a.applyModelSet(ev.convID, ev.err)
+	case evMemory:
+		a.applyMemory(ev.convID, ev.memory, ev.err)
+	case evCurate:
+		a.applyCuration(ev.curation, ev.err)
+	case evMemorySaved:
+		a.applyMemorySaved(ev.applied, ev.err)
 	}
 }
 
@@ -715,6 +731,12 @@ func (a *App) selectConversation(convID int) {
 	}
 	if th, ok := a.threads[convID]; !ok || !th.loaded {
 		a.loadThread(convID)
+	}
+	// The memory drawer's chat scope belongs to the chat on screen, so opening
+	// another one makes that tab stale.
+	if a.mem.open {
+		a.mem.notes[2] = nil
+		a.loadMemory()
 	}
 	a.invalidate()
 }

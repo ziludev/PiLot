@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"pitta/internal/protocol"
 )
 
 // The bodies below are trimmed copies of real bridge replies, keeping fields
@@ -230,5 +232,71 @@ func TestStatusError(t *testing.T) {
 	}
 	if status.Code != http.StatusBadGateway || !strings.Contains(status.Error(), "502") {
 		t.Fatalf("status %+v", status)
+	}
+}
+
+func TestMemoryReadsAllThreeScopes(t *testing.T) {
+	var got capture
+	client := serve(t, `{"global":[{"at":"2026-11-18","text":"Alex 说中文"}],`+
+		`"work":[{"at":"2026-11-18","text":"代理 7890"}],"chat":[{"at":"2026-11-19","text":"折叠归用户"}]}`, &got)
+	memory, err := client.Memory(context.Background(), 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.path != "/api/memory?chat=42" {
+		t.Fatalf("path %s", got.path)
+	}
+	if len(memory.Global) != 1 || memory.Global[0].Text != "Alex 说中文" {
+		t.Fatalf("global %+v", memory.Global)
+	}
+	if len(memory.Work) != 1 || len(memory.Chat) != 1 {
+		t.Fatalf("memory %+v", memory)
+	}
+}
+
+func TestCurateMemorySendsHoursAndKeepsFailure(t *testing.T) {
+	var got capture
+	client := serve(t, `{"suggestions":[{"text":"分支红线","scope":"work","reason":"重复三次"}],`+
+		`"scanned":12,"tokens":3400,"error":"model timed out"}`, &got)
+	curation, err := client.CurateMemory(context.Background(), 48)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.method != http.MethodPost || got.path != "/api/memory/curate" {
+		t.Fatalf("got %s %s", got.method, got.path)
+	}
+	if hours, _ := got.body["hours"].(float64); hours != 48 {
+		t.Fatalf("hours %v", got.body["hours"])
+	}
+	if len(curation.Suggestions) != 1 || curation.Suggestions[0].Scope != "work" {
+		t.Fatalf("curation %+v", curation)
+	}
+	if curation.Error != "model timed out" || curation.Scanned != 12 || curation.Tokens != 3400 {
+		t.Fatalf("curation %+v", curation)
+	}
+}
+
+func TestApplyMemorySendsTheKeptLines(t *testing.T) {
+	var got capture
+	client := serve(t, `{"added":1,"skipped":1}`, &got)
+	applied, err := client.ApplyMemory(context.Background(), []protocol.MemorySuggestion{
+		{Text: "a", Scope: "global"}, {Text: "b", Scope: "work", Reason: "why"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.path != "/api/memory/apply" {
+		t.Fatalf("path %s", got.path)
+	}
+	lines, _ := got.body["suggestions"].([]any)
+	if len(lines) != 2 {
+		t.Fatalf("body %+v", got.body)
+	}
+	first, _ := lines[0].(map[string]any)
+	if first["text"] != "a" || first["scope"] != "global" {
+		t.Fatalf("line %+v", first)
+	}
+	if applied.Added != 1 || applied.Skipped != 1 {
+		t.Fatalf("applied %+v", applied)
 	}
 }
