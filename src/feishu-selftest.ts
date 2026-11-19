@@ -17,8 +17,8 @@ const client = new Lark.Client({ appId, appSecret });
 
 function card(markdown: string, meta?: string): string {
   const elements: Array<Record<string, unknown>> = [{ tag: "markdown", content: markdown }];
-  if (meta !== undefined) elements.push({ tag: "note", elements: [{ tag: "plain_text", content: meta }] });
-  return JSON.stringify({ config: { wide_screen_mode: true, update_multi: true }, elements });
+  if (meta !== undefined) elements.push({ tag: "markdown", content: meta, text_size: "notation" });
+  return JSON.stringify({ schema: "2.0", config: { update_multi: true }, body: { elements } });
 }
 
 const created = await client.im.message.create({
