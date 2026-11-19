@@ -54,11 +54,16 @@ func TestRailFilterCountsMatchTheViews(t *testing.T) {
 		{ConversationID: 3, Title: "deploy old", Kind: "feishu", Archived: true},
 		{ConversationID: 4, Title: "grocery list", Kind: "client"},
 	}
-	a.tasks = []protocol.Task{{ID: 10, ConversationID: 1, State: "waiting"}}
+	a.tasks = []protocol.Task{{ID: 10, Kind: "app.feature", ConversationID: 1, State: "waiting"}}
 	a.unread = map[int]bool{2: true}
 
 	counts := a.railFilterCounts()
 	for i, key := range railFilterKeys {
+		// The tasks view counts tasks, not chats, so there is no chat to tally
+		// against it; its number is checked below.
+		if railFilters[i] == "tasks" {
+			continue
+		}
 		got := 0
 		for _, s := range a.sortedSurfaces() {
 			if a.railShown(s, i) {
@@ -71,14 +76,15 @@ func TestRailFilterCountsMatchTheViews(t *testing.T) {
 	}
 	// The archived chat is out of every count until the rail shows archives,
 	// and no chat waits for its owner here, so the "needs you" view is empty.
-	if fmt.Sprint(counts) != "[3 2 1 0 1]" {
-		t.Fatalf("counts = %v, want [3 2 1 0 1]", counts)
+	// The last number is the tasks view: one task, unaffected by a chat search.
+	if fmt.Sprint(counts) != "[3 2 1 0 1 1]" {
+		t.Fatalf("counts = %v, want [3 2 1 0 1 1]", counts)
 	}
 
 	a.query = "deploy"
 	counts = a.railFilterCounts()
-	if fmt.Sprint(counts) != "[2 1 1 0 1]" {
-		t.Fatalf("search counts = %v, want [2 1 1 0 1]: both matching chats counted once each", counts)
+	if fmt.Sprint(counts) != "[2 1 1 0 1 1]" {
+		t.Fatalf("search counts = %v, want [2 1 1 0 1 1]: both matching chats counted once each", counts)
 	}
 }
 

@@ -29,8 +29,8 @@ const railRowHeight float32 = 28
 // would fold the block again the moment the pointer left its header.
 
 // rail is the left pane: the app's name and project, the way into the chats,
-// the chats themselves, the tasks running behind them, and the buttons that
-// drive the agent.
+// either the chats or the tasks behind them, and the buttons that drive the
+// agent.
 func (a *App) rail(c *ui.Context) {
 	t := theme.Current(c)
 	rows := a.railRows()
@@ -42,11 +42,21 @@ func (a *App) rail(c *ui.Context) {
 		}
 		a.railApproval(c, t)
 		a.projectBar(c, t)
-		a.railSearch(c, t)
+		// The search box filters chats; a field that types into nothing is worse
+		// than no field, so the tasks view hides it along with the hits list.
+		if a.prefs.SurfaceFilter != "tasks" {
+			a.railSearch(c, t)
+		}
 		a.railFilters(c, t)
 		a.railFeishu(c, t)
-		a.railList(c, t, rows)
-		a.railTasks(c, t)
+		// One of the two takes the room under the filters: a durable task that
+		// wakes after a restart is what this client is for, so it is a view of
+		// the list rather than a strip at the foot of it.
+		if a.prefs.SurfaceFilter == "tasks" {
+			a.railTaskList(c, t)
+		} else {
+			a.railList(c, t, rows)
+		}
 		a.railFooter(c, t)
 	})
 }
@@ -235,12 +245,20 @@ const searchHitsLabel = "search-hits"
 func (a *App) railFilters(c *ui.Context, t theme.Tokens) {
 	picked := railFilterIndex(a.prefs.SurfaceFilter)
 	counts := a.railFilterCounts()
+	jobs := a.prefs.SurfaceFilter == "tasks"
+	title := "sessions"
+	if jobs {
+		title = "tasks"
+	}
 	ui.Row(c).FillWidth().Padding(6, 10, 0, 10).Gap(4).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, strings.ToUpper(i18n.T("sessions"))).FontSize(10).FontWeight(600).
+		ui.Text(c, strings.ToUpper(i18n.T(title))).FontSize(10).FontWeight(600).
 			TextColor(t.MutedFg).MaxLines(1)
 		ui.Row(c).Grow(1).Children(func() {})
-		a.railArchiveToggle(c, t)
-		railIconAction(c, i18n.T("newChat"), icons.Plus, func() { go a.newConversation() })
+		// Both of these act on chats, and the jobs view has none on screen.
+		if !jobs {
+			a.railArchiveToggle(c, t)
+			railIconAction(c, i18n.T("newChat"), icons.Plus, func() { go a.newConversation() })
+		}
 	})
 	ui.Row(c).FillWidth().Wrap().Padding(4, 10, 4, 10).Gap(4).Children(func() {
 		for index, key := range railFilterKeys {
@@ -548,80 +566,6 @@ func (a *App) railOthersHeader(c *ui.Context, t theme.Tokens, count int) {
 		a.savePrefsLater()
 		a.invalidate()
 	})
-}
-
-// railTasks lists the tasks the owner started, above the rail's buttons. It
-// stops at 40 points: a rail shows what is running, not the whole queue.
-func (a *App) railTasks(c *ui.Context, t theme.Tokens) {
-	tasks := railLiveTasks(a.tasks)
-	if len(tasks) == 0 {
-		return
-	}
-	// No heading: the filter row above already counts the running jobs, and the
-	// footer says it again. A third "Running" only costs the list its room.
-	ui.Divider(c)
-	a.noteTaskAges(tasks)
-	ui.Scroll(c).FillWidth().Height(40).Padding(0, 6).Children(func() {
-		ui.Column(c).FillWidth().Children(func() {
-			for _, task := range tasks {
-				task := task
-				right := a.taskRightLabel(task)
-				ui.Row(c).FillWidth().Height(18).PaddingX(4).Gap(5).
-					AlignItems(ui.Center).OnClick(func() { a.openTask(task.ID) }).Children(func() {
-					ui.Box(c).Size(6, 6).Radius(3).AlignSelf(ui.Center).
-						Background(railTaskColor(t, task.State))
-					ui.Text(c, railTaskTitle(task)).FontSize(10).TextColor(t.SidebarFg).
-						Grow(1).MaxLines(1)
-					ui.Text(c, right).FontSize(9).TextColor(t.MutedFg)
-				})
-			}
-			// A job that has run for four minutes and one that has run for forty
-			// look the same without a clock, and the difference is the whole
-			// question of whether it is working or stuck. Five seconds is the
-			// cheapest tick that keeps the number from looking frozen: every tick
-			// rebuilds the whole window, transcript included.
-			ui.Row(c).Height(0).Loop("elapsed", 5*time.Second, ui.Linear)
-		})
-	})
-}
-
-// noteTaskAges remembers when each live job first showed up, which is the only
-// start time the client has: protocol.Task carries no timestamp of its own.
-func (a *App) noteTaskAges(tasks []protocol.Task) {
-	if len(tasks) == 0 {
-		a.taskSince = nil
-		return
-	}
-	now := time.Now()
-	next := make(map[int]time.Time, len(tasks))
-	for _, task := range tasks {
-		if !taskUnfinished(task.State) {
-			continue
-		}
-		if since, ok := a.taskSince[task.ID]; ok {
-			next[task.ID] = since
-			continue
-		}
-		next[task.ID] = now
-	}
-	a.taskSince = next
-}
-
-// taskRightLabel is what sits at the right end of a job's row: how long it has
-// been going while it goes, and what it is waiting for when it is not.
-func (a *App) taskRightLabel(task protocol.Task) string {
-	if !taskUnfinished(task.State) || task.State == "waiting" || task.State == "blocked" {
-		return railTaskState(task.State)
-	}
-	since, ok := a.taskSince[task.ID]
-	if !ok {
-		return railTaskState(task.State)
-	}
-	elapsed := time.Since(since).Milliseconds()
-	if elapsed < 0 {
-		elapsed = 0
-	}
-	return turns.Clock(elapsed)
 }
 
 // railFooter is the rail's last line: the settings panel's button, the log, and

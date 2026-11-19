@@ -19,7 +19,7 @@ import (
 // stepsCount is ours, for the line a whole long turn folds into; queueDepth and
 // agentUnreachable are ours too, for the footer's health segment.
 // TestOriginDictionaryStillMatches keeps those lines.
-const wantKeys = 196
+const wantKeys = 199
 
 // useLang switches the package language for one test and restores it after.
 func useLang(t *testing.T, l Lang) {

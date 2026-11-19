@@ -76,11 +76,11 @@ func railCost(cost float64) string {
 // There is no "running" view: the jobs section at the foot of the rail already
 // lists what is in flight, and the rows that are working say so with a ring, so
 // a third telling of it only crowded a 210 px strip into two lines.
-var railFilters = []string{"all", "client", "feishu", "needs", "unread"}
+var railFilters = []string{"all", "client", "feishu", "needs", "unread", "tasks"}
 
 // railFilterKeys name each view in the dictionary, in the same order as
 // railFilters, so a label cannot end up over another view's count.
-var railFilterKeys = []string{"allChats", "clientChats", "feishuChats", "needsYou", "unread"}
+var railFilterKeys = []string{"allChats", "clientChats", "feishuChats", "needsYou", "unread", "tasks"}
 
 // railFilterIndex is where the saved filter sits in railFilters. An unknown
 // value reads as "all", so a hand-edited prefs file cannot empty the rail.
@@ -158,9 +158,9 @@ func (a *App) railRows() []railRow {
 	return rows
 }
 
-// railFilterCounted reports whether a view's label carries its count: the total
-// and the two state views, whose numbers move as turns run, rather than the two
-// kind views, which are fixed slices of the total.
+// railFilterCounted reports whether a view's label carries its count: the total,
+// the two state views and the jobs view, whose numbers move as turns run, rather
+// than the two kind views, which are fixed slices of the total.
 func railFilterCounted(filter string) bool {
 	switch filter {
 	case "client", "feishu":
@@ -176,6 +176,10 @@ func (a *App) railShown(s protocol.Surface, filter int) bool {
 		return true
 	}
 	switch railFilters[filter] {
+	// The jobs view shows tasks, not chats: it counts in railFilterCounts and
+	// takes the list's room in rail, so no chat passes through it.
+	case "tasks":
+		return false
 	case "needs":
 		return a.chatNeedsYou(s.ConversationID)
 	case "unread":
@@ -189,6 +193,11 @@ func (a *App) railShown(s protocol.Surface, filter int) bool {
 // the list will not draw.
 func (a *App) railFilterCounts() []int {
 	counts := make([]int, len(railFilters))
+	for i, filter := range railFilters {
+		if filter == "tasks" {
+			counts[i] = len(railLiveTasks(a.tasks))
+		}
+	}
 	for _, s := range a.sortedSurfaces() {
 		for i := range railFilters {
 			if a.railShown(s, i) {
@@ -253,8 +262,20 @@ func railTaskLabel(kind string) string {
 			return "定时提醒"
 		}
 		return "Reminder"
+	case "app.routine":
+		if zh {
+			return "定时任务"
+		}
+		return "Routine"
+	case "app.digest":
+		if zh {
+			return "晨报"
+		}
+		return "Digest"
 	}
-	return kind
+	// Every other kind is the bridge's, and the "app." prefix on a row is noise:
+	// "app.todo" reads worse than "todo".
+	return strings.TrimPrefix(kind, "app.")
 }
 
 // railTaskState words the task's state, as the rail's STATE_LABELS does.
