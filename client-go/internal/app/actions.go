@@ -132,20 +132,18 @@ func (a *App) attachImages() {
 			return
 		}
 		var images []imageRef
-		var dropped []string
+		var pointed []string
 		for _, path := range paths {
 			if img, ok := readImage(path); ok {
 				images = append(images, img)
 			} else if !a.inlineText(path) {
-				dropped = append(dropped, filepath.Base(path))
+				pointed = append(pointed, path)
 			}
 		}
 		if len(images) > 0 {
 			a.post(event{kind: evFiles, images: images})
 		}
-		if len(dropped) > 0 {
-			a.post(event{kind: evNotice, notice: i18n.TF("attachRefused", map[string]any{"files": strings.Join(dropped, ", ")})})
-		}
+		a.putPaths(pointed)
 	}()
 }
 
@@ -158,9 +156,33 @@ func (a *App) attachPath(path string) {
 			return
 		}
 		if !a.inlineText(path) {
-			a.post(event{kind: evNotice, notice: i18n.TF("attachRefused", map[string]any{"files": filepath.Base(path)})})
+			a.putPaths([]string{path})
 		}
 	}()
+}
+
+// putPaths puts the files the window cannot take into the message as paths.
+// The agent runs on this machine and can read all of it — a pdf, a log, a
+// directory — so refusing the drop only made the reader copy the path by hand.
+func (a *App) putPaths(paths []string) {
+	if len(paths) == 0 {
+		return
+	}
+	lines := make([]string, 0, len(paths))
+	for _, path := range paths {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			abs = path
+		}
+		// A path with a space would read as two paths; the backticks keep it
+		// one word for the reader and for the model.
+		if strings.ContainsRune(abs, ' ') {
+			abs = "`" + abs + "`"
+		}
+		lines = append(lines, abs)
+	}
+	a.post(event{kind: evDraft, text: strings.Join(lines, "\n")})
+	a.post(event{kind: evNotice, ok: true, notice: i18n.TF("pathDropped", map[string]any{"n": len(lines)})})
 }
 
 // imageExts and textExts are what the window can take. An image travels as an
@@ -182,8 +204,8 @@ func (a *App) inlineText(path string) bool {
 	}
 	info, err := os.Stat(path)
 	if err != nil || info.Size() > maxInline {
-		a.post(event{kind: evNotice, notice: i18n.TF("attachTooBig", map[string]any{"file": filepath.Base(path)})})
-		return true
+		// Too big to quote is not too big to point at.
+		return false
 	}
 	data, err := os.ReadFile(path)
 	if err != nil || !utf8.Valid(data) {

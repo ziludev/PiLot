@@ -129,11 +129,16 @@ func (a *App) jumpToLatest(c *ui.Context, t theme.Tokens, rows int) {
 		ui.Icon(c, icons.ChevronDown).Size(11, 11).TextColor(t.Foreground)
 		ui.Text(c, i18n.T("jumpLatest")).FontSize(10.5).TextColor(t.Foreground).MaxLines(1)
 	})
-	pill.OnClick(func() {
-		a.vm.threadList.FollowEnd = true
-		a.vm.threadList.ScrollToEnd()
-		a.invalidate()
-	})
+	pill.OnClick(a.scrollToLatest)
+}
+
+// scrollToLatest puts the reader back at the newest words and keeps them there
+// as the answer arrives. It is what the pill does and what ⌘J does, so the two
+// cannot disagree.
+func (a *App) scrollToLatest() {
+	a.vm.threadList.FollowEnd = true
+	a.vm.threadList.ScrollToEnd()
+	a.invalidate()
 }
 
 // threadRowMarked tints the row the find bar is standing on, and leaves the

@@ -19,6 +19,12 @@ type settingsPanel struct {
 	open bool
 }
 
+// toggleSettings is the settings sheet, from the rail button or from ⌘K.
+func (a *App) toggleSettings() {
+	a.settings.open = !a.settings.open
+	a.invalidate()
+}
+
 func (a *App) settingsDialog(c *ui.Context, t theme.Tokens) {
 	if !a.settings.open {
 		return

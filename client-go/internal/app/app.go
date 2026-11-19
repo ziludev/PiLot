@@ -102,7 +102,13 @@ type App struct {
 	history    []string
 	histIndex  int
 	notice     string
-	busy       map[string]bool // call id → decision in flight
+	// noticeOK marks the notice as news rather than a complaint, so the line is
+	// not painted in the color of failure.
+	noticeOK bool
+	busy     map[string]bool // call id → decision in flight
+
+	// palette is the ⌘K field: find a chat, or name an action.
+	palette paletteState
 
 	// search is the cross-chat search behind the filter box. Its hits belong to
 	// query, and seq retires the replies of queries the user has typed past.
@@ -301,6 +307,7 @@ type event struct {
 	frame    *frameResult
 	tail     *tailResult
 	notice   string
+	ok       bool
 	text     string
 	convID   int
 	callID   string
@@ -619,6 +626,7 @@ func (a *App) apply(ev event) {
 		a.applyTail(ev.tail)
 	case evNotice:
 		a.notice = ev.notice
+		a.noticeOK = ev.ok
 	case evFiles:
 		a.addImages(ev.images)
 	case evDraft:
@@ -931,7 +939,13 @@ func (a *App) View(c *ui.Context) {
 	a.now = time.Now()
 	a.dark = a.prefs.dark(c.Theme().Dark)
 	t := theme.Use(c, a.dark)
+	// ⌘K is the way in: the window has more verbs than fit on a rail, and a
+	// reader who knows the name of a chat should not have to hunt for it.
+	c.OnWindowShortcut(ui.Super, ui.KeyK, a.openPalette)
+	c.OnWindowShortcut(ui.Super|ui.Shift, ui.KeyE, a.exportMarkdown)
+	c.OnWindowShortcut(ui.Super, ui.KeyJ, a.scrollToLatest)
 	a.shell(c, t)
+	a.paletteDialog(c, t)
 	a.renameDialog(c, t)
 	a.settingsDialog(c, t)
 	a.taskDetailDialog(c, t)

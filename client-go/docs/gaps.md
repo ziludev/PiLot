@@ -14,6 +14,9 @@
 | 改动 / 全文两栏 | `changes.go` 的 `fileTextView` | diff 回答「动了什么」，全文回答「现在写着什么」——读 diff 去回答后者是猜。停在这一步，不加搜索/高亮/跳转：那是编辑器的活 |
 | 提交 / 推送 / 合并 | `gitwrite.go` | 省掉「看完 diff 切终端输三条 git」。三个动词各问一次确认，拒绝理由成句留在按钮下面 |
 | 项目栏 | `projects.go` | 「这个聊天生在哪个仓库」只能在开聊时定，事后 bridge 补不回来 |
+| ⌘K 命令面板 | `palette.go` | 「找到上周那个会话」原来要滚侧栏、展开分组、读标题；现在打字即筛，动作和侧栏按钮共用同一个函数，不会走散。参考 Linear / VS Code / crush 的 `Ctrl+P`，选型笔记见 `docs/agent-clients-review.md` |
+| 导出为 Markdown | `exportmd.go` | 给 PR、issue、不在场的人用：原话留着，步骤折起来，工具输出不带走（最长也最少被引用） |
+| 拖任意文件进来 → 路径 | `actions.go` 的 `putPaths` | 图片当附件、小文本整段引用这两条不变；其余（pdf、大文件、目录）把绝对路径放进输入框。agent 就在这台机器上跑，拒绝拖拽只是逼人去复制路径 |
 | 基准只读 chip | `base.go` | 改动和未合并的提交从哪儿算起，得写在数字旁边；但**不提供切换**，理由见下 |
 
 ## 2. 不做的，和原因
@@ -31,6 +34,8 @@
 
 ## 3. 动手时别踩的坑
 
+- **命令面板不能用 `ui.Popover`**（`internal/app/palette.go`）：Enter 要选中行，Popover 会把它吃掉。
+  用 `ui.Modal` + `TextInputBase.OnTextKey` 自己拦 ↑↓ / ⏎ / esc，返回 true 表示这一下自己处理了。
 - **`ui.Popover` 会把 Enter 当成自己的关闭键**。模型面板要 Enter 选中，所以它是 composer 上方的内联
   面板（`internal/app/model.go`）而不是浮层；别的面板要 Enter 也别用 Popover，或者在 Popover 里自己拦键。
 - **`Exit` 动效挂在 `ui.List` 的行上不生效**（v0.10.0 仍是）：行在数据消失的那一帧就被丢掉，没有元素
@@ -71,7 +76,7 @@
 - **查找条是手写的**（`internal/app/find.go`）：`ui.FindBar` 用窗口语言说 "1 of 3"，而这个 app 的语言
   是自己存的，中文窗口里冒出英文比多写四个小按钮更糟。命中按「行」算，滚到当前命中并给它上底色。
 - **中文界面默认**，文案都走 `internal/i18n/dict.go`，zh 与 en 两套一起加；`i18n` 测试钉着键数上限
-  （现在 196 = 上限），加键就抬上限并在 `maxKeys` 上写清是哪一块加的。
+  （现在 221 = 上限），加键就抬上限并在 `maxKeys` 上写清是哪一块加的。
 - **记忆抽屉是右栏，不是 rail 的分区**（`internal/app/memory.go`）：记忆是句子，260 点的 rail 会把它们
   折成一团。它跟着打开的会话走（`selectConversation` 里重读 chat 那一档），整理是一轮模型调用，所以
   按钮上写着在跑、失败也照实说。
