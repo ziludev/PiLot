@@ -147,6 +147,18 @@ TS 侧
 | P3 切默认 | `FEISHU_TRANSPORT` 默认 `go`，node 路径标 deprecated | 连续 7 天无 `dropped eventId`、无 `patch failed` |
 | P4 收尾 | 删 node 传输路径与 node-sdk 依赖（自检/doctor 脚本单独保留） | `grep -r node-sdk src/ scripts/` 只剩 doctor 相关；`npm test` 全绿 |
 
+### 8.1 P1 实测记录（2026-11-19）
+
+结论：**两条长连接可以并存，事件是广播的**——这个方案的前提成立了。细节：
+
+- Node 侧 11:52:47 连上，Go 侧 12:01:56 连上，同一个 app；12:02–12:04 三条
+  `im.message.receive_v1` 在 Go 侧各收到一次（`messageId` 无重复），同时 Node 侧照常起 turn、照常回复。
+- 长连接模式不需要 `verification_token` / `encrypt_key`，两者传空串即可（实测能解出明文 payload，`schema: 2.0`）。
+- **“connected” 不等于 “在收”**：12:01:56 连上的实例 27 秒后收到首条事件，而 11:57:47 连上的前一实例
+  在两分钟内一条都没收到（期间 Node 收到两条）。原因未查清，可能是首连失败重连后的路由状态。
+  因此 P2 不能把“连上了”当健康判据：要么等首条事件再宣布 ready，要么和桥接层的事件数对账。
+- 收事件到日志的延迟在毫秒级，`/healthz` 的 `lastEvent` 可直接当活性探针。
+
 ## 9. 风险
 
 | 风险 | 影响 | 对策 |
