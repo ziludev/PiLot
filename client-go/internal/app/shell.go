@@ -9,9 +9,13 @@ import (
 )
 
 const (
-	// railWidth is the rail in points: wide enough for a title and a time, and
-	// fixed, so the transcript never reflows under the cursor.
+	// railWidth is the rail in points before anyone drags its edge: wide enough
+	// for a title and a time.
 	railWidth = 260
+	// railMin and railMax bound the drag: narrower than the first, titles are
+	// initials; wider than the second, the transcript has no room.
+	railMin = 200
+	railMax = 420
 	// gutter is the horizontal breathing room of the transcript and composer.
 	gutter = 20
 	// titleBar is the strip the window's traffic lights sit over.

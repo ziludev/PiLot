@@ -11,7 +11,13 @@ import (
 // railView is the left column: the brand line with the approval count, the
 // filter, the two segments, and the list they switch between.
 func (a *App) railView(c *ui.Context, t theme.Tokens) {
-	ui.Column(c).Width(railWidth).FillHeight().Background(t.Sidebar).Children(func() {
+	// The edge sits over the seam between the two columns, so the pointer finds
+	// it before the list underneath does.
+	ui.Column(c).Width(a.railW).FillHeight().Background(t.Sidebar).Children(func() {
+		edge := ui.Box(c).Absolute().Right(-3).Top(0).Width(6).FillHeight().Cursor(ui.CursorResizeEW)
+		if dx, _, held := edge.Dragged(); dx != 0 || a.dragging {
+			a.resizeRail(dx, held)
+		}
 		// The window hides its title bar, so the traffic lights sit over this.
 		ui.Box(c).Height(titleBar)
 		a.railBrand(c, t)
@@ -27,6 +33,14 @@ func (a *App) railBrand(c *ui.Context, t theme.Tokens) {
 		a.avatarView(c, 18)
 		ui.Text(c, "PiLot").FontSize(12).FontWeight(600).TextColor(t.Foreground)
 		ui.Spacer(c)
+		compose := ui.ButtonBase(c).Size(20, 20).Radius(4).Justify(ui.Center).
+			AlignItems(ui.Center).Cursor(ui.CursorPointer).Tooltip(i18n.T("newChat"))
+		compose.Children(func() {
+			ui.Icon(c, icons.Plus).Size(12, 12).TextColor(t.MutedFg)
+		})
+		if compose.Clicked() {
+			a.newChat()
+		}
 		if n := len(a.pending); n > 0 {
 			badge := ui.Box(c).Radius(9).Padding(1, 6).Background(t.Destructive)
 			badge.Children(func() {
@@ -137,7 +151,7 @@ func (a *App) railList(c *ui.Context, t theme.Tokens) {
 	ui.Column(c).FillWidth().FillHeight().Padding(0, 8, 10, 8).Children(func() {
 		ui.List(c, &a.vm.railList, len(rows), func(row int) {
 			a.railRow(c, t, rows[row])
-		}).Grow(1).Width(railWidth - 16)
+		}).Grow(1).Width(a.railW - 16)
 	})
 }
 
@@ -213,4 +227,20 @@ func (a *App) railChatRow(c *ui.Context, t theme.Tokens, row railRow) {
 		}
 	})
 	item.OnClick(func() { a.selectConversation(row.conv.ConversationID) })
+}
+
+// resizeRail moves the seam by dx, and writes the width down when the pointer
+// lets go: a frame-by-frame file write would be a write per 16ms.
+func (a *App) resizeRail(dx float32, held bool) {
+	if dx != 0 {
+		a.railW = min(max(a.railW+dx, railMin), railMax)
+		a.dragging = held
+		a.invalidate()
+		return
+	}
+	if a.dragging {
+		a.dragging = false
+		a.prefs.Rail = int(a.railW)
+		savePrefs(a.prefs)
+	}
 }

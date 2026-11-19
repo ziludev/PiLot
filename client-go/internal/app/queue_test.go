@@ -2,6 +2,8 @@ package app
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -49,5 +51,26 @@ func TestRunSoFar(t *testing.T) {
 	a.thread(11).live.Run = nil
 	if _, ok := a.runSoFar(); ok {
 		t.Fatal("idle chat reported a running turn")
+	}
+}
+
+// Anything that is not one of the provider's image types used to be sent as a
+// png: a pdf arrived at the model as a picture of nothing.
+func TestReadImageRefusesOtherFiles(t *testing.T) {
+	dir := t.TempDir()
+	pdf := filepath.Join(dir, "a.pdf")
+	if err := os.WriteFile(pdf, []byte("%PDF-1.4"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := readImage(pdf); ok {
+		t.Fatal("a pdf read as an image")
+	}
+	shot := filepath.Join(dir, "a.jpeg")
+	if err := os.WriteFile(shot, []byte("jpegish"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	img, ok := readImage(shot)
+	if !ok || img.mime != "image/jpeg" {
+		t.Fatalf("jpeg read as %q", img.mime)
 	}
 }

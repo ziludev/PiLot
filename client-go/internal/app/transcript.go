@@ -1,6 +1,9 @@
 package app
 
 import (
+	"encoding/json"
+	"strings"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 
@@ -36,6 +39,11 @@ func (a *App) transcriptView(c *ui.Context, t theme.Tokens) {
 		return
 	}
 	rows := a.threadRows(a.active)
+	if live, ok := a.liveRow(); ok {
+		// Copied, because the projection is cached and this row changes every
+		// frame: appending in place would grow the cache with streaming text.
+		rows = append(rows[:len(rows):len(rows)], live)
+	}
 	if len(rows) == 0 {
 		ui.Row(c).Grow(1).FillWidth().Justify(ui.Center).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, i18n.T("emptyThread")).FontSize(11.5).TextColor(t.MutedFg)
@@ -70,6 +78,8 @@ func (a *App) threadRow(c *ui.Context, t theme.Tokens, row threadRow) {
 		a.stepsRow(c, t, row)
 	case rowError:
 		a.errorRow(c, t, row)
+	case rowLive:
+		a.liveRowView(c, t, row)
 	}
 }
 
@@ -155,9 +165,81 @@ func (a *App) errorRow(c *ui.Context, t theme.Tokens, row threadRow) {
 		ui.Box(c).Width(2).AlignSelf(ui.Stretch).Radius(1).Background(t.Destructive)
 		ui.Row(c).Grow(1).Padding(2, 0).Gap(5).AlignItems(ui.Start).Children(func() {
 			ui.Icon(c, icons.AlertTriangle).Size(11, 11).TextColor(t.Destructive)
-			ui.Text(c, row.text).Grow(1).FontSize(11.5).TextColor(t.Destructive)
+			ui.Text(c, row.text).FontSize(11.5).TextColor(t.Destructive)
+			// The failure usually ends a turn the reader still wants: one click
+			// sends the same words again instead of making them retype.
+			retry := ui.ButtonBase(c).Radius(5).Padding(1, 6).Cursor(ui.CursorPointer).
+				Tooltip(i18n.T("retry"))
+			retry.Children(func() {
+				ui.Text(c, i18n.T("retry")).FontSize(11).TextColor(t.Primary)
+			})
+			if retry.Clicked() {
+				a.retryTurn(row.turn)
+			}
 		})
 	})
+}
+
+// liveRowView is the turn in flight: the tool it is running, and the answer as
+// it is written. Without it a turn that thinks for a minute looks stalled.
+func (a *App) liveRowView(c *ui.Context, t theme.Tokens, row threadRow) {
+	ui.Row(c).FillWidth().Padding(6, 0).Gap(9).AlignItems(ui.Start).Children(func() {
+		a.avatarView(c, 18)
+		ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
+			if row.liveStep != "" {
+				ui.Text(c, i18n.TF("runningStep", map[string]any{"name": row.liveStep})).
+					FontSize(11).TextColor(t.MutedFg)
+			}
+			if row.text != "" {
+				// View, not Stream: the bytes already arrive in chunks, and a
+				// typewriter on top of that is animation for its own sake.
+				markdown.View(c, row.text, nil)
+			}
+		})
+	})
+}
+
+// liveRow is the turn in flight, read from pi.live: what it is running and what
+// it has said so far. Entries land when a turn commits, so nothing else would
+// reach the page while one is thinking.
+func (a *App) liveRow() (threadRow, bool) {
+	th, ok := a.threads[a.active]
+	if !ok || !a.running() {
+		return threadRow{}, false
+	}
+	row := threadRow{kind: rowLive, id: "live"}
+	var generation struct {
+		Message struct {
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"message"`
+	}
+	if json.Unmarshal(th.live.Generation, &generation) == nil {
+		var said []string
+		for _, part := range generation.Message.Content {
+			if part.Type == "text" && strings.TrimSpace(part.Text) != "" {
+				said = append(said, part.Text)
+			}
+		}
+		row.text = strings.Join(said, "")
+	}
+	// The last slot that is still running is the one to name; a round queues
+	// its calls up front, so the earlier ones read pending or done.
+	for _, raw := range th.live.Tools {
+		var slot struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		}
+		if json.Unmarshal(raw, &slot) == nil && slot.Status == "running" && slot.Name != "" {
+			row.liveStep = slot.Name
+		}
+	}
+	if row.text == "" && row.liveStep == "" {
+		return threadRow{}, false
+	}
+	return row, true
 }
 
 // images draws thumbnails; a pick that will not decode is skipped rather than

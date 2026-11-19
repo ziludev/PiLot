@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo"
 
@@ -30,6 +32,12 @@ func (a *App) submit() {
 	}
 	a.histIndex = len(a.history)
 	a.draft, a.draftImage = "", nil
+	a.sendText(convID, text, images)
+}
+
+// sendText posts one message; it is the same path the composer takes and the
+// one a retry takes with the words that failed.
+func (a *App) sendText(convID int, text string, images []imageRef) {
 	request := api.SubmitRequest{
 		ConversationID: convID,
 		Text:           text,
@@ -111,7 +119,8 @@ func (a *App) attachImages() {
 		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
 			Title: i18n.T("attachImage"),
 			Filters: []mygo.FileFilter{
-				{Name: "Images", Extensions: []string{"png", "jpg", "jpeg", "gif", "webp"}},
+				{Name: "Images and text", Extensions: append(append([]string{}, imageExts...), textExts...)},
+				{Name: "Images", Extensions: imageExts},
 			},
 			Multiple: true,
 		})
@@ -119,13 +128,19 @@ func (a *App) attachImages() {
 			return
 		}
 		var images []imageRef
+		var dropped []string
 		for _, path := range paths {
 			if img, ok := readImage(path); ok {
 				images = append(images, img)
+			} else if !a.inlineText(path) {
+				dropped = append(dropped, filepath.Base(path))
 			}
 		}
 		if len(images) > 0 {
 			a.post(event{kind: evFiles, images: images})
+		}
+		if len(dropped) > 0 {
+			a.post(event{kind: evNotice, notice: i18n.TF("attachRefused", map[string]any{"files": strings.Join(dropped, ", ")})})
 		}
 	}()
 }
@@ -136,23 +151,61 @@ func (a *App) attachPath(path string) {
 	go func() {
 		if img, ok := readImage(path); ok {
 			a.post(event{kind: evFiles, images: []imageRef{img}})
+			return
+		}
+		if !a.inlineText(path) {
+			a.post(event{kind: evNotice, notice: i18n.TF("attachRefused", map[string]any{"files": filepath.Base(path)})})
 		}
 	}()
 }
 
+// imageExts and textExts are what the window can take. An image travels as an
+// image part; a text file is quoted into the message, because the model reads
+// source better as text than as an attachment it cannot open.
+var imageExts = []string{"png", "jpg", "jpeg", "gif", "webp"}
+var textExts = []string{"go", "ts", "tsx", "js", "jsx", "json", "md", "txt", "yaml", "yml", "toml", "sh", "py", "rs", "sql", "css", "html"}
+
+// maxInline is where quoting a file stops being a message and starts being a
+// payload: past this the reader is better off pointing the agent at the path.
+const maxInline = 200 << 10
+
+// inlineText puts a text file in the composer as a fenced block, and reports
+// whether it did.
+func (a *App) inlineText(path string) bool {
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(path), "."))
+	if !slices.Contains(textExts, ext) {
+		return false
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Size() > maxInline {
+		a.post(event{kind: evNotice, notice: i18n.TF("attachTooBig", map[string]any{"file": filepath.Base(path)})})
+		return true
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || !utf8.Valid(data) {
+		return false
+	}
+	quoted := "```" + ext + "\n" + string(data) + "\n```"
+	a.post(event{kind: evDraft, text: quoted})
+	return true
+}
+
+// readImage reads a file only if it is one of the image types the provider
+// takes: guessing png for anything else sent pdfs to the model as a picture.
 func readImage(path string) (imageRef, bool) {
+	mime := map[string]string{
+		".png":  "image/png",
+		".jpg":  "image/jpeg",
+		".jpeg": "image/jpeg",
+		".gif":  "image/gif",
+		".webp": "image/webp",
+	}[strings.ToLower(filepath.Ext(path))]
+	if mime == "" {
+		return imageRef{}, false
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return imageRef{}, false
-	}
-	mime := "image/png"
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".jpg", ".jpeg":
-		mime = "image/jpeg"
-	case ".gif":
-		mime = "image/gif"
-	case ".webp":
-		mime = "image/webp"
 	}
 	return imageRef{mime: mime, data: data}, true
 }
@@ -208,4 +261,21 @@ func (a *App) toggleTheme() {
 	}
 	go savePrefs(a.prefs)
 	a.invalidate()
+}
+
+// retryTurn sends the words that started the failed turn again: the error row
+// is the only place the reader learns a turn never answered, so it should be
+// the place that sends it once more.
+func (a *App) retryTurn(turn int) {
+	if turn == 0 {
+		return
+	}
+	for _, row := range a.threadRows(a.active) {
+		if row.kind == rowUser && row.id == "u"+itoa(turn) {
+			if strings.TrimSpace(row.text) != "" || len(row.images) > 0 {
+				a.sendText(a.active, row.text, row.images)
+			}
+			return
+		}
+	}
 }
