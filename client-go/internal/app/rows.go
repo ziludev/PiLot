@@ -108,6 +108,9 @@ func (a *App) searchRows() []railRow {
 
 // chatSection is the section the rail files this chat under, 已归档 included.
 func (a *App) chatSection(convID int) string {
+	if a.prefs.pinnedChat(convID) {
+		return sectionPinned
+	}
 	for _, s := range a.surfaceSnapshot() {
 		if s.ConversationID != convID {
 			continue
@@ -116,9 +119,69 @@ func (a *App) chatSection(convID int) string {
 		if a.autoArchived(s, at) {
 			return sectionArchived
 		}
-		return chatSectionOf(s, at, a.now, a.queued[convID])
+		return a.railSectionOf(s, at)
 	}
 	return ""
+}
+
+// railShelf is one heading in the rail, and the chats filed under it.
+type railShelf struct{ key, label string }
+
+// railShelves is the rail's order under the grouping the user asked for.
+func (a *App) railShelves() []railShelf {
+	out := make([]railShelf, 0, len(chatSections)+2)
+	out = append(out, railShelf{sectionPinned, i18n.T("sectionPinned")})
+	if !a.prefs.groupByProject() {
+		for _, s := range chatSections {
+			out = append(out, railShelf{s.key, i18n.T(s.label)})
+		}
+		return out
+	}
+	// Grouped by project: each project that holds a chat, in the order its newest
+	// chat sits, and then the chats that belong to no project.
+	seen := map[string]bool{}
+	for _, s := range a.sortedSurfaces() {
+		if s.ProjectID == "" || seen[s.ProjectID] {
+			continue
+		}
+		seen[s.ProjectID] = true
+		out = append(out, railShelf{projectSectionKey(s.ProjectID), a.projectLabel(s.ProjectID)})
+	}
+	return append(out, railShelf{sectionOther, i18n.T("sectionOther")})
+}
+
+// railSectionOf files one chat that is neither pinned nor archived.
+func (a *App) railSectionOf(s protocol.Surface, at time.Time) string {
+	if a.prefs.pinnedChat(s.ConversationID) {
+		return sectionPinned
+	}
+	if a.prefs.groupByProject() {
+		return projectSectionKey(s.ProjectID)
+	}
+	return chatSectionOf(s, at, a.now, a.queued[s.ConversationID])
+}
+
+// projectSectionKey names one project's section. A chat with no project lands in
+// 其他, which is also where the rest of the rail goes.
+func projectSectionKey(projectID string) string {
+	if projectID == "" {
+		return sectionOther
+	}
+	return projectSectionPrefix + projectID
+}
+
+// projectLabel is a project's name, or its id when the catalogue has not come
+// back yet — a heading is better than a blank.
+func (a *App) projectLabel(projectID string) string {
+	for _, p := range a.projects.items {
+		if p.ID == projectID {
+			if p.Name != "" {
+				return p.Name
+			}
+			return projectID
+		}
+	}
+	return projectID
 }
 
 // revealChatSection unfolds the section holding the chat just opened. Folding
@@ -176,7 +239,8 @@ func (a *App) autoArchived(s protocol.Surface, at time.Time) bool {
 // open; the rest wait folded under what the chat is — a group, a topic, a
 // single chat — until the user opens that section.
 func (a *App) chatRows(filter string) []railRow {
-	buckets := make(map[string][]railRow, len(chatSections))
+	sections := a.railShelves()
+	buckets := make(map[string][]railRow, len(sections))
 	// Archived chats are out of the sections but not out of reach: they hang at
 	// the end of the rail, folded, and their menu is the way back.
 	var archived []railRow
@@ -185,6 +249,16 @@ func (a *App) chatRows(filter string) []railRow {
 			continue
 		}
 		at := a.vm.tails[s.ConversationID]
+		if a.prefs.pinnedChat(s.ConversationID) {
+			buckets[sectionPinned] = append(buckets[sectionPinned], railRow{
+				kind:   railChat,
+				conv:   s,
+				meta:   sourceLabel(s.Kind),
+				at:     at,
+				unread: a.vm.unread[s.ConversationID] && s.ConversationID != a.active,
+			})
+			continue
+		}
 		if a.autoArchived(s, at) {
 			archived = append(archived, railRow{
 				kind: railChat,
@@ -194,7 +268,7 @@ func (a *App) chatRows(filter string) []railRow {
 			})
 			continue
 		}
-		section := chatSectionOf(s, at, a.now, a.queued[s.ConversationID])
+		section := a.railSectionOf(s, at)
 		buckets[section] = append(buckets[section], railRow{
 			kind:   railChat,
 			conv:   s,
@@ -208,15 +282,15 @@ func (a *App) chatRows(filter string) []railRow {
 	// would draw two runs of chats with nothing saying what the second is. A
 	// lone folded section keeps its heading, since that is the only way back in.
 	heading := 0
-	for _, s := range chatSections {
+	for _, s := range sections {
 		if len(buckets[s.key]) > 0 {
 			heading++
 		}
 	}
 	drawHeadings := heading > 1 || (heading == 1 && len(buckets[sectionActive]) == 0)
 
-	rows := make([]railRow, 0, len(a.surfaces)+len(chatSections))
-	for _, s := range chatSections {
+	rows := make([]railRow, 0, len(a.surfaces)+len(sections))
+	for _, s := range sections {
 		chats := buckets[s.key]
 		if len(chats) == 0 {
 			continue
@@ -227,7 +301,7 @@ func (a *App) chatRows(filter string) []railRow {
 		// made by hand afterwards sticks, even around the chat on screen.
 		open := filter != "" || !a.prefs.sectionClosed(s.key)
 		if drawHeadings {
-			rows = append(rows, railRow{kind: railGroup, label: i18n.T(s.label), section: s.key, count: len(chats), open: open})
+			rows = append(rows, railRow{kind: railGroup, label: s.label, section: s.key, count: len(chats), open: open})
 		}
 		if open {
 			rows = append(rows, chats...)
@@ -278,6 +352,16 @@ const (
 	sectionTopic  = "topic"
 	sectionDirect = "direct"
 	sectionOther  = "other"
+	// sectionPinned is the shelf at the top: the chats the user put there by
+	// hand. A pinned chat is never filed away for being old, and keeps its place
+	// whichever grouping the rest of the rail is using.
+	sectionPinned = "pinned"
+	// projectSectionPrefix marks a section that holds one project's chats, so the
+	// fold default and the key never have to be guessed from a name.
+	projectSectionPrefix = "proj:"
+	// groupProject is the rail filed by the project a chat belongs to, instead of
+	// by what kind of chat it is.
+	groupProject = "project"
 	// sectionArchived is not a kind of chat either: it is the shelf the chats
 	// filed away sit on. It is drawn after the sections above and folds itself,
 	// so an archived chat never blocks the rail but is never lost.

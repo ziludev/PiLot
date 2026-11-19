@@ -330,7 +330,15 @@ func (a *App) railChatMenu(c *ui.Context, t theme.Tokens, conv protocol.Surface,
 		ui.Text(c, "⋯").FontSize(11).FontWeight(600).TextColor(t.MutedFg)
 	})
 	archived := a.autoArchived(conv, at)
+	pinned := a.prefs.pinnedChat(conv.ConversationID)
 	button.Menu(func(m *ui.Menu) {
+		pinLabel := i18n.T("pin")
+		if pinned {
+			pinLabel = i18n.T("unpin")
+		}
+		if m.Item(pinLabel).Chosen() {
+			a.post(event{kind: evPinChat, convID: conv.ConversationID, archived: !pinned})
+		}
 		if m.Item(i18n.T("rename")).Chosen() {
 			a.post(event{kind: evRenameChat, convID: conv.ConversationID})
 		}

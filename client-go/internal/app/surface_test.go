@@ -69,7 +69,7 @@ func railApp(t *testing.T, baseURL string) *App {
 }
 
 // TestRailMenuArchive proves the whole path of the row menu: the ⋯ opens a menu
-// with the two verbs, and Archive patches the mirror before the bridge answers,
+// with its three verbs, and Archive patches the mirror before the bridge answers,
 // so the row has already left the sections by the time the frame is drawn.
 func TestRailMenuArchive(t *testing.T) {
 	i18n.Set(i18n.EN)
@@ -82,8 +82,9 @@ func TestRailMenuArchive(t *testing.T) {
 		t.Fatalf("the row menu has no entry point: %v", err)
 	}
 	tt.Frame()
-	if got := tt.Menu(); len(got) != 2 || got[0] != "Rename" || got[1] != "Archive" {
-		t.Fatalf("menu = %v, want Rename then Archive", got)
+	if got := tt.Menu(); len(got) != 3 || got[0] != "Pin to top" ||
+		got[1] != "Rename" || got[2] != "Archive" {
+		t.Fatalf("menu = %v, want Pin to top, Rename, Archive", got)
 	}
 	writePNG(t, "/tmp/clientv2-menu.png", tt.Image())
 	if err := tt.ChooseMenuItem("Archive"); err != nil {
@@ -136,7 +137,7 @@ func TestRailMenuArchive(t *testing.T) {
 		t.Fatalf("open the archived chat's menu: %v", err)
 	}
 	tt.Frame()
-	if got := tt.Menu(); len(got) != 2 || got[1] != "Unarchive" {
+	if got := tt.Menu(); len(got) != 3 || got[2] != "Unarchive" {
 		t.Fatalf("menu = %v, want Unarchive on an archived chat", got)
 	}
 	if err := tt.ChooseMenuItem("Unarchive"); err != nil {

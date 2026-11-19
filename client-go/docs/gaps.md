@@ -15,6 +15,10 @@
 | 提交 / 推送 / 合并 | `gitwrite.go` | 省掉「看完 diff 切终端输三条 git」。三个动词各问一次确认，拒绝理由成句留在按钮下面 |
 | 项目栏 | `projects.go` | 「这个聊天生在哪个仓库」只能在开聊时定，事后 bridge 补不回来 |
 | ⌘K 命令面板 | `palette.go` | 「找到上周那个会话」原来要滚侧栏、展开分组、读标题；现在打字即筛，动作和侧栏按钮共用同一个函数，不会走散。参考 Linear / VS Code / crush 的 `Ctrl+P`，选型笔记见 `docs/agent-clients-review.md` |
+| 跳到文件 ⌘P | `files.go` | 把 checkout 里任意文件的绝对路径写进输入框。列表来自 `git ls-files`（含未跟踪但不被忽略的），不是目录遍历，所以 node_modules / dist 不会淹掉结果。参考 VS Code / crush 的 `Ctrl+P` |
+| 置顶 + 按项目分组 | `rows.go` 的 `railShelves`、`prefs.go` 的 `Pinned`/`Group` | 置顶是一块永远在最上面的架子，钉住的聊天也永不被时间折进已归档（`pin` 只存本机，不进 bridge）。分组可以在「按来源」和「按项目」之间切，切换入口在设置里，也有 ⌘K 动词 |
+| 快捷键表 ⌘⇧/ | `cheatsheet.go` | 五个键够用也够忘，叫得出来比烫在界面上便宜 |
+| 导出为 HTML | `exporthtml.go` | 和 Markdown 同名不同后缀：原话成段落、步骤折在 `<details>`、样式内联，双击就能读，能直接发给别人 |
 | 导出为 Markdown | `exportmd.go` | 给 PR、issue、不在场的人用：原话留着，步骤折起来，工具输出不带走（最长也最少被引用） |
 | 拖任意文件进来 → 路径 | `actions.go` 的 `putPaths` | 图片当附件、小文本整段引用这两条不变；其余（pdf、大文件、目录）把绝对路径放进输入框。agent 就在这台机器上跑，拒绝拖拽只是逼人去复制路径 |
 | 基准只读 chip | `base.go` | 改动和未合并的提交从哪儿算起，得写在数字旁边；但**不提供切换**，理由见下 |

@@ -298,6 +298,28 @@ func (a *App) setSilent(silent bool) {
 	a.invalidate()
 }
 
+// setRailGroup files the rail by kind ("") or by project. The headings are
+// rebuilt on the next frame; nothing about the chats themselves changes.
+func (a *App) setRailGroup(group string) {
+	if a.prefs.Group == group {
+		return
+	}
+	a.prefs.Group = group
+	go savePrefs(a.prefs)
+	a.invalidate()
+}
+
+// toggleRailGroup flips the grouping, for the palette's one-line verb.
+func (a *App) toggleRailGroup() {
+	if a.prefs.groupByProject() {
+		a.setRailGroup("")
+		a.post(event{kind: evNotice, notice: i18n.T("railGroupKindDone"), ok: true})
+		return
+	}
+	a.setRailGroup(groupProject)
+	a.post(event{kind: evNotice, notice: i18n.T("railGroupProjectDone"), ok: true})
+}
+
 // retryTurn sends the words that started the failed turn again: the error row
 // is the only place the reader learns a turn never answered, so it should be
 // the place that sends it once more.

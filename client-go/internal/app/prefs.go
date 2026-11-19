@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"pitta/internal/i18n"
 )
@@ -26,6 +27,13 @@ type prefs struct {
 	// away once it has sat a week; this list is where the user says "not this
 	// one", and it has to survive a restart or the chat would go again.
 	Kept []int `json:"keptChats,omitempty"`
+	// Pinned is the chats the user put at the top of the rail. A pin is a place,
+	// not a property of the conversation, so it lives here and never reaches the
+	// bridge — and a pinned chat is never filed away for being old.
+	Pinned []int `json:"pinnedChats,omitempty"`
+	// Group is how the rail files chats that are not pinned: by what they are
+	// ("" — the default) or by the project they belong to ("project").
+	Group string `json:"railGroup,omitempty"`
 	// Silent is the banners switched off. Written the other way round because
 	// the file is read from disk where a missing field means false — and the
 	// window should tell you about a finished turn until you ask it not to.
@@ -65,6 +73,8 @@ func readPrefs() prefs {
 		Sections map[string]bool `json:"sections"`
 		Recent   []string        `json:"recentModels"`
 		Kept     []int           `json:"keptChats"`
+		Pinned   []int           `json:"pinnedChats"`
+		Group    string          `json:"railGroup"`
 		Silent   bool            `json:"silent"`
 		Seen     map[string]int  `json:"seen"`
 	}
@@ -72,7 +82,9 @@ func readPrefs() prefs {
 		log.Printf("prefs: parse %s: %v", path, err)
 		return prefs{}
 	}
-	return prefs{Lang: p.Lang, Theme: p.Theme, Rail: p.Rail, Sections: p.Sections, Recent: p.Recent, Kept: p.Kept, Silent: p.Silent, Seen: p.Seen}
+	return prefs{Lang: p.Lang, Theme: p.Theme, Rail: p.Rail, Sections: p.Sections,
+		Recent: p.Recent, Kept: p.Kept, Pinned: p.Pinned, Group: p.Group,
+		Silent: p.Silent, Seen: p.Seen}
 }
 
 // loadPrefs reads the two settings this window keeps.
@@ -98,15 +110,53 @@ func (p prefs) railWidth() float32 {
 	return float32(p.Rail)
 }
 
-// sectionClosed is whether a chat section is drawn folded. 进行中 is the set the
-// user is working through, so it starts open and every other section starts
-// folded; an explicit choice in the file wins over both.
+// sectionClosed is whether a chat section is drawn folded. 进行中 and 置顶 are
+// the sets the user is working through, so they start open; a project section
+// starts open too, since picking that grouping is a request to see the projects.
+// Everything else starts folded, and an explicit choice in the file wins over all.
 func (p prefs) sectionClosed(key string) bool {
 	if open, ok := p.Sections[key]; ok {
 		return !open
 	}
-	return key != sectionActive
+	switch {
+	case key == sectionActive, key == sectionPinned:
+		return false
+	case strings.HasPrefix(key, projectSectionPrefix):
+		return false
+	}
+	return true
 }
+
+// pinnedChat is whether this chat sits at the top of the rail.
+func (p prefs) pinnedChat(convID int) bool {
+	for _, id := range p.Pinned {
+		if id == convID {
+			return true
+		}
+	}
+	return false
+}
+
+// pinChat puts a chat at the top, or takes it back down. The list is read on
+// every frame, so a second pin of the same chat must not append twice.
+func (p *prefs) pinChat(convID int, pinned bool) {
+	if pinned {
+		if p.pinnedChat(convID) {
+			return
+		}
+		p.Pinned = append([]int{convID}, p.Pinned...)
+		return
+	}
+	for i, id := range p.Pinned {
+		if id == convID {
+			p.Pinned = append(p.Pinned[:i], p.Pinned[i+1:]...)
+			return
+		}
+	}
+}
+
+// groupByProject is whether the rail files chats under their project.
+func (p prefs) groupByProject() bool { return p.Group == groupProject }
 
 // keptChat is whether the user has taken this chat back out of 已归档.
 func (p prefs) keptChat(convID int) bool {

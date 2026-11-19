@@ -110,6 +110,12 @@ type App struct {
 	// palette is the ⌘K field: find a chat, or name an action.
 	palette paletteState
 
+	// cheatsheet is the shortcut sheet, ⌘⇧/.
+	cheatsheet bool
+
+	// repoFiles is what ⌘P lists: the checkout's paths, fetched when it opens.
+	repoFiles repoFiles
+
 	// search is the cross-chat search behind the filter box. Its hits belong to
 	// query, and seq retires the replies of queries the user has typed past.
 	search searchState
@@ -269,6 +275,8 @@ const (
 	// posted from menus, dialogs and a debounce timer, applied on the frame.
 	evRenameChat
 	evArchiveChat
+	// A pin is the window's own bookkeeping, so it never leaves the machine.
+	evPinChat
 	evMetaFailed
 	evSearch
 	evSearchDone
@@ -297,6 +305,8 @@ const (
 	evProjectRemove
 	// A picture opened from a message, once it has decoded.
 	evZoom
+	// ⌘P's answer: the checkout whose files were read, and which opening asked.
+	evRepoFiles
 )
 
 type event struct {
@@ -343,7 +353,9 @@ type event struct {
 	usage    []api.UsageDay
 	// zoom is a decoded picture on its way to the overlay.
 	zoom *ui.Bitmap
-	err  error
+	// files is ⌘P's answer: the checkout's paths, relative to its root.
+	files []string
+	err   error
 }
 
 type snapshotResult struct {
@@ -649,6 +661,10 @@ func (a *App) apply(ev event) {
 		a.openRename(ev.convID)
 	case evArchiveChat:
 		a.setArchived(ev.convID, ev.archived)
+	case evPinChat:
+		a.prefs.pinChat(ev.convID, ev.archived)
+		savePrefs(a.prefs)
+		a.invalidate()
 	case evMetaFailed:
 		a.undoSurface(ev.undo)
 	case evSearch:
@@ -683,6 +699,8 @@ func (a *App) apply(ev event) {
 		a.applyFileText(ev.convID, ev.path, ev.fileText, ev.truncated, ev.err)
 	case evWrite:
 		a.applyWrite(ev.convID, ev.writeKind, ev.text, ev.writeBad)
+	case evRepoFiles:
+		a.applyRepoFiles(ev.seq, ev.path, ev.files, ev.err)
 	case evProjects:
 		a.applyProjects(ev.seq, ev.projects, ev.err)
 	case evProjectAdd:
@@ -942,10 +960,13 @@ func (a *App) View(c *ui.Context) {
 	// ⌘K is the way in: the window has more verbs than fit on a rail, and a
 	// reader who knows the name of a chat should not have to hunt for it.
 	c.OnWindowShortcut(ui.Super, ui.KeyK, a.openPalette)
+	c.OnWindowShortcut(ui.Super, ui.KeyP, a.openFiles)
 	c.OnWindowShortcut(ui.Super|ui.Shift, ui.KeyE, a.exportMarkdown)
 	c.OnWindowShortcut(ui.Super, ui.KeyJ, a.scrollToLatest)
+	c.OnWindowShortcut(ui.Super|ui.Shift, ui.KeySlash, a.toggleCheatsheet)
 	a.shell(c, t)
 	a.paletteDialog(c, t)
+	a.cheatsheetDialog(c, t)
 	a.renameDialog(c, t)
 	a.settingsDialog(c, t)
 	a.taskDetailDialog(c, t)
