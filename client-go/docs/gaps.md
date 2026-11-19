@@ -14,7 +14,6 @@
 | 改动 / 文件 / 提交 / 合并 / 项目栏 | `SidePanel.tsx` + `side/*.go` | `/api/changes`、`/api/git/diff`、`/api/file`、`/api/git`、`/api/commit`、`/api/git/push`、`/api/merge`、`/api/git/base`、`/api/projects` | `ui.Split` 右栏 + `ui.Tabs` + 折叠卡片 |
 | 任务详情对话框 + 用量日历 | `TaskDialog.tsx`、`UsageCalendar.tsx` | `GET /api/tasks`、`POST /api/task/cancel`、`GET /api/usage-calendar` | `ui.Modal`、`ui.Table` |
 | 权限页 | `AccessPanel.tsx` | `GET /api/access`、`/api/audit` | `ui.Segmented` 过滤 + 表格 |
-| 会话内查找 ⌘F | `ConvSearch.tsx`（上一个/下一个命中） | 无（本地） | `ui.FindBar` |
 | 消息级操作：复制 / 编辑重发 / 复制整段 | `Transcript.tsx` 的 hover 动作条 | 无 | 行尾小图标 |
 | 拖拽排序 / 置顶 | `Rail.tsx` + `prefs.Order/Pinned` | 无（本地） | `ui.List` 的 `Reorder` |
 | 每步耗时竖轨 | `TurnRail.tsx` / `TurnDurations.tsx` | 无 | 现在折叠成一行 `⋯ 4 步 · 12s` |
@@ -29,8 +28,12 @@
   输出时不要改折叠结构，只在展开后的内容里分派。
 - **rail 的分区是 `rows.go` 的 `chatSections` + `prefs.Sections`**。新的分区（比如「已归档」）照抄这套，
   默认折叠、点分区头开合、选过的状态进 `~/.pitta/window.json`。
+- **设置收在一个面板里**（`internal/app/settings.go`）：rail 页脚现在只有一个齿轮。齿轮打开对话框时
+  每帧重读 prefs，面板本身不存状态——多一份副本就会漂移。
+- **查找条是手写的**（`internal/app/find.go`）：`ui.FindBar` 用窗口语言说 "1 of 3"，而这个 app 的语言
+  是自己存的，中文窗口里冒出英文比多写四个小按钮更糟。命中按「行」算，滚到当前命中并给它上底色。
 - **中文界面默认**，文案都走 `internal/i18n/dict.go`，zh 与 en 两套一起加；`i18n` 测试钉着键数上限
-  （现在 95 = 上限），加键就抬上限并在 `maxKeys` 上写清是哪一块加的。
+  （现在 107 = 上限），加键就抬上限并在 `maxKeys` 上写清是哪一块加的。
 - **记忆抽屉是右栏，不是 rail 的分区**（`internal/app/memory.go`）：记忆是句子，260 点的 rail 会把它们
   折成一团。它跟着打开的会话走（`selectConversation` 里重读 chat 那一档），整理是一轮模型调用，所以
   按钮上写着在跑、失败也照实说。

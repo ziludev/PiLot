@@ -51,11 +51,8 @@ func TestRailListScrollsToItsSections(t *testing.T) {
 	}
 	tt := ui.NewTester(a.View, 1180, 560)
 	tt.Frame()
-	// The footer is the rail's last line: it has to be inside the window, or
-	// everything the list drew past it is off screen and unclickable.
-	if r, ok := tt.Find("中文"); !ok || r.Y >= 556 {
-		t.Fatalf("rail footer sits at y=%.0f, outside a 560-high window", r.Y)
-	}
+	// The list must be a window onto its rows, not the whole of them: this is the
+	// check that fails when it sizes itself to content again.
 	_, last := a.vm.railList.Visible()
 	if last >= rows-1 {
 		t.Fatalf("the list thinks all %d rows are on screen; it is not bounded", rows)

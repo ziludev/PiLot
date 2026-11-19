@@ -46,6 +46,25 @@ func installMenu(a *app.App) {
 				{Role: mygo.RoleCopy},
 				{Role: mygo.RolePaste},
 				{Role: mygo.RoleSelectAll},
+				{Type: mygo.MenuItemSeparator},
+				{
+					ID:          "find",
+					Label:       i18n.T("findMenu"),
+					Accelerator: "CmdOrCtrl+F",
+					Click:       func(*mygo.MenuItem, *mygo.Window) { a.ToggleFind() },
+				},
+				{
+					ID:          "find-next",
+					Label:       i18n.T("findNext"),
+					Accelerator: "CmdOrCtrl+G",
+					Click:       func(*mygo.MenuItem, *mygo.Window) { a.StepFind(1) },
+				},
+				{
+					ID:          "find-prev",
+					Label:       i18n.T("findPrev"),
+					Accelerator: "CmdOrCtrl+Shift+G",
+					Click:       func(*mygo.MenuItem, *mygo.Window) { a.StepFind(-1) },
+				},
 			},
 		},
 		{

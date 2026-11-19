@@ -52,7 +52,9 @@ func (a *App) transcriptView(c *ui.Context, t theme.Tokens) {
 	}
 	// FollowEnd keeps the newest turn in view until the reader scrolls away,
 	// without the view having to remember where the end was.
-	a.vm.threadList.FollowEnd = true
+	// Following the end and holding a hit are two answers to the same question,
+	// and a search wins: otherwise the newest turn pulls the view back down.
+	a.vm.threadList.FollowEnd = !a.findBrowsing()
 	a.vm.threadList.Key = func(row int) any {
 		if row < 0 || row >= len(rows) {
 			return row
@@ -62,9 +64,23 @@ func (a *App) transcriptView(c *ui.Context, t theme.Tokens) {
 	ui.Row(c).Grow(1).FillWidth().Justify(ui.Center).Children(func() {
 		ui.Column(c).Grow(1).FillHeight().MaxWidth(maxContent).Children(func() {
 			ui.List(c, &a.vm.threadList, len(rows), func(row int) {
-				a.threadRow(c, t, rows[row])
+				a.threadRowMarked(c, t, rows[row], a.findMark(row))
 			}).Grow(1).Padding(8, 0, 12, 0)
 		})
+	})
+}
+
+// threadRowMarked tints the row the find bar is standing on, and leaves the
+// rest alone: the bar counts the other hits, and a row tinted "somewhere else"
+// only competes with the one the reader is about to read — which is how every
+// browser's find bar does it too.
+func (a *App) threadRowMarked(c *ui.Context, t theme.Tokens, row threadRow, mark int) {
+	if mark != 1 {
+		a.threadRow(c, t, row)
+		return
+	}
+	ui.Column(c).FillWidth().Radius(8).Background(t.Selection).Children(func() {
+		a.threadRow(c, t, row)
 	})
 }
 
