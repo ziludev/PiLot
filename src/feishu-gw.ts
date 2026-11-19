@@ -45,11 +45,6 @@ const OPERATION_TIMEOUT_MS = 15_000;
 // that would abort a download that is making progress.
 const DOWNLOAD_TIMEOUT_MS = 120_000;
 
-/** `FEISHU_TRANSPORT=go` moves the transport into feishu-gw; anything else keeps the SDK. */
-export function gatewayEnabled(): boolean {
-  return (process.env.FEISHU_TRANSPORT ?? "").trim().toLowerCase() === "go";
-}
-
 export function gatewayEndpoint(): { url: string; token: string } {
   return {
     url: (process.env.FEISHU_GW_URL ?? "http://127.0.0.1:8788").replace(/\/+$/, ""),

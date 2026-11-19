@@ -131,7 +131,8 @@ Go 侧（新目录 `services/feishu-gw/`，独立 module `pitta/feishu-gw`）
 
 TS 侧
 - `src/feishu.ts`：`client.*` 13 个调用点 → `gw.*`（一个新文件 `src/feishu-gw-client.ts`，约 120 行）
-- `startFeishu`：`FEISHU_TRANSPORT=node|go` 分支——`node` 走老路（保留一个版本做回滚），`go` 只起 HTTP server 提供 `/feishu/event`、`/feishu/card-action`
+- `startFeishu`：P2 期间是 `FEISHU_TRANSPORT=node|go` 分支（`node` 留着做回滚），P4 已删掉 node 分支——
+  只剩 HTTP 入口和网关客户端
 - `feishuStatus` 改为周期拉 `/healthz`（2s 间隔），`/health` 的输出形状不变
 - `scripts/agentctl`：`install-gw` / 卸载时一起 bootout；`status` 里多一行 gw 状态
 - 测试：`feishu.ts` 的单元测试把 SDK mock 换成 HTTP mock，现存 248 个测试应当一断言都不改
@@ -144,8 +145,9 @@ TS 侧
 |---|---|---|
 | P1 连接层 | `feishu-gw` 只收事件、转发现有的 `[feishu] msg` 日志，不发消息 | `FEISHU_TRANSPORT=go` 时你发一条消息，桥接层日志出现同样的 chat/sender，且**只出现一次**（对照现在重复投递的记录） |
 | P2 发送层 | 5 个操作全接上；卡片 create/reply/patch 走 gw | `npm run card` 发出 4 张自检卡；群里跑一轮完整对话（流式卡 → 最终卡 → 按钮点击），肉眼确认；`/healthz` 的 `flaps` 一周内不增长 |
-| P3 切默认 | `FEISHU_TRANSPORT` 默认 `go`，node 路径标 deprecated | 连续 7 天无 `dropped eventId`、无 `patch failed` |
-| P4 收尾 | 删 node 传输路径与 node-sdk 依赖（自检/doctor 脚本单独保留） | `grep -r node-sdk src/ scripts/` 只剩 doctor 相关；`npm test` 全绿 |
+| P3 观察 | 观察 `dropped` / `patch failed` 是否增长 | 连续 7 天不增长 |
+| P4 收尾 ✅ | 删 node 传输路径（WSClient + 重启 supervisor）与 `FEISHU_TRANSPORT` 开关；SDK client 只留 `im.message.list` 和直发告警 | node 长连接相关符号为 0；`npm test` 全绿；真机一轮对话 |
+
 
 ### 8.1 P1 实测记录（2026-11-19）
 
@@ -175,7 +177,8 @@ TS 侧
   `writtenByApp(sender, appId, botOpenId)`（见 `src/feishu.ts`，有单测）。
 - 桥接层保留一个 SDK client：`im.message.list`（线程历史/摘要）不在 gw 的五个操作里，仍走 SDK。
 - 守护：`launchd/feishu-gw.plist.tmpl` + `agentctl install-gateway`，`KeepAlive` 常驻；
-  `agentctl install` 只在 `FEISHU_TRANSPORT=go` 时才装它——两条连接并存会让每条消息被回答两次。
+  P2 期间 `agentctl install` 只在 `FEISHU_TRANSPORT=go` 时才装它（两条连接并存会让每条消息被回答
+  两次）；P4 删掉 node 分支后它变成必装项。
 - **告警判据是 `connected`，不是 `ready`**（实测发现）：`ready = connected && 收到过事件`，所以每次
   重启网关之后它都会一直是 `false`，直到下一条消息到来。拿它当健康判据，安静的夜里会每半小时
   报一次假警、还顺手 `kickstart` 一次网关。所以 watchdog 只看 `connected`（连不上飞书才算坏），
@@ -187,6 +190,23 @@ TS 侧
   `/healthz` 重新 `connected:true`。判据抽成 `gatewayWatchStep()`（纯函数，4 个单测）：掉线报一次、
   半小时内不重复、恢复只报一次。
 
+### 8.3 P4 实测记录（2026-11-19）
+
+删掉 node 传输路径，桥接层只剩「网关客户端 + 事件 HTTP 入口」：
+
+- `sdkTransport`（把 SDK client 包成同形状的 5 个操作）整个删除。`im` 现在只有
+  `gatewayClient(gatewayEndpoint())` 一个来源。
+- `Lark.WSClient` + `eventDispatcher` 的重启 supervisor（120s 无 ready 就重启、每三次重建 client
+  以重解析 DNS）一起删除——这段逻辑挪到了网关进程和 bridge 的 watchdog 里，留着就是第二套没人
+  维护的重连策略。`FEISHU_LOG_LEVEL`（只给 ws 打帧日志用）随之作废。
+- `FEISHU_TRANSPORT` 开关消失；`.env` 里那行已删，`agentctl` 的 `gateway_wanted()` 也删了——
+  网关从「可选」变成「没有它就是聋子哑巴」。`stop()` 现在只负责清掉 30s 健康探测的定时器。
+- 保留的 SDK client 只剩两处**非传输**用途：`im.message.list`（线程历史/摘要）和告警直发
+  （`im.message.create`，网关坏的时候唯一的出口）。所以「删干净 node-sdk」这条验收目标是做不到的，
+  也不该做——要做的是让 SDK 不再承担**收发路径**。
+- 文件从 3143 行降到 3047 行，`npx tsc --noEmit` 干净，`npm test` 267/267。验收方式是真机跑一轮：
+  这条消息本身就是走网关进来的，回答的卡片也是网关发出去的。
+
 ## 9. 风险
 
 | 风险 | 影响 | 对策 |
@@ -194,7 +214,7 @@ TS 侧
 | 多一个进程，起不来时飞书静默失联 | 高（收不到消息） | 已实现：bridge 每 30s 探 `/healthz`，连续 10 次连不上 → SDK 直发告警 + `kickstart -k` 重启网关；恢复后再报一条。`agentctl status` 一并显示 |
 | 按钮回调 2.5s 超时截断 | 中（点按钮看到超时提示，卡片没更新） | 现网 `set-model`/`open-chat` 都只碰 SQLite，实测 < 200ms；把慢操作（起 turn）继续放在「已 ack 后异步」这条线里，不在回调里做 |
 | 事件 HTTP 投递丢 | 中（少一条消息） | 重试 + `eventId` 幂等 + `dropped` 日志；P1 阶段先只观察不动 |
-| 两套传输层并存期间逻辑漂移 | 中 | node 路径冻结（只修 bug），P4 直接删 |
+| 两套传输层并存期间逻辑漂移 | 中 | 已消除：P4 删掉 node 传输路径，只剩网关一条 |
 | 附件下载改成二进制透传 | 低 | 现有实现对 >20MB 有截断逻辑，保留在桥接层，gw 只负责流 |
 
 ## 10. 工作量
