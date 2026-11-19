@@ -3,7 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
 import { UsageDoc, type Conversation, type EntryId } from "@earendil-works/pi-durable";
 import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
-import { getFeishuStatus } from "./feishu.ts";
+import { getFeishuStatus, handleGatewayEvent } from "./feishu.ts";
 import { log, logError } from "./log.ts";
 import { config } from "./config.ts";
 import { subAgentActivity } from "./activity.ts";
@@ -171,6 +171,20 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
       const path = url.pathname;
 
       if (!tokenMatches(bearer(req))) return send(res, 401, { error: "unauthorized" });
+
+      // One Feishu event, forwarded by feishu-gw when it owns the long connection. The answer is
+      // whatever the card-action handler returned — Feishu shows that answer for a click — so it is
+      // passed back verbatim instead of being wrapped.
+      if (req.method === "POST" && path === "/feishu/events") {
+        const payload = (await readJson(req)) as { type?: string; eventId?: string; eventType?: string; event?: unknown };
+        const answer = await handleGatewayEvent({
+          type: payload.type === "card" ? "card" : "message",
+          eventId: payload.eventId,
+          eventType: payload.eventType,
+          event: payload.event,
+        });
+        return send(res, 200, answer ?? {});
+      }
 
       /** How many human turns a chat has had, for "average cost per turn". */
       const countTurns = async (conversationId: number): Promise<number> => {
