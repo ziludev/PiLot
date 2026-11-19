@@ -58,16 +58,12 @@ export function answerBlocksOf(entries: readonly AnswerEntry[]): AnswerBlock[] {
 }
 
 /**
- * First line of a block, without the colon it was about to explain.
+ * Cut a line where a sentence or a clause ends, never mid-word.
  *
- * A hard cut at 70 characters ended mid-sentence — "…超时（8 秒上限…" with the bold marker left
- * dangling — which reads as broken output rather than a summary. So emphasis is stripped first and
- * the cut lands on a sentence end when the line has one, otherwise on the last clause boundary.
+ * A hard cut ended mid-sentence — "…超时（8 秒上限…" with the bold marker left dangling — which
+ * reads as broken output rather than a summary.
  */
-function headline(text: string, limit = 120): string {
-  const plain = text.replace(/\*\*/g, "").replace(/`/g, "");
-  const line = plain.split("\n").map((item) => item.trim()).find((item) => item.length > 0) ?? "";
-  const bare = line.replace(/[：:]$/, "");
+function trimSentence(bare: string, limit: number): string {
   if (bare.length <= limit) return bare;
   // A sentence that ends in the first ~two thirds is the whole point of the line; keep it intact.
   const sentences = [...bare.matchAll(/[。！？!?]/g)].map((hit) => hit.index ?? 0);
@@ -76,6 +72,17 @@ function headline(text: string, limit = 120): string {
   const clause = [...bare.slice(0, limit).matchAll(/[，、；,;]/g)].map((hit) => hit.index ?? 0).pop();
   const cut = clause !== undefined && clause >= limit / 2 ? clause : limit - 1;
   return `${bare.slice(0, cut)}…`;
+}
+
+/**
+ * First line of a block, without the colon it was about to explain.
+ *
+ * Emphasis is stripped first: one condensed line per block is no place for `**`.
+ */
+function headline(text: string, limit = 120): string {
+  const plain = text.replace(/\*\*/g, "").replace(/`/g, "");
+  const line = plain.split("\n").map((item) => item.trim()).find((item) => item.length > 0) ?? "";
+  return trimSentence(line.replace(/[：:]$/, ""), limit);
 }
 
 /**
@@ -186,9 +193,13 @@ export async function answerBlocksInTx(
  * A card patch raises no Feishu notification, so the ping is all that reaches a locked phone —
  * and "✅ 答完了 · 62s" says something finished without saying what it said, which is the reason
  * to look. Take the first line worth reading, drop the markup a plain text message would print
- * literally, and cut it to what a lock screen shows.
+ * literally, and cut it where a sentence ends.
+ *
+ * Forty characters was a lock screen's worth, and it made every ping end in "…" a word into the
+ * conclusion — reports that always read as truncated. The ping is a message someone can read, not
+ * just a banner, so it carries a full sentence or two and only an over-long line gets cut.
  */
-export function answerHead(answer: string, limit = 40): string {
+export function answerHead(answer: string, limit = 120): string {
   let inFence = false;
   for (const raw of answer.split("\n")) {
     const line = raw.trim();
@@ -206,7 +217,7 @@ export function answerHead(answer: string, limit = 40): string {
       .replace(/^[·\s]+|[·\s]+$/g, "")
       .trim();
     if (plain === "") continue;
-    return plain.length <= limit ? plain : `${plain.slice(0, limit)}…`;
+    return trimSentence(plain, limit);
   }
   return "";
 }
