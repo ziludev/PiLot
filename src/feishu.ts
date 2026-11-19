@@ -207,12 +207,19 @@ function standaloneHeader(reason: string | undefined): CardHeader {
  * button — only in 1:1 chats, and it answered with a second card, so a group never saw the work
  * at all and every answer looked like a form to fill in.
  */
+/** `**bash** \`git status\``: the tool keeps its own name, the hint is what tells two rows apart.
+ *  A backtick in the command would end the inline code span early, so it becomes a quote. */
+export function stepHeadline(step: { name: string; hint?: string }): string {
+  const hint = (step.hint ?? "").replace(/`/g, "'").trim();
+  return hint.length === 0 ? `**${step.name}**` : `**${step.name}** \`${hint}\``;
+}
+
 export function detailPanel(details: Omit<TurnDetails, "at">): Record<string, unknown> {
   const lines = details.steps.map((step, index) => {
     const mark = step.ok ? "✅" : "⚠️";
     // A tool's output is whatever the tool printed: aligned columns and pipes included, which the
     // card markdown would flatten. The panel body goes through the same element conversion.
-    return `${index + 1}. ${mark} **${step.name}**\n\n${step.preview.length > 0 ? step.preview : "（无输出）"}`;
+    return `${index + 1}. ${mark} ${stepHeadline(step)}\n\n${step.preview.length > 0 ? step.preview : "（无输出）"}`;
   });
   // The trail goes first: "why it took two minutes" is read before "what it ran".
   const decisionLines = (details.decisions ?? []).map(formatDecision);
@@ -420,7 +427,7 @@ function renderDetails(details: TurnDetails): string {
     const mark = step.ok ? "✅" : "⚠️";
     // A tool's output is whatever the tool printed: aligned columns and pipes included, which the
     // card markdown would flatten. The panel body goes through the same element conversion.
-    return `${index + 1}. ${mark} **${step.name}**\n\n${step.preview.length > 0 ? step.preview : "（无输出）"}`;
+    return `${index + 1}. ${mark} ${stepHeadline(step)}\n\n${step.preview.length > 0 ? step.preview : "（无输出）"}`;
   });
   const header = `本轮用了 **${details.steps.length}** 个工具，耗时 **${details.seconds}s**${
     details.costUsd > 0.00005 ? `，花费 **$${details.costUsd.toFixed(4)}**` : ""
