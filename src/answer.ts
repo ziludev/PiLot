@@ -100,10 +100,16 @@ export function composeAnswer(blocks: readonly AnswerBlock[]): string {
   const withText = blocks.filter((block) => block.text.length > 0);
   if (withText.length <= 1) return withText.map((block) => block.text).join("\n\n").trim();
   const last = withText[withText.length - 1] as AnswerBlock;
-  // Below this the final block is a sign-off ("已部署"), not an answer: the text above it is what
-  // the user is waiting for, so it keeps its place.
-  if (last.text.length < 40) return withText.map((block) => block.text).join("\n\n").trim();
-  const narration = withText.slice(0, -1);
+  const above = withText.slice(0, -1);
+  const longest = Math.max(...above.map((block) => block.text.length));
+  // The final block is a sign-off ("已部署", "要我接着做吗"), not the answer, when it is short in
+  // absolute terms or *against the text above it*: a 128-char closing line after a 1000-char plan
+  // is a footnote, and condensing the plan into one bullet line lost it. Relative size is the
+  // signal — a real follow-up is comparable in length to what came before it.
+  if (last.text.length < 40 || last.text.length < longest * 0.4) {
+    return withText.map((block) => block.text).join("\n\n").trim();
+  }
+  const narration = above;
   const lines = narration.map((block) => {
     const did = block.tools.length > 0 ? `（${block.tools.join(" / ")}）` : "";
     return `· ${headline(block.text)}${did}`;
