@@ -1,37 +1,40 @@
 #!/bin/sh
-# Renders the icons the build embeds, from the vector master in resources/:
-#   resources/icon.png  (1024x1024) from resources/pilot-app-icon.svg
-#   resources/tray.png  (32x32, ink black, transparent) from resources/pilot-mark.svg
-# Chrome renders the SVGs with a transparent background; without the flag its
-# white page would fill the rounded corners of the tile and the arrow's cutout.
+# Renders the pictures the build embeds, from the one master that is the mark
+# (assets/brand/PiLot_fox.jpg, 2048 square):
+#   resources/icon.png          1024 squircle tile, what mygo turns into AppIcon.icns
+#   internal/app/avatar.png     128 head, drawn beside every answer
+#
+# Both are cut out of the same square with the same numbers, so the Dock icon and
+# the face in the transcript keep the proportions the master was drawn with. The
+# squircle is generated rather than copied from the outgoing icon: it is the shape
+# macOS asks for, and a checked-in mask would only drift from the art.
 set -e
 cd "$(dirname "$0")/.."
-chrome=${CHROME:-"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"}
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
-
-shoot() { # shoot <svg> <size> <out>
-	"$chrome" --headless --disable-gpu --hide-scrollbars \
-		--default-background-color=00000000 --window-size="$2,$2" \
-		--screenshot="$tmp/shot.png" "file://$PWD/$1" >/dev/null 2>&1
-	sips -s format png --out "$3" "$tmp/shot.png" >/dev/null
-}
-
-shoot resources/pilot-app-icon.svg 1024 resources/icon.png
-
-# The bar draws the mark at 16 points, so the tray gets the mark trimmed to its
-# ink and centred in 32 px with a little air around it.
-shoot resources/pilot-mark.svg 350 "$tmp/mark.png"
-python3 - "$tmp/mark.png" resources/tray.png <<'PY'
-import sys
+exec /usr/bin/python3 - "$@" <<'PY'
 from PIL import Image
+import numpy as np
 
-mark = Image.open(sys.argv[1]).convert("RGBA")
-mark = mark.crop(mark.getbbox())
-side = 28
-scale = min(side / mark.width, side / mark.height)
-mark = mark.resize((max(1, round(mark.width * scale)), max(1, round(mark.height * scale))), Image.LANCZOS)
-tray = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
-tray.alpha_composite(mark, ((32 - mark.width) // 2, (32 - mark.height) // 2))
-tray.save(sys.argv[2])
+MASTER = "../assets/brand/PiLot_fox.jpg"
+TILE = 1024
+# The tile crops down to the body's flat bottom edge (the master leaves navy
+# below it) so the fox is cut by the icon's edge instead of floating above it.
+TILE_BOX = (174, 0, 1974, 1800)
+# The avatar is the whole head: ears in frame, muzzle at the bottom, centred.
+HEAD_BOX = (294, 230, 1854, 1790)
+EXPONENT = 5.0  # macOS's corner is a superellipse; 5 is close enough at 1024
+
+
+def tile(src):
+    art = src.crop(TILE_BOX).resize((TILE, TILE), Image.LANCZOS).convert("RGBA")
+    u = np.abs(np.linspace(-1, 1, TILE))[:, None]
+    v = np.abs(np.linspace(-1, 1, TILE))[None, :]
+    inside = (u**EXPONENT + v**EXPONENT) <= 1.0
+    arr = np.array(art, dtype=np.uint8)
+    arr[:, :, 3] = np.where(inside, 255, 0)
+    return Image.fromarray(arr)
+
+
+src = Image.open(MASTER).convert("RGB")
+tile(src).save("resources/icon.png", optimize=True)
+src.crop(HEAD_BOX).resize((128, 128), Image.LANCZOS).save("internal/app/avatar.png")
 PY

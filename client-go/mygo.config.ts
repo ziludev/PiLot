@@ -8,6 +8,6 @@ export default defineConfig({
   identifier: "com.example.agent",
   version: "0.1.0",
   out: "build",
-  // The app icon scripts/render-icon.sh renders from resources/pilot-app-icon.svg.
+  // The app icon scripts/render-icon.sh cuts from assets/brand/PiLot_fox.png.
   icon: "resources/icon.png",
 });
