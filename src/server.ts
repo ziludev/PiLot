@@ -819,6 +819,9 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
             state: (task.state as unknown as { kind?: string }).kind ?? "?",
             until: (task.state as unknown as { until?: number }).until,
             title: taskTitle(task.record.kind, task.record.input),
+            // When the harness took the work, so the window can time the turn it
+            // is watching instead of guessing from the last commit.
+            startedAt: (task.record as unknown as { startedAt?: number }).startedAt ?? null,
             // What the task's last run cost, for the rows nobody watches go by.
             spend: spend[String(task.record.id)] ?? null,
           })),

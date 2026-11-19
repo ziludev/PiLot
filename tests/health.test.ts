@@ -12,7 +12,7 @@ import { bridgeVersion, healthReport } from "../src/health.ts";
 type Runtime = Parameters<typeof healthReport>[0];
 
 function runtimeWith(parts: {
-  submissions?: Array<{ status: string }>;
+  submissions?: Array<{ status: string; conversationId?: number }>;
   tasks?: Array<{ state: { kind: string } }>;
   chats?: Record<string, number>;
   fail?: boolean;
@@ -39,7 +39,11 @@ test("the report counts the queue, the running turns and the chats", async () =>
   const started = 1_700_000_000_000;
   const report = await healthReport(
     runtimeWith({
-      submissions: [{ status: "queued" }, { status: "placed" }, { status: "queued" }],
+      submissions: [
+        { status: "queued", conversationId: 7 },
+        { status: "placed", conversationId: 7 },
+        { status: "queued", conversationId: 9 },
+      ],
       tasks: [
         { state: { kind: "running" } },
         { state: { kind: "sleeping" } },
@@ -55,6 +59,8 @@ test("the report counts the queue, the running turns and the chats", async () =>
   );
 
   assert.equal(report.queueDepth, 3);
+  // Only the waiting ones, and split by the chat they are waiting on.
+  assert.deepEqual(report.queued, { "7": 1, "9": 1 });
   assert.equal(report.runningTurns, 2);
   assert.equal(report.conversations, 2);
   assert.equal(report.pid, process.pid);
@@ -74,6 +80,7 @@ test("a broken harness comes back as zeroes, not as an error", async () => {
   const now = 1_700_000_000_000;
   const report = await healthReport(runtimeWith({ fail: true }), context, now, now);
   assert.equal(report.queueDepth, 0);
+  assert.deepEqual(report.queued, {});
   assert.equal(report.runningTurns, 0);
   assert.equal(report.conversations, 0);
   assert.equal(report.uptimeMs, 0);

@@ -193,6 +193,14 @@ func (a *App) railChatRow(c *ui.Context, t theme.Tokens, row railRow) {
 		// short and fixed, and a long title must not push them off the rail.
 		ui.Text(c, title).Grow(1).Shrink(1).MinWidth(0).FontSize(11.5).
 			TextColor(t.Foreground).MaxLines(1)
+		if waiting := a.queued[row.conv.ConversationID]; waiting > 0 {
+			// Something is waiting for this chat: clicking the row is how you get
+			// to it, since the messages themselves live in that chat's composer.
+			ui.Row(c).Gap(3).AlignItems(ui.Center).Children(func() {
+				ui.Icon(c, icons.Clock).Size(9, 9).TextColor(t.MutedFg)
+				ui.Text(c, itoa(waiting)).FontSize(9).TextColor(t.MutedFg)
+			})
+		}
 		if row.meta != "" {
 			ui.Text(c, row.meta).FontSize(9).TextColor(t.MutedFg)
 		}

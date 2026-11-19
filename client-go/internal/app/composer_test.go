@@ -193,7 +193,6 @@ func TestComposerPlaceholderVersusHint(t *testing.T) {
 	a := fixtureApp(t, false)
 	a.draft = ""
 	a.draftImage = nil
-	a.queue = 0
 	if cue := a.composerCue(); cue != "" {
 		t.Fatalf("an empty composer draws a cue on top of its placeholder: %q", cue)
 	}

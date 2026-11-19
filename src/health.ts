@@ -23,6 +23,13 @@ export type Health = {
   version: string;
   /** Submissions waiting for a run, the same count `scripts/agentctl` prints. */
   queueDepth: number;
+  /**
+   * The same queue split by conversation. The client used to show the depth of
+   * the whole bridge above whichever chat was open, which read as "this chat has
+   * two waiting" when they were somewhere else: the rail badges the chat they
+   * actually sit behind instead.
+   */
+  queued: Record<string, number>;
   runningTurns: number;
   conversations: number;
   /**
@@ -55,7 +62,14 @@ export async function healthReport(
   const inspection = await runtime.harness.inspect(context).catch(() => undefined);
   // `submissions` is "queued and placed submissions" — the queue itself, so the
   // depth needs no SQLite read of its own.
-  const queueDepth = inspection?.submissions.length ?? 0;
+  const submissions = inspection?.submissions ?? [];
+  const queueDepth = submissions.length;
+  const queued: Record<string, number> = {};
+  for (const submission of submissions) {
+    if (submission.status !== "queued") continue;
+    const conversation = String(submission.conversationId);
+    queued[conversation] = (queued[conversation] ?? 0) + 1;
+  }
   const runningTurns = inspection?.tasks.filter((task) => task.state.kind === "running").length ?? 0;
   const chats = (await runtime.harness.snapshot(ChatsToken, context).catch(() => undefined)) as
     | { chats: Record<string, number> }
@@ -66,6 +80,7 @@ export async function healthReport(
     uptimeMs: Math.max(0, now - startedAt),
     version: bridgeVersion(),
     queueDepth,
+    queued,
     runningTurns,
     // One surface can be counted twice only if two chats share a conversation,
     // which is how a thread and its parent look: count the conversations.

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"hash/fnv"
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -50,8 +51,10 @@ type App struct {
 
 	tasks   []protocol.Task
 	pending []protocol.PendingApproval
-	queue   int
-	online  bool
+	// queued is the bridge's queue split by conversation: the rail badges the
+	// chat a waiting message sits behind.
+	queued map[int]int
+	online bool
 	// stamp changes whenever the rail's inputs change, so railRows can be cached.
 	stamp uint64
 
@@ -108,6 +111,8 @@ type threadStore struct {
 	entries []protocol.Entry
 	rev     map[int]uint64
 	live    protocol.LiveDoc
+	// inbox is pi.inbox for this chat: messages waiting behind the running turn.
+	inbox   []protocol.InboxItem
 	loaded  bool
 	failed  bool
 	version uint64
@@ -122,6 +127,7 @@ func New(cfg Config) *App {
 	a.prefs = loadPrefs()
 	a.prefs.applyLang()
 	go a.reconcileLoop()
+	go a.elapsedLoop()
 	go a.tailLoop()
 	return a
 }
@@ -208,7 +214,7 @@ type snapshotResult struct {
 	state     *protocol.State
 	tasks     []protocol.Task
 	pending   []protocol.PendingApproval
-	queue     int
+	queued    map[int]int
 	ok        bool
 	tasksOK   bool
 	pendingOK bool
@@ -244,6 +250,24 @@ func (a *App) reconcileLoop() {
 			return
 		case <-ticker.C:
 			a.requestRefresh()
+		}
+	}
+}
+
+// elapsedLoop is the one-second heartbeat behind the running turn's clock: a
+// five-second refresh is fine for the rail, but a stopwatch that jumps by fives
+// is not a stopwatch.
+func (a *App) elapsedLoop() {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case <-ticker.C:
+			if a.running() {
+				a.invalidate()
+			}
 		}
 	}
 }
@@ -287,7 +311,13 @@ func (a *App) requestRefresh() {
 			defer wg.Done()
 			health, err := a.api.Health(ctx)
 			if err == nil {
-				result.queue = health.QueueDepth
+				queued := make(map[int]int, len(health.Queued))
+				for id, count := range health.Queued {
+					if conversation, err := strconv.Atoi(id); err == nil && conversation > 0 {
+						queued[conversation] = count
+					}
+				}
+				result.queued = queued
 			}
 		}()
 		wg.Wait()
@@ -460,7 +490,10 @@ func (a *App) applySnapshot(result *snapshotResult) {
 		a.pending = result.pending
 		a.stamp++
 	}
-	a.queue = result.queue
+	if result.queued != nil {
+		a.queued = result.queued
+		a.stamp++
+	}
 
 	if result.ok {
 		// The first snapshot names the chats; without this the rail would wait
@@ -522,6 +555,7 @@ func (a *App) applyFrame(result *frameResult) {
 	}
 	if result.frame.Value.Docs != nil {
 		th.live = result.frame.Value.Docs["pi.live"]
+		th.inbox = result.frame.Value.Docs["pi.inbox"].Items
 		changed = true
 	}
 	if changed {
@@ -607,6 +641,28 @@ func (a *App) running() bool {
 	}
 	run := th.live.Run
 	return len(run) > 0 && string(run) != "null"
+}
+
+// runSoFar is how long the turn on screen has been going, taken from the task
+// it runs on: the harness stamps startedAt when it takes the work, so this
+// survives opening the chat mid-turn and reloading the window.
+func (a *App) runSoFar() (time.Duration, bool) {
+	th, ok := a.threads[a.active]
+	if !ok || len(th.live.Run) == 0 {
+		return 0, false
+	}
+	var run struct {
+		TaskID int `json:"taskId"`
+	}
+	if json.Unmarshal(th.live.Run, &run) != nil || run.TaskID == 0 {
+		return 0, false
+	}
+	for _, task := range a.tasks {
+		if task.ID == run.TaskID && task.StartedAt > 0 {
+			return a.now.Sub(unixTime(task.StartedAt)), true
+		}
+	}
+	return 0, false
 }
 
 // View is the frame: apply what arrived, then draw.
