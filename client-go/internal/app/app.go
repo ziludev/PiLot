@@ -1,1343 +1,652 @@
-// Package app is the window: it owns the conversation state, talks to the
-// bridge, and draws the shell (rail, transcript, composer, side panel).
-//
-// Every field below the layout block is mutated only on the UI thread, inside
-// apply: network calls run in goroutines and hand their result back through
-// apply, so the views read the state without locks.
+// Package app is the desktop window: a rail of chats and tasks, one read-only
+// transcript, and a composer that turns into an approval card when a tool call
+// is waiting. Every frame draws from the mirror of the bridge kept current by
+// the events below; nothing here decides what the agent should do, it only
+// shows and forwards.
 package app
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"log"
-	"net/http"
-	"reflect"
+	"encoding/base64"
+	"encoding/json"
+	"hash/fnv"
+	"sort"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/markdown"
 
 	"pitta/internal/api"
-	"pitta/internal/brand"
-	"pitta/internal/diff"
-	"pitta/internal/i18n"
-	"pitta/internal/icons"
-	"pitta/internal/motion"
 	"pitta/internal/protocol"
 	"pitta/internal/theme"
-	"pitta/internal/turns"
 )
 
-// Config is what the window needs to reach the agent.
+// Config is what the window needs to find its bridge.
 type Config struct {
 	BaseURL string
 	Token   string
-	Home    string
 }
 
-// SideTab is one panel of the right-hand column, as the old client's store's tab field names
-// them.
-type SideTab string
-
-const (
-	SideChanges SideTab = "changes"
-	SideMemory  SideTab = "memory"
-	SideAccess  SideTab = "access"
-	SideUsage   SideTab = "usage"
-)
-
-// ViewKind is what the middle pane shows.
-type ViewKind int
-
-const (
-	ViewTranscript ViewKind = iota
-	ViewFile
-)
-
-// ReviewNote is one staged line comment the next message sends to the agent.
-type ReviewNote struct {
-	Path string `json:"path"`
-	Line string `json:"line"`
-	Note string `json:"note"`
-}
-
-// Conn is where the live socket stands.
-type Conn int
-
-const (
-	ConnConnecting Conn = iota
-	ConnOpen
-	ConnDown
-)
-
-// AppError is one client-side failure, newest last: the bridge's log file is
-// not visible in the window, so the window keeps its own.
-type AppError struct {
-	At      time.Time
-	Message string
-}
-
+// App holds the mirror of the bridge and the view-model that hangs off it.
+//
+// Everything is mutated on the frame goroutine: background work posts events to
+// inbox and View drains them before drawing. That is the whole synchronization
+// story — no frame ever sees a half-applied page. The one exception is the
+// surface list, which the tail prober reads under mu, because probing every
+// chat is too much work to hand back to the frame.
 type App struct {
 	cfg Config
 	api *api.Client
 	win *mygo.Window
-	// secondary windows skip what only one window may own: the approval poll,
-	// the Dock badge and the preference file.
-	secondary bool
-	// ctx ends the chat's watcher when the window closes, so a closed window
-	// does not keep a websocket alive.
+
 	ctx    context.Context
 	cancel context.CancelFunc
+	inbox  chan event
 
-	// currentID mirrors current for goroutines: with a window, currentChanges
-	// only on the UI thread, so a background read of it would race.
-	currentID atomic.Int64
-
-	// Layout and widget state: UI thread only, never read from a goroutine.
-	railWidth     float32
-	railListState ui.ListState
-	// railLeaving holds the chats the rail is still folding out, with the
-	// deadline for each: an archived row stays in the list for motion.RowLeave
-	// so it can collapse instead of vanishing between two frames.
-	railLeaving map[int]bool
-	// railMarks is the last mark each chat showed, so a row whose mark goes away
-	// can fade the one it had instead of blinking out.
-	railMarks map[int]railMark
-	// failureSeen holds the chats whose failed turn the reader has already
-	// opened, and taskSince when each running task was first seen.
-	failureSeen map[int]bool
-	taskSince   map[int]time.Time
-	// pendingToasts are toasts raised off the frame — by a poll, by a job
-	// finishing — which need a context of their own to reach the viewport.
-	pendingToasts []ui.Toast
-	rows          []railRow
-	prefs         prefs
-	md            markdown.Options
-	steer         bool
-	// turnTotal is how many turns the chat holds: what a title or a summary
-	// counts, not what a frame draws.
-	turnTotal int
-	// chatRows are the rows the last frame laid out, and chatBuilt the turns
-	// they came from: a row points into them, so both live and die together.
-	chatRows  []chatRow
-	chatBuilt []turns.Turn
-	// Grouped turns, kept until the entries change: grouping
-	// parses every entry, and a frame that only scrolls parses nothing.
-	turnCache []turns.Turn
-	turnStale bool
-
-	// The chat's history is longer than the first page: historyMore says the
-	// bridge still holds entries older than the ones loaded, historyLoading
-	// stops a second request while one is in flight.
-	historyMore    bool
-	historyLoading bool
-	// jumpKey is what the find bar or a search hit last asked the list to land
-	// on, so the jump happens once rather than every frame; jumpTarget is the
-	// row it is at.
-	jumpKey    string
-	jumpTarget int
-
-	// M2 layout: the side panel and the file view share the middle pane.
-	sideOpen  bool
-	sideTab   SideTab
-	sideWidth float32
-	view      ViewKind
-	filePath  string
-	file      *protocol.FilePayload
-	fileErr   string
-
-	// Which memory suggestions the reader unchecked before applying. The panel
-	// treats an absent index as checked.
-	memoryUnchecked map[int]bool
-
-	// Cross-conversation search: the box in the rail keeps filtering titles as
-	// the user types, and a submit asks the bridge to look inside transcripts.
-	searchHits    []protocol.SearchHit
-	searchPending bool
-	searchSeq     int
-
-	// In-chat search, review notes and the git/commit dialogs.
-	filter           string
-	focusEntry       int
-	convQuery        string
-	convMatches      []int
-	matchIndex       int
-	review           []ReviewNote
-	reviewDraft      string
-	reviewPick       *ReviewNote
-	commitDiffs      map[string]string
-	commitExpanded   string
-	commitDialogOpen bool
-	commitBusy       bool
-	commitMsg        string
-	gitBase          string
-	mainPane         float32
-	// turnList is the chat's place among its rows: it keeps that place by the
-	// row the reader is on, so turns loading above them move nothing.
-	turnList ui.ListState
-	// settingsScroll keeps the panel where the reader left it while a
-	// preference is dragged.
-	settingsScroll ui.ScrollState
-	previewScale   float32
-	// seenApprovals remembers which waits have already sounded the alert, and
-	// waitingAlert remembers that one is still running.
-	seenApprovals map[string]bool
-	waitingAlert  bool
-	// quitAsk holds the ⌘Q confirmation open while a turn is still running.
-	quitAsk bool
-	// othersOpen is the rail's "other projects" fold, restored from prefs.
-	othersOpen bool
-	// railCursor is the chat the rail's keyboard walk is on, which is the open
-	// chat unless the walk moved without opening.
-	railCursor int
-	// history is what this window sent, for Up/Down recall; historyAt walks it
-	// and historyDraft holds what was being typed before the walk started.
-	history      []string
-	historyAt    int
-	historyDraft string
-	// settingsOpen holds the ⌘, panel.
-	settingsOpen bool
-	// ownChat is the chat this window was opened for; 0 for the first window,
-	// which loads whichever chat the reader picks.
-	ownChat int
-	// titleTick counts the title refreshes, which is what makes a long wait
-	// blink.
-	titleTick   int
-	atBottom    bool
-	newMessages int
-	sideSynced  bool
-	// sideRoom is the room the two panes shared when the split was last synced:
-	// a different room means the window was resized, not the divider dragged.
-	sideRoom       float32
-	frameRecovered bool
-	changesLoading bool
-	pushNote       string
-
-	menu          chatMenu
-	findOpen      bool
-	shortcutsOpen bool
-	// logs is the agent's own log, drawn in the window rather than handed to
-	// Finder: reading it here keeps the tail one keystroke away.
-	logs logViewer
-
-	// unread dots the chats whose answers arrived while the window was behind
-	// another app, or while they were not the open one.
-	unread map[int]bool
-
-	// focused is false while the window is behind another one; nothing is
-	// notified while the reader is looking at the answer.
-	focused bool
-	// notified is the answer that last reached the owner, per chat: coming back
-	// to a chat must not announce the answer already read there.
-	notified map[int]string
-	// notifyAt is when each chat last buzzed. The quiet wait alone would still
-	// let a turn that keeps pausing buzz at every pause.
-	notifyAt map[int]time.Time
-	// notifyTimer is the wait that ends in a notification: every frame pushes it
-	// back, so only an answer that has fallen still is announced. notifyQuiet is
-	// how long that is; a test shortens it.
-	notifyTimer *time.Timer
-	notifyQuiet time.Duration
-
-	// errsOpen shows the panel behind the corner error badge.
-	errsOpen bool
-
-	// pendingImages are the pictures the next turn carries, and imagePath is
-	// what the path dialog holds while it is open.
-	pendingImages []imagePart
-	imagePath     string
-	imageOpen     bool
-	previewImage  int
-	previewSet    []imagePart
-
-	// historyImages holds the pictures a stored entry carries, decoded once per
-	// entry. View draws every frame; decoding a screenshot's PNG there costs
-	// ~15ms a frame, which pins the main thread and freezes the window.
-	imageCache map[int][]imagePart
-	imageOrder []int
-
-	// Project switcher state: the menu, the open dialog and the removal
-	// confirmation.
-	projectMenu     bool
-	projectOpen     bool
-	projectPath     string
-	projectRemoving bool
-	removeTarget    *protocol.Project
-
-	// Memory curation and the model picker.
-	memoryQuery  string
-	suggestions  []protocol.MemorySuggestion
-	curating     bool
-	modelCursor  int
-	modelsFav    []string
-	modelsRecent []string
-	modelQuery   string
-	// modelCollapsed remembers which provider groups the palette folded.
-	modelCollapsed map[string]bool
-	// modelList draws the palette rows, which mix headings and models.
-	modelList ui.ListState
-	modelOpen bool
-	stepOpen  map[int]bool
-	// stepGroups is the runs of tool calls a reader opened; a run is folded until
-	// it is in here, under the turn it belongs to.
-	stepGroups map[string]bool
-	// outputOpen is the tool answers a reader asked to see in full; every other
-	// one is capped with the count of what is held back under it.
-	outputOpen map[int]bool
-	// filesOpen is the turns whose file list the reader opened. The summary line
-	// says "2 files"; which two is the question that follows it.
-	filesOpen map[int]bool
-	// stepsOpen is the turns whose folded steps the reader expanded. A long turn
-	// folds to one line; this is the one that was opened back up, by turn id.
-	stepsOpen    map[int]bool
-	patchView    diff.View
-	draft        string
-	query        string
-	notice       string
-	showArchived bool
-
-	// Data, written only inside apply.
-	conn       Conn
-	downReason string
-	retry      int
-	reachable  bool
-	lastOpen   time.Time
-	busy       bool
-
+	mu       sync.RWMutex
 	surfaces []protocol.Surface
-	current  int
-	projects []protocol.Project
-	project  string
-	tasks    []protocol.Task
 
-	entries   []protocol.Entry
-	live      *protocol.LiveDoc
-	mood      brand.Mood
-	moodUntil time.Time
-	wasLive   bool
+	tasks   []protocol.Task
+	pending []protocol.PendingApproval
+	queue   int
+	online  bool
+	// stamp changes whenever the rail's inputs change, so railRows can be cached.
+	stamp uint64
 
-	model    *protocol.ModelRef
-	thinking string
-	models   []protocol.ModelEntry
+	active  int
+	threads map[int]*threadStore
 
-	approvals []protocol.PendingApproval
-	// health is the bridge's own report, and healthErr is what a failed read
-	// means: the agent is not there. The footer shows one or the other.
-	health    *protocol.Health
-	healthErr error
-	memory    protocol.Memory
-	changes   *protocol.Changes
-	git       *protocol.Git
-	access    *protocol.AccessView
-	audit     []protocol.AuditEvent
-	usage     protocol.Usage
-	usageDays []protocol.UsageDay
-	feishu    *protocol.Feishu
-	taskOpen  *protocol.TaskDetail
+	// watch is the live subscription for the active chat.
+	watchCancel context.CancelFunc
+	watchConv   int
+	wsLive      bool
+	refreshBusy atomic.Bool
+	tailBusy    atomic.Bool
 
-	errs []AppError
+	rail   railSection
+	filter string
+	now    time.Time
+	vm     viewModel
+	// focusComposer asks the next frame to put the cursor in the composer.
+	focusComposer bool
 
-	// switcher is the Cmd+K jump list's own state.
-	switcher switcher
-
-	// badge counts what the Dock icon shows; main.go wires it to mygo.
-	badge int
+	// composer
+	draft      string
+	draftImage []imageRef
+	history    []string
+	histIndex  int
+	notice     string
+	busy       map[string]bool // call id → decision in flight
 }
 
-// New builds the app; the window is attached once mygo creates it.
+type viewModel struct {
+	// tails is the newest entry time per chat, as probed from the bridge.
+	tails  map[int]time.Time
+	unread map[int]bool
+	// folds is the disclosure state of folded step rows, keyed by
+	// (conversationID, turnID).
+	folds      map[string]bool
+	projection map[int]projectionCache
+	railCache  []railRow
+	railStamp  uint64
+
+	railList   ui.ListState
+	threadList ui.ListState
+}
+
+type threadStore struct {
+	convID  int
+	entries []protocol.Entry
+	rev     map[int]uint64
+	live    protocol.LiveDoc
+	loaded  bool
+	failed  bool
+	version uint64
+}
+
+// New builds the window state and starts the work that feeds it: a five-second
+// reconcile and a staggered tail probe for the rail's relative times.
 func New(cfg Config) *App {
-	p := loadPrefs()
-	lang := i18n.EN
-	if p.Lang == string(i18n.ZH) {
-		lang = i18n.ZH
-	}
-	i18n.Set(lang)
-	width := float32(260)
-	if p.RailWidth > 120 && p.RailWidth < 600 {
-		width = p.RailWidth
-	}
-	sideWidth := float32(300)
-	if p.SideWidth > 220 && p.SideWidth < 700 {
-		sideWidth = p.SideWidth
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	// Every window draws at the saved transparency, which the settings panel
-	// then changes for all of them at once.
-	windowOpacity = p.opacity()
-	return &App{
-		ctx:           ctx,
-		cancel:        cancel,
-		cfg:           cfg,
-		api:           api.New(cfg.BaseURL, cfg.Token),
-		railWidth:     width,
-		sideWidth:     sideWidth,
-		othersOpen:    !p.OthersCollapsed,
-		sideTab:       SideChanges,
-		prefs:         p,
-		focused:       true,
-		stepOpen:      map[int]bool{},
-		stepGroups:    map[string]bool{},
-		outputOpen:    map[int]bool{},
-		filesOpen:     map[int]bool{},
-		stepsOpen:     map[int]bool{},
-		notified:      map[int]string{},
-		notifyAt:      map[int]time.Time{},
-		notifyQuiet:   notifySettle,
-		previewImage:  -1,
-		seenApprovals: map[string]bool{},
-		previewScale:  1,
-		commitDiffs:   map[string]string{},
-		modelsFav:     p.Favorites,
-		modelsRecent:  p.Recents,
-		unread:        unreadFromPrefs(p),
-		// A chat opens at its newest turn, as the earlier client's transcript does.
-		atBottom: true,
-		turnList: ui.ListState{FollowEnd: true},
-	}
-}
-
-// NewSecondary builds a window that shares the first one's client: it keeps its
-// own transcript and panels, while the approval poll, the Dock badge and the
-// preference file stay with the first window, which owns them.
-func NewSecondary(cfg Config, client *api.Client, conversationID int) *App {
-	a := New(cfg)
-	a.api = client
-	a.secondary = true
-	a.ownChat = conversationID
-	a.current = conversationID
-	a.currentID.Store(int64(conversationID))
+	a := newApp(cfg)
+	go a.reconcileLoop()
+	go a.tailLoop()
 	return a
 }
 
-// openInNewWindow asks main.go for a second window on this chat. The opener is
-// nil in the headless tests, which is why the rail hides nothing when absent.
-func (a *App) openInNewWindow(conversationID int) {
-	if windowOpener == nil || a.secondary {
-		return
+// newApp is New without the goroutines, for the frames a test draws by hand.
+func newApp(cfg Config) *App {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &App{
+		cfg:       cfg,
+		api:       api.New(cfg.BaseURL, cfg.Token),
+		ctx:       ctx,
+		cancel:    cancel,
+		inbox:     make(chan event, 256),
+		threads:   map[int]*threadStore{},
+		busy:      map[string]bool{},
+		histIndex: -1,
+		vm: viewModel{
+			tails:      map[int]time.Time{},
+			unread:     map[int]bool{},
+			folds:      map[string]bool{},
+			projection: map[int]projectionCache{},
+		},
 	}
-	windowOpener(a.cfg, a.api, conversationID)
 }
 
-// openChildChat opens a subagent's conversation beside the current one, and in
-// place of it only when a second window is not available: the parent is where the
-// reader goes back to, so it should not be the thing that gets replaced.
-func (a *App) openChildChat(conversationID int) {
-	if windowOpener != nil && !a.secondary {
-		a.openInNewWindow(conversationID)
-		return
+// Attach gives the app its window, so background work can ask for a repaint.
+func (a *App) Attach(win *mygo.Window) { a.win = win }
+
+// Close stops every goroutine the app owns.
+func (a *App) Close() {
+	a.cancel()
+	if a.watchCancel != nil {
+		a.watchCancel()
 	}
-	a.selectConversation(conversationID)
 }
 
-// Attach takes the window and starts the first load.
-func (a *App) Attach(win *mygo.Window) {
-	a.win = win
-	applyOpacity(win)
-	// A finished answer should reach the owner when the window is behind
-	// another one, as the earlier web client notifies only while hidden.
-	a.focused = win.IsFocused()
-	// the earlier client's rail panel defaults to 21% of the window and may be dragged
-	// between 16% and 30%; without a stored width, start there.
-	if a.prefs.RailWidth == 0 {
-		if width, _ := win.ContentSize(); width > 0 {
-			a.railWidth = railForWindow(float32(width))
-		}
-	}
-	win.OnClosed(func() {
-		// The window is gone: end the websocket instead of letting it reconnect
-		// forever in the background, and stop hearing the other windows.
-		// Where the window was is where it should come back: the last chat,
-		// the divider widths, the filters.
-		a.savePrefsNow()
-		if a.ownChat != 0 {
-			forgetOwnWindow(a.ownChat)
-		}
-		a.cancel()
-		unsubscribeSurfaces(a)
-	})
-	subscribeSurfaces(a)
-	// A window that shows one chat of its own says so, so the rail of the
-	// first window can point at it instead of loading the chat again.
-	if a.ownChat != 0 {
-		chat := a.ownChat
-		win := win
-		noteOwnWindow(a, chat, func() {
-			win.Show()
-			win.Focus()
-		})
-	}
-	a.restoreFrame()
-	go a.tickTitle()
-	win.OnFocus(func() {
-		a.apply(func() {
-			a.focused = true
-			// Looking at the chat again clears its dot.
-			a.clearUnread(a.currentValue())
-			a.invalidate()
-		})
-	})
-	win.OnBlur(func() { a.apply(func() { a.focused = false }) })
-	go a.init()
-}
-
-// railForWindow is the rail's starting width: 21% of the window, clamped to the
-// range a draggable divider allows.
-func railForWindow(width float32) float32 {
-	rail := width * 0.21
-	if rail < 190 {
-		return 190
-	}
-	if rail > width*0.30 {
-		return width * 0.30
-	}
-	return rail
-}
-
-// apply runs fn on the UI thread. Without a window (tests) it runs inline.
-func (a *App) apply(fn func()) {
-	a.post(fn)
-}
-
-// post runs fn on the window's own thread, without waiting for it. Without a
-// window (tests) it runs inline.
-func (a *App) post(fn func()) {
-	if a.win == nil {
-		fn()
-		return
-	}
-	a.win.Update(fn)
-}
-
-// applyWait runs fn on the main thread and waits for it, running it directly
-// when the caller is the main thread already. Goroutines use it when the next
-// step depends on the state fn writes: win.Update only queues fn, so reading
-// a.current right after apply can see the old value.
-//
-// It must not queue and then wait on a channel: click and shortcut handlers
-// run on the main thread, and waiting there for the main loop itself deadlocks
-// the window (macOS then says the application is not responding). RunOnMain
-// runs fn directly when it is already the main thread, which is that case.
-func (a *App) applyWait(fn func()) {
-	if a.win == nil {
-		fn()
-		return
-	}
-	mygo.RunOnMain(fn)
-}
-
-// invalidate asks for one more frame.
 func (a *App) invalidate() {
-	if a.win == nil {
+	if a.win != nil {
+		a.win.Invalidate()
+	}
+}
+
+// post hands one result to the frame goroutine. A full inbox means the window
+// is not drawing at all, and dropping the event is the only thing left to do.
+func (a *App) post(ev event) {
+	select {
+	case a.inbox <- ev:
+	default:
+	}
+	// A frame is what drains the inbox, so every event asks for one; without
+	// this the window would only catch up on the next mouse move.
+	a.invalidate()
+}
+
+type eventKind int
+
+const (
+	evSnapshot eventKind = iota
+	evThread
+	evFrame
+	evWatchDown
+	evTail
+	evNotice
+	evFiles
+	evDecided
+	evSelect
+	evProbeTails
+)
+
+type event struct {
+	kind eventKind
+
+	snapshot *snapshotResult
+	page     *pageResult
+	frame    *frameResult
+	tail     *tailResult
+	notice   string
+	convID   int
+	callID   string
+	images   []imageRef
+}
+
+type snapshotResult struct {
+	state     *protocol.State
+	tasks     []protocol.Task
+	pending   []protocol.PendingApproval
+	queue     int
+	ok        bool
+	tasksOK   bool
+	pendingOK bool
+	err       error
+}
+
+type pageResult struct {
+	convID  int
+	entries []protocol.Entry
+	err     error
+}
+
+type frameResult struct {
+	convID int
+	frame  protocol.Frame
+}
+
+type tailResult struct {
+	convID int
+	at     time.Time
+}
+
+// reconcileLoop is the five-second safety net: it re-reads the rail's snapshot
+// whether or not the socket is healthy, and reloads the open chat while the
+// socket is not carrying it.
+func (a *App) reconcileLoop() {
+	a.requestRefresh()
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case <-ticker.C:
+			a.requestRefresh()
+		}
+	}
+}
+
+// requestRefresh reads the snapshot in parallel, one round at a time.
+func (a *App) requestRefresh() {
+	if !a.refreshBusy.CompareAndSwap(false, true) {
 		return
 	}
-	a.win.Invalidate()
+	go func() {
+		defer a.refreshBusy.Store(false)
+		ctx, cancel := context.WithTimeout(a.ctx, 8*time.Second)
+		defer cancel()
+		result := &snapshotResult{}
+		var wg sync.WaitGroup
+		wg.Add(4)
+		go func() {
+			defer wg.Done()
+			state, err := a.api.State(ctx)
+			if err != nil {
+				result.err = err
+				return
+			}
+			result.state, result.ok = state, true
+		}()
+		go func() {
+			defer wg.Done()
+			tasks, err := a.api.Tasks(ctx)
+			if err == nil {
+				result.tasks, result.tasksOK = tasks, true
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			pending, err := a.api.Approvals(ctx)
+			if err == nil {
+				result.pending, result.pendingOK = pending, true
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			health, err := a.api.Health(ctx)
+			if err == nil {
+				result.queue = health.QueueDepth
+			}
+		}()
+		wg.Wait()
+		a.post(event{kind: evSnapshot, snapshot: result})
+	}()
 }
 
-// fail records a client-side error, capped so a storm cannot grow unbounded.
-func (a *App) fail(format string, args ...any) {
-	msg := fmt.Sprintf(format, args...)
-	log.Printf("app: %s", msg)
-	a.apply(func() {
-		a.errs = append(a.errs, AppError{At: time.Now(), Message: msg})
-		if len(a.errs) > 50 {
-			a.errs = a.errs[len(a.errs)-50:]
+// tailLoop re-probes every chat's newest entry once a minute, so the rail's
+// relative times stay true as the window sits open.
+func (a *App) tailLoop() {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case <-ticker.C:
+			// The prober reads the view-model, so it is asked for on the frame
+			// goroutine rather than run from this one.
+			a.post(event{kind: evProbeTails})
 		}
-		a.invalidate()
-	})
+	}
 }
 
-// init loads the shell and then subscribes to the open conversation. The app
-// and the agent both start at login, so the first request may arrive before
-// the bridge listens: retry for 30s before saying the bridge is down.
-func (a *App) init() {
-	ctx := context.Background()
-	var err error
-	for attempt := 1; attempt <= 30; attempt++ {
-		err = a.loadState(ctx)
+// probeTails reads the newest entry of every chat without a known time yet, or
+// of all of them, one request every 150ms.
+func (a *App) probeTails() {
+	if !a.tailBusy.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer a.tailBusy.Store(false)
+		known := a.tailTimes()
+		for _, s := range a.surfaceSnapshot() {
+			if _, ok := known[s.ConversationID]; ok {
+				continue
+			}
+			ctx, cancel := context.WithTimeout(a.ctx, 4*time.Second)
+			page, err := a.api.ConversationTail(ctx, s.ConversationID)
+			cancel()
+			if err == nil {
+				a.post(event{kind: evTail, tail: &tailResult{convID: s.ConversationID, at: newestTime(page.Entries)}})
+			}
+			select {
+			case <-a.ctx.Done():
+				return
+			case <-time.After(150 * time.Millisecond):
+			}
+		}
+	}()
+}
+
+// tailTimes is a snapshot of which chats already have a time, taken on the
+// frame goroutine so the prober does not read the view-model.
+type tailMap map[int]struct{}
+
+func (a *App) tailTimes() tailMap {
+	out := tailMap{}
+	for _, s := range a.surfaceSnapshot() {
+		if at, ok := a.vm.tails[s.ConversationID]; ok && !at.IsZero() {
+			out[s.ConversationID] = struct{}{}
+		}
+	}
+	return out
+}
+
+func (a *App) surfaceSnapshot() []protocol.Surface {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	out := make([]protocol.Surface, len(a.surfaces))
+	copy(out, a.surfaces)
+	return out
+}
+
+func (a *App) setSurfaces(surfaces []protocol.Surface) {
+	a.mu.Lock()
+	a.surfaces = surfaces
+	a.mu.Unlock()
+}
+
+// loadThread reads one chat's newest page; the watch follows it.
+func (a *App) loadThread(convID int) {
+	go func() {
+		ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
+		defer cancel()
+		conversation, err := a.api.Conversation(ctx, convID)
+		result := &pageResult{convID: convID, err: err}
 		if err == nil {
-			break
+			result.entries = conversation.Entries
 		}
-		a.apply(func() {
-			a.retry = attempt
-			a.reachable = false
-			a.invalidate()
-		})
-		if attempt == 30 {
-			break
-		}
-		time.Sleep(time.Second)
+		a.post(event{kind: evThread, page: result})
+	}()
+}
+
+// watch keeps the active chat live until it is replaced or the app closes.
+func (a *App) watch(convID int) {
+	if a.watchCancel != nil {
+		a.watchCancel()
+		a.watchCancel = nil
 	}
-	if err != nil {
-		a.apply(func() {
-			a.conn = ConnDown
-			a.downReason = err.Error()
-			a.invalidate()
-		})
+	a.watchConv = convID
+	a.wsLive = false
+	if convID == 0 {
 		return
 	}
-	a.apply(func() {
-		a.retry = 0
-		a.reachable = true
-		a.lastOpen = time.Now()
-		a.invalidate()
-	})
-	if a.secondary {
-		a.reloadConversation(a.currentValue())
-		return
-	}
-	a.loadHealth(ctx)
-	a.openDefaultConversation()
-	go a.pollApprovals()
-	go a.pollSurfaces()
-	go a.pollHealth()
+	ctx, cancel := context.WithCancel(a.ctx)
+	a.watchCancel = cancel
+	frames := a.api.Watch(ctx, convID)
+	go func() {
+		for frame := range frames {
+			a.post(event{kind: evFrame, frame: &frameResult{convID: convID, frame: frame}})
+		}
+		a.post(event{kind: evWatchDown, convID: convID})
+	}()
 }
 
-// healthPoll is how often the footer's uptime and queue are refreshed. The
-// numbers move slowly; the socket's reconnect is separate and unchanged.
-const healthPoll = 10 * time.Second
-
-// loadHealth reads the bridge's own numbers for the footer. A failed read is
-// the answer the footer needs, so it is kept rather than returned.
-func (a *App) loadHealth(ctx context.Context) {
-	health, err := a.api.Health(ctx)
-	if healthUnsupported(err) {
-		// A bridge that predates this client answers 404. That is "no report yet", not
-		// "the agent is gone": saying the agent is unreachable while every other panel
-		// loads fine is a false alarm, and the one that teaches people to ignore the dot.
-		health, err = nil, nil
-	}
-	a.apply(func() {
-		a.health, a.healthErr = health, err
-		a.invalidate()
-	})
-}
-
-// healthUnsupported reports a bridge too old to know /api/health.
-func healthUnsupported(err error) bool {
-	var status *api.StatusError
-	return errors.As(err, &status) && status.Code == http.StatusNotFound
-}
-
-// pollHealth keeps the queue and the uptime honest; a bridge that restarts
-// changes both, and nothing else in the window notices.
-func (a *App) pollHealth() {
-	ctx := context.Background()
+// drain applies everything that arrived since the last frame.
+func (a *App) drain() {
 	for {
-		time.Sleep(healthPoll)
-		a.loadHealth(ctx)
-	}
-}
-
-// surfacePoll is how often the rail re-reads the bridge. A chat started in
-// Feishu or from the terminal is written by another process and nothing pushes
-// it here, so without a poll the rail is a snapshot of the moment the app
-// started.
-const surfacePoll = 8 * time.Second
-
-// pollSurfaces keeps the rail honest while other surfaces write conversations.
-func (a *App) pollSurfaces() {
-	ctx := context.Background()
-	for {
-		time.Sleep(surfacePoll)
-		// A bridge that is down says so on the socket; a failed poll is not news.
-		_ = a.loadState(ctx)
-	}
-}
-
-// pollApprovals keeps the pending list fresh: a tool call can wait for the
-// user while the socket is busy streaming something else.
-func (a *App) pollApprovals() {
-	ctx := context.Background()
-	for {
-		time.Sleep(5 * time.Second)
-		if err := a.loadApprovals(ctx); err != nil {
-			log.Printf("app: %v", err)
+		select {
+		case ev := <-a.inbox:
+			a.apply(ev)
+		default:
+			return
 		}
 	}
 }
 
-// openDefaultConversation selects the conversation the rail sorts first, as
-// the earlier web client does on boot.
-func (a *App) openDefaultConversation() {
-	// The chat that was open last time comes back, as a desktop app's window
-	// does; a chat that is gone falls through to the newest one.
-	if last := a.prefs.LastChat; last != 0 && a.surfaceExists(last) {
-		a.selectConversation(last)
-		return
-	}
-	picked := 0
-	a.applyWait(func() {
-		if id := defaultConversationID(a.surfaces); id != 0 {
-			a.setCurrent(id)
-			picked = id
+func (a *App) apply(ev event) {
+	switch ev.kind {
+	case evSnapshot:
+		a.applySnapshot(ev.snapshot)
+	case evThread:
+		a.applyPage(ev.page)
+	case evFrame:
+		a.applyFrame(ev.frame)
+	case evWatchDown:
+		if ev.convID == a.active {
+			a.wsLive = false
+			a.loadThread(ev.convID)
 		}
-	})
-	a.reloadConversation(picked)
-	a.savePrefsLater()
+	case evTail:
+		a.applyTail(ev.tail)
+	case evNotice:
+		a.notice = ev.notice
+	case evFiles:
+		a.addImages(ev.images)
+	case evDecided:
+		delete(a.busy, ev.callID)
+	case evSelect:
+		a.selectConversation(ev.convID)
+	case evProbeTails:
+		a.probeTails()
+	}
 }
 
-// defaultConversationID is the newest conversation that is not archived, which
-// is the chat the earlier web client reopens.
-func defaultConversationID(surfaces []protocol.Surface) int {
-	newest := 0
-	for _, surface := range surfaces {
-		if surface.Archived || surface.ConversationID == 0 {
+func (a *App) applySnapshot(result *snapshotResult) {
+	if result.ok {
+		a.online = true
+		a.setSurfaces(result.state.Surfaces)
+		a.stamp++
+	} else {
+		a.online = false
+	}
+	if result.tasksOK {
+		a.tasks = result.tasks
+		a.stamp++
+	}
+	if result.pendingOK {
+		a.pending = result.pending
+		a.stamp++
+	}
+	a.queue = result.queue
+
+	if result.ok {
+		// The first snapshot names the chats; without this the rail would wait
+		// a minute for its times.
+		a.probeTails()
+	}
+	if a.active == 0 && a.online {
+		if surfaces := a.surfaceSnapshot(); len(surfaces) > 0 {
+			a.selectConversation(surfaces[0].ConversationID)
+		}
+	}
+	if a.active != 0 && !a.wsLive {
+		// The socket is not carrying this chat, so the five-second tick is the
+		// only source of new entries and it reloads the page.
+		a.loadThread(a.active)
+	}
+}
+
+func (a *App) applyPage(result *pageResult) {
+	if result.convID != a.active {
+		return
+	}
+	th := a.thread(result.convID)
+	if result.err != nil {
+		th.failed = true
+		return
+	}
+	th.failed = false
+	th.loaded = true
+	th.entries = result.entries
+	th.rev = make(map[int]uint64, len(result.entries))
+	for _, entry := range result.entries {
+		th.rev[entry.ID] = fingerprint(entry)
+	}
+	th.version++
+}
+
+// applyFrame merges the socket's window into the page already held. It never
+// replaces the list: the bridge's window is shorter than the page, so a
+// wholesale swap would walk the transcript back.
+func (a *App) applyFrame(result *frameResult) {
+	if result.convID != a.active {
+		return
+	}
+	th := a.thread(result.convID)
+	a.wsLive = true
+	if result.frame.Value == nil {
+		return
+	}
+	changed := false
+	for _, entry := range result.frame.Value.Entries {
+		stamp := fingerprint(entry)
+		if prev, seen := th.rev[entry.ID]; seen && prev == stamp {
 			continue
 		}
-		if surface.ConversationID > newest {
-			newest = surface.ConversationID
+		th.rev[entry.ID] = stamp
+		th.upsert(entry)
+		changed = true
+	}
+	if result.frame.Value.Docs != nil {
+		th.live = result.frame.Value.Docs["pi.live"]
+		changed = true
+	}
+	if changed {
+		th.version++
+	}
+}
+
+func (a *App) applyTail(result *tailResult) {
+	if result.at.IsZero() {
+		return
+	}
+	prev := a.vm.tails[result.convID]
+	if !prev.IsZero() && result.at.After(prev) && result.convID != a.active {
+		// Activity grew in a chat the user is not looking at. The probe is the
+		// only witness, so this flag is a heuristic and does not survive a
+		// restart — P0 takes that.
+		a.vm.unread[result.convID] = true
+	}
+	if prev.IsZero() || result.at.After(prev) {
+		a.vm.tails[result.convID] = result.at
+		a.stamp++
+	}
+}
+
+// thread is the store for one chat, created on first use.
+func (a *App) thread(convID int) *threadStore {
+	if th, ok := a.threads[convID]; ok {
+		return th
+	}
+	th := &threadStore{convID: convID, rev: map[int]uint64{}}
+	a.threads[convID] = th
+	return th
+}
+
+func (th *threadStore) upsert(entry protocol.Entry) {
+	i := sort.Search(len(th.entries), func(i int) bool { return th.entries[i].ID >= entry.ID })
+	if i < len(th.entries) && th.entries[i].ID == entry.ID {
+		th.entries[i] = entry
+		return
+	}
+	th.entries = append(th.entries, protocol.Entry{})
+	copy(th.entries[i+1:], th.entries[i:])
+	th.entries[i] = entry
+}
+
+// selectConversation opens a chat: its page, its live socket, and no unread.
+func (a *App) selectConversation(convID int) {
+	if convID == 0 || convID == a.active {
+		return
+	}
+	a.active = convID
+	a.vm.unread[convID] = false
+	delete(a.vm.unread, convID)
+	a.draft, a.draftImage = "", nil
+	a.histIndex = len(a.history)
+	a.vm.threadList.FollowEnd = true
+	a.focusComposer = true
+	a.stamp++
+	if a.watchConv != convID {
+		a.watch(convID)
+	}
+	if th, ok := a.threads[convID]; !ok || !th.loaded {
+		a.loadThread(convID)
+	}
+	a.invalidate()
+}
+
+// activeConv is the chat on screen.
+func (a *App) activeConv() (protocol.Surface, bool) {
+	for _, s := range a.surfaceSnapshot() {
+		if s.ConversationID == a.active {
+			return s, true
+		}
+	}
+	return protocol.Surface{}, false
+}
+
+// running reports whether the active chat has a turn in flight.
+func (a *App) running() bool {
+	th, ok := a.threads[a.active]
+	if !ok {
+		return false
+	}
+	run := th.live.Run
+	return len(run) > 0 && string(run) != "null"
+}
+
+// View is the frame: apply what arrived, then draw.
+func (a *App) View(c *ui.Context) {
+	a.drain()
+	a.now = time.Now()
+	t := theme.Use(c, c.Theme().Dark)
+	a.shell(c, t)
+}
+
+// fingerprint of an entry, for deciding whether a frame carried a new version.
+func fingerprint(entry protocol.Entry) uint64 {
+	h := fnv.New64a()
+	h.Write([]byte(entry.Kind))
+	h.Write(entry.Model)
+	h.Write(entry.Data)
+	return h.Sum64()
+}
+
+func newestTime(entries []protocol.Entry) time.Time {
+	var newest time.Time
+	for _, entry := range entries {
+		for _, msg := range messagesOf(entry) {
+			if at := unixTime(msg.Timestamp); at.After(newest) {
+				newest = at
+			}
 		}
 	}
 	return newest
 }
 
-func (a *App) loadState(ctx context.Context) error {
-	st, err := a.api.State(ctx)
-	if err != nil {
-		return err
-	}
-	a.apply(func() {
-		a.noteTaskFinish(a.tasks, st.Tasks)
-		// A poll that brings the same list costs no frame and no tray rebuild;
-		// apply runs on the window's thread asynchronously, so the comparison
-		// and everything that follows it live in this one closure.
-		if a.sameState(st) {
-			return
-		}
-		a.surfaces = st.Surfaces
-		a.tasks = st.Tasks
-		a.projects = st.Projects
-		a.feishu = st.Feishu
-		// The menu bar shows what is running, so the trays do not go stale.
-		a.publishTray()
-		// The other windows share the client, so they share this list too.
-		broadcastSurfaces(a, st.Surfaces)
-		a.invalidate()
-	})
-	return nil
-}
-
-// sameState says the poll brought nothing the rail draws differently.
-func (a *App) sameState(st *protocol.State) bool {
-	return reflect.DeepEqual(a.surfaces, st.Surfaces) &&
-		reflect.DeepEqual(a.tasks, st.Tasks) &&
-		reflect.DeepEqual(a.projects, st.Projects) &&
-		reflect.DeepEqual(a.feishu, st.Feishu)
-}
-
-// reloadConversation loads the open conversation and (re)subscribes its socket.
-// hasNewAnswer reports whether a frame brought an answer the reader had not
-// seen, which is what a dot stands for.
-func hasNewAnswer(before, after []protocol.Entry) bool {
-	if len(after) <= len(before) {
-		return false
-	}
-	for _, entry := range after[len(before):] {
-		if entry.Kind == "pi.assistant" {
-			return true
-		}
-	}
-	return false
-}
-
-// growEntries takes the entries a frame carries and counts what arrived while
-// the reader is scrolled away from the newest turn.
-func (a *App) growEntries(entries []protocol.Entry) {
-	merged := mergeEntries(a.entries, entries)
-	if !a.atBottom && len(merged) > len(a.entries) {
-		a.newMessages += len(merged) - len(a.entries)
-	}
-	a.entries = merged
-	a.turnStale = true
-}
-
-// mergeEntries keeps the entries already held that fall before the frame's
-// window. The bridge's watch window holds the newest 50 entries and drops its
-// oldest when it would hold more than 100, so assigning the window would shrink
-// a chat back to its tail on the first frame after loading it.
-func mergeEntries(held, window []protocol.Entry) []protocol.Entry {
-	if len(window) == 0 {
-		return held
-	}
-	// A window reaching back as far as what is held is a full reload: it wins.
-	if len(held) == 0 || window[0].ID <= held[0].ID {
-		return window
-	}
-	keep := 0
-	for keep < len(held) && held[keep].ID < window[0].ID {
-		keep++
-	}
-	if keep == 0 {
-		return window
-	}
-	merged := make([]protocol.Entry, 0, keep+len(window))
-	merged = append(merged, held[:keep]...)
-	return append(merged, window...)
-}
-
-func (a *App) reloadConversation(current int) {
-	if current == 0 {
-		return
-	}
-	ctx := context.Background()
-	conv, err := a.api.Conversation(ctx, current)
-	if err != nil {
-		a.fail("load conversation %d: %v", current, err)
-		return
-	}
-	a.apply(func() {
-		a.entries = conv.Entries
-		a.historyMore = conv.HasMore
-		a.historyLoading = false
-		a.turnStale = true
-		a.model = conv.Model
-		a.thinking = conv.ThinkingLevel
-		if conv.Usage != nil {
-			a.usage = *conv.Usage
-		}
-		a.turnStale = true
-		a.live = nil
-		// A newly opened chat lands on its newest turn, not its oldest.
-		// Another chat is another list: its keys, its place and its scroll are
-		// not this one's, so the list starts afresh and at its end.
-		a.turnList = ui.ListState{FollowEnd: true}
-		a.atBottom, a.newMessages = true, 0
-		a.invalidate()
-	})
-	go a.watch(current)
-	a.goLoad(func() error { return a.loadApprovals(ctx) })
-	a.goLoad(func() error { return a.loadChanges(ctx) })
-	a.goLoad(func() error { return a.loadGit(ctx) })
-	a.goLoad(func() error { return a.loadModels(ctx) })
-}
-
-// currentValue reads the open conversation id on the UI thread.
-func (a *App) currentValue() int {
-	if a.win == nil {
-		return a.current
-	}
-	return int(a.currentID.Load())
-}
-
-// setCurrent records the open conversation and keeps the goroutine-visible
-// mirror in step; call it only inside an apply closure.
-func (a *App) setCurrent(conversationID int) {
-	a.current = conversationID
-	a.currentID.Store(int64(conversationID))
-	if a.failureSeen == nil {
-		a.failureSeen = map[int]bool{}
-	}
-	// Opening the chat is reading its failure: the warning triangle is there to
-	// bring the reader back to a turn that ended badly, not to stay for days.
-	a.failureSeen[conversationID] = true
-}
-
-// goLoad runs one loader in a goroutine and reports its failure in the panel.
-func (a *App) goLoad(fn func() error) {
-	go func() {
-		if err := fn(); err != nil {
-			a.fail("%v", err)
-		}
-	}()
-}
-
-// watch keeps the conversation's socket open; api.Watch reconnects on its own
-// and closes the channel when ctx is cancelled.
-func (a *App) watch(conversationID int) {
-	ctx := a.ctx
-	a.apply(func() {
-		a.conn = ConnConnecting
-		a.invalidate()
-	})
-	for frame := range a.api.Watch(ctx, conversationID) {
-		if frame.Value == nil {
-			continue
-		}
-		value := frame.Value
-		a.apply(func() {
-			if a.current != conversationID {
-				return
-			}
-			a.conn = ConnOpen
-			a.reachable = true
-			a.lastOpen = time.Now()
-			if !a.focused && hasNewAnswer(a.entries, value.Entries) {
-				a.markUnread(conversationID)
-			}
-			a.growEntries(value.Entries)
-			if doc, ok := value.Docs["pi.live"]; ok {
-				a.live = &doc
-			} else {
-				a.live = nil
-			}
-			a.invalidate()
-		})
-		a.maybeNotify()
-	}
-	a.apply(func() {
-		if a.current == conversationID {
-			a.conn = ConnDown
-			a.invalidate()
-		}
-	})
-}
-
-// selectConversation opens a chat from the rail.
-func (a *App) selectConversation(conversationID int) {
-	a.applyWait(func() {
-		a.clearUnread(conversationID)
-		if a.current == conversationID {
-			return
-		}
-		a.setCurrent(conversationID)
-		a.entries = nil
-		a.turnStale = true
-		a.live = nil
-		a.approvals = nil
-		a.invalidate()
-	})
-	a.reloadConversation(a.currentValue())
-	// Remembering the chat after the switch, not before it, is what makes the
-	// next launch land here.
-	a.savePrefsLater()
-	a.syncTitle()
-}
-
-// syncTitle puts the chat's name on the window, as a native document window
-// does, so the Dock and the window menu say which chat is open.
-func (a *App) syncTitle() {
-	if a.win == nil {
-		return
-	}
-	a.win.SetTitle(a.titleText())
-}
-
-// submit sends what the composer holds, as the Send button does.
-func (a *App) submit() {
-	a.sendText(a.draft)
-}
-
-// sendText sends one turn and clears the draft. The composer calls it with the
-// text the editor holds, which is ahead of the bound value until the next
-// frame.
-func (a *App) sendText(text string) {
-	images := a.pendingImages
-	a.apply(func() { a.recall(text) })
-	mode := api.ModeFollowUp
-	if a.steer {
-		mode = api.ModeSteer
-	}
-	a.apply(func() {
-		a.draft = ""
-		if a.current == 0 || (text == "" && len(images) == 0) || a.busy {
-			return
-		}
-		a.busy = true
-		a.pendingImages = nil
-		a.invalidate()
-	})
-	if text == "" && len(images) == 0 {
-		return
-	}
-	conversationID := a.currentValue()
-	go func() {
-		err := a.api.Submit(context.Background(), api.SubmitRequest{
-			ConversationID: conversationID,
-			Text:           text,
-			Mode:           mode,
-			Images:         submitImages(images),
-		})
-		a.apply(func() {
-			a.busy = false
-			a.invalidate()
-		})
-		if err != nil {
-			a.fail("submit: %v", err)
-		}
-	}()
-}
-
-// abort stops the run in flight. When a message is still waiting in line the
-// bridge takes that one out instead, and the toast says so: a stop that lands on
-// the wrong message looks like the stop button is broken.
-func (a *App) abort() {
-	conversationID := a.currentValue()
-	if conversationID == 0 {
-		return
-	}
-	go func() {
-		outcome, err := a.api.Abort(context.Background(), conversationID)
-		if err != nil {
-			a.fail("abort: %v", err)
-			return
-		}
-		if outcome.Cancelled == 0 {
-			return
-		}
-		a.apply(func() {
-			a.toast(ui.Toast{
-				Title:   i18n.TF("stopQueued", map[string]any{"count": outcome.Cancelled}),
-				Timeout: motion.ToastLife,
-			})
-			a.invalidate()
-		})
-	}()
-}
-
-// decideApproval answers a pending tool call; session extends the grant to the
-// rest of this conversation.
-func (a *App) decideApproval(callID string, approved, session bool) {
-	conversationID := a.currentValue()
-	a.apply(func() {
-		kept := a.approvals[:0]
-		for _, wait := range a.approvals {
-			if wait.CallID != callID {
-				kept = append(kept, wait)
-			}
-		}
-		a.approvals = kept
-		a.invalidate()
-	})
-	go func() {
-		err := a.api.DecideApproval(context.Background(), api.ApprovalDecision{
-			CallID:         callID,
-			Approved:       approved,
-			Session:        session,
-			ConversationID: conversationID,
-		})
-		if err != nil {
-			a.fail("approval: %v", err)
-		}
-	}()
-}
-
-// View draws one frame.
-func (a *App) View(c *ui.Context) {
-	a.applyThemeChoice(c)
-	t := theme.Current(c)
-	theme.Apply(c, t)
-	// the earlier client's view:16 binds meta/ctrl+F window-wide; OnWindowShortcut fires
-	// with no element focused, which is the same reach.
-	// ui.Cmd is Cmd on darwin and Ctrl elsewhere; a combined Super|Ctrl mask
-	// matches neither, since modifiers are matched exactly.
-	c.OnWindowShortcut(ui.Cmd, ui.KeyF, func() {
-		a.apply(func() { a.findOpen = true; a.invalidate() })
-	})
-	// Cmd+K is the quick switcher, the one shortcut a native client can offer
-	// that a web page cannot: it jumps to any chat without touching the rail.
-	c.OnWindowShortcut(ui.Cmd, ui.KeyK, func() {
-		a.apply(func() { a.openSwitcher() })
-	})
-	c.OnWindowShortcut(ui.Cmd, ui.KeyN, func() {
-		a.apply(func() { a.newConversation() })
-	})
-	c.OnWindowShortcut(ui.Cmd, ui.KeyUp, func() { a.scrollPage(-1) })
-	c.OnWindowShortcut(ui.Cmd, ui.KeyDown, func() { a.scrollPage(1) })
-	for i, key := range quickKeys {
-		i, key := i, key
-		c.OnWindowShortcut(ui.Cmd, key, func() {
-			if id := a.chatForQuickKey(i); id != 0 {
-				a.apply(func() { a.selectConversation(id) })
-			}
-		})
-	}
-	// ⌘W closes the window the way the red button does, which is what a
-	// desktop app's owner expects from the key.
-	c.OnWindowShortcut(ui.Cmd, ui.KeyQ, func() { a.askQuit() })
-	c.OnWindowShortcut(ui.Cmd, ui.KeyComma, func() {
-		a.apply(func() { a.settingsOpen = true; a.invalidate() })
-	})
-	// Linear's j/k, moved to ⌥ so a bare j can still be typed.
-	c.OnWindowShortcut(ui.Alt, ui.KeyDown, func() { a.stepRail(1) })
-	c.OnWindowShortcut(ui.Alt, ui.KeyUp, func() { a.stepRail(-1) })
-	c.OnWindowShortcut(ui.Cmd|ui.Shift, ui.KeyP, func() { a.togglePinSelected() })
-	c.OnWindowShortcut(ui.Cmd|ui.Shift, ui.KeyBackspace, func() { a.archiveSelected() })
-	c.OnWindowShortcut(ui.Cmd, ui.KeyW, func() {
-		if a.win != nil {
-			a.win.Close()
-		}
-	})
-	c.OnWindowShortcut(ui.Cmd, ui.KeySlash, func() {
-		a.apply(func() { a.shortcutsOpen = true; a.invalidate() })
-	})
-	c.OnWindowShortcut(ui.Cmd|ui.Shift, ui.KeyN, func() {
-		a.openInNewWindow(a.currentValue())
-	})
-	c.OnWindowShortcut(ui.Cmd, ui.KeyB, func() {
-		a.apply(func() { a.toggleSide(); a.invalidate() })
-	})
-	// A window can come up narrower than the saved rail; clamp before the split
-	// so the header and the composer keep their room.
-	if width, _ := c.Size(); width > 0 {
-		a.fitPanes(width)
-		a.recoverTinyWindow(width)
-	}
-	root := ui.Split(c, &a.railWidth, func() { a.rail(c) }, func() { a.pane(c) }).Fill()
-	// Files dragged from Finder land on the whole window: images become
-	// attachments, anything else opens in the viewer, which is more than the
-	// earlier web client could do with a drop.
-	if paths := root.DroppedFiles(); len(paths) > 0 {
-		a.dropPaths(paths)
-	}
-	a.switcherDialog(c, t)
-	a.chatMenuDialog(c, t)
-	a.taskDialog(c)
-	a.quitDialog(c, t)
-	a.settingsDialog(c, t)
-	a.shortcutsDialog(c, t)
-	a.logsDialog(c, t)
-	a.imageDialog(c, t)
-	a.previewDialog(c, t)
-	a.errorPanel(c, t)
-	a.flushToasts(c)
-	a.toasts(c)
-	// The split writes the dragged width into railWidth; keep a copy once it
-	// settles, so the next launch opens the same size.
-	if diff := a.railWidth - a.prefs.RailWidth; diff > 2 || diff < -2 {
-		a.prefs.RailWidth = a.railWidth
-		a.savePrefsLater()
-	}
-}
-
-// applyThemeChoice honours the user's light/dark/system pick before the
-// tokens are read, as ThemeToggle did by writing the class on <html>.
-func (a *App) applyThemeChoice(c *ui.Context) {
-	if a.prefs.Theme != "light" && a.prefs.Theme != "dark" {
-		return
-	}
-	theme.Use(c, a.prefs.Theme == "dark")
-}
-
-// toggleTheme flips between light and dark and remembers it.
-// toggleTheme walks the three states the earlier client's view:8-20 cycles: follow the
-// system, light, dark, and back to following the system.
-func (a *App) toggleTheme() {
-	a.apply(func() {
-		a.prefs.Theme = nextTheme(a.prefs.Theme)
-		a.savePrefsLater()
-		a.invalidate()
-	})
-}
-
-func nextTheme(theme string) string {
-	switch theme {
-	case "":
-		return "light"
-	case "light":
-		return "dark"
-	}
-	return ""
-}
-
-// toggleLang switches between Chinese and English, which the settings panel and
-// the ⌘ palette also do.
-func (a *App) toggleLang() {
-	a.apply(func() {
-		if a.prefs.Lang == string(i18n.ZH) {
-			a.prefs.Lang = string(i18n.EN)
-		} else {
-			a.prefs.Lang = string(i18n.ZH)
-		}
-		i18n.Set(i18n.Lang(a.prefs.Lang))
-		a.savePrefsLater()
-		a.invalidate()
-	})
-}
-
-// main draws the middle pane: the chat's header, the transcript, the composer.
-// pane is everything right of the rail: the chat, plus the side panel when it
-// is open. The side panel owns its own width so dragging it does not move the
-// rail.
-func (a *App) pane(c *ui.Context) {
-	if !a.sideOpen {
-		a.main(c)
-		a.sideSynced = false
-		return
-	}
-	// main | side, with the divider between them draggable and remembered, as
-	// the earlier client's PanelResizeHandle is (the earlier client's view:74-96). Split sizes its first pane
-	// in DIPs, so mainPane is what the divider moves; the panel width is the
-	// remainder, which is what prefs keeps.
-	if a.mainPane <= 0 {
-		a.mainPane = 760
-	}
-	pane := ui.Split(c, &a.mainPane, func() { a.main(c) }, func() { a.sidePanel(c) }).
-		Fill().SplitReset(760)
-	bounds := pane.Bounds()
-	if bounds.W <= 0 {
-		return
-	}
-	a.syncPanes(float32(bounds.W))
-}
-
-// syncPanes shares the room Split laid out between the chat and the panel. The
-// divider is what changes the panel's width: a window that grew or shrank hands
-// the difference to the chat, so resizing does not quietly widen the panel and
-// leave the transcript where it was.
-func (a *App) syncPanes(room float32) {
-	if room <= 0 {
-		return
-	}
-	if !a.sideSynced {
-		// The room Split has is only known once laid out: take the saved panel
-		// width out of it on the first frame that shows the panel.
-		a.sideSynced = true
-		a.sideRoom = room
-		a.mainPane = room - float32(a.sideWidthOf())
-		return
-	}
-	if a.sideRoom != room {
-		// The window changed size under the panel: it keeps the width it has.
-		a.sideRoom = room
-		a.mainPane = room - float32(a.sideWidthOf())
-		return
-	}
-	if side := room - a.mainPane; side > 0 && absf(side-float32(a.sideWidthOf())) > 2 {
-		// The divider moved: that is the width the panel keeps, live and saved,
-		// so the next resize hands the difference to the chat.
-		a.sideWidth = side
-		a.prefs.SideWidth = side
-		a.savePrefsLater()
-	}
-}
-
-func absf(v float32) float32 {
-	if v < 0 {
-		return -v
-	}
-	return v
-}
-
-func (a *App) main(c *ui.Context) {
-	if a.view == ViewFile {
-		// The file viewer takes the chat's place, as the earlier client swaps the transcript
-		// for FileViewer instead of opening a window.
-		a.fileView(c)
-		return
-	}
-	ui.Column(c).Fill().Children(func() {
-		a.mainHeader(c)
-		ui.Divider(c)
-		a.transcript(c)
-		a.jumpBar(c)
-		if a.modelOpen {
-			a.modelPalette(c)
-		}
-		a.composer(c)
-	})
-}
-
-// mainHeader names the chat and holds the actions that act on it, as the earlier client's view
-// puts reset and stop above the transcript.
-func (a *App) mainHeader(c *ui.Context) {
-	t := theme.Current(c)
-	// h-12 px-3.5 gap-2, title 13/medium over a 10 px mono line: the earlier client's view's header.
-	ui.Row(c).Height(48).PaddingX(14).Gap(8).AlignItems(ui.Center).Children(func() {
-		ui.Column(c).Grow(1).Gap(1).Children(func() {
-			ui.Text(c, a.currentTitle()).FontSize(13).FontWeight(500).
-				TextColor(t.Foreground).MaxLines(1)
-			ui.Text(c, a.currentMeta()).FontSize(10).Font("monospace").
-				TextColor(t.MutedFg).MaxLines(1)
-		})
-		if a.findOpen {
-			a.findBar(c, t)
-		}
-		iconButton(c, icons.Search, i18n.T("findShort")).OnClick(func() {
-			a.apply(func() { a.findOpen = !a.findOpen; a.invalidate() })
-		})
-		// The the earlier client titles are the commands themselves: /new and /stop.
-		iconButton(c, icons.SquarePen, "/new").OnClick(func() { a.resetConversation() })
-		stop := iconButton(c, icons.Square, "/stop")
-		if a.busy || a.live != nil {
-			// Busy turns the stop red, as the header tints it text-rose-500.
-			stop.OnClick(func() { a.abort() })
-		}
-		// Last on the right: it is the edge the panel opens from.
-		panel := "Show panel"
-		if a.sideOpen {
-			panel = "Hide panel"
-		}
-		side := iconButtonTint(c, icons.PanelRight, panel, t.MutedFg)
-		if a.sideOpen {
-			side = iconButtonTint(c, icons.PanelRight, panel, t.Primary)
-		}
-		side.OnClick(func() { a.toggleSide() })
-	})
-}
-
-// iconButton is a borderless button holding one icon, as the earlier client header's
-// ghost icon buttons are: no fill until the pointer is on it, 24 square.
-func iconButton(c *ui.Context, icon *ui.SVG, label string) ui.Element {
-	return iconButtonTint(c, icon, label, theme.Current(c).MutedFg)
-}
-
-// iconButtonTint is the same button with the icon in a given color, which the
-// right-panel toggle uses to show the panel is open.
-func iconButtonTint(c *ui.Context, icon *ui.SVG, label string, tint ui.Color) ui.Element {
-	t := theme.Current(c)
-	// The background fades under the pointer instead of switching, as the
-	// the earlier client header's transition-colors does.
-	button := ui.ButtonBase(c).Size(24, 24).Radius(6).Cursor(ui.CursorPointer).
-		Transition(motion.Hover())
-	button.Label(label)
-	button.Tooltip(label)
-	if button.Hovered() {
-		button.Background(t.Accent)
-	}
-	button.Children(func() {
-		ui.Icon(c, icon).Size(12, 12).TextColor(tint)
-	})
-	return button
-}
-
-// currentTitle is the open chat's name.
-func (a *App) currentTitle() string {
-	for _, surface := range a.surfaces {
-		if surface.ConversationID == a.current {
-			return surfaceTitle(surface)
-		}
-	}
-	return ""
-}
-
-// currentMeta is the chat's ids, which the Feishu thread and the CLI both use.
-func (a *App) currentMeta() string {
-	if a.current == 0 {
-		return ""
-	}
-	for _, surface := range a.surfaces {
-		if surface.ConversationID == a.current {
-			return surface.SurfaceID + "  #" + itoa(a.current)
-		}
-	}
-	return "#" + itoa(a.current)
-}
-
-// resetConversation clears the chat's history on the agent, as /new does.
-func (a *App) resetConversation() {
-	id := a.currentValue()
-	if id == 0 {
-		return
-	}
-	a.goLoad(func() error {
-		if err := a.api.Reset(contextBG(), id); err != nil {
-			return fmt.Errorf("reset conversation %d: %w", id, err)
-		}
-		a.reloadConversation(id)
+func messagesOf(entry protocol.Entry) []modelMessage {
+	if len(entry.Model) == 0 {
 		return nil
-	})
+	}
+	var messages []modelMessage
+	if err := json.Unmarshal(entry.Model, &messages); err != nil {
+		return nil
+	}
+	return messages
 }
 
-// surfaceExists reports whether the rail still lists a chat, which a restart
-// checks before reopening it.
-func (a *App) surfaceExists(conversationID int) bool {
-	for _, s := range a.surfaces {
-		if s.ConversationID == conversationID && !s.Archived {
-			return true
-		}
+func attachmentImages(images []imageRef) []api.Image {
+	out := make([]api.Image, 0, len(images))
+	for _, img := range images {
+		out = append(out, api.Image{
+			Data:     base64.StdEncoding.EncodeToString(img.data),
+			MimeType: img.mime,
+		})
 	}
-	return false
+	return out
 }
+
+// NewChat, AttachImages and RestartAgent are the menu's verbs; they run the

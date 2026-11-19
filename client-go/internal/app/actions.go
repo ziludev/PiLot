@@ -1,88 +1,177 @@
 package app
 
 import (
-	"log"
-	"os/exec"
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/egoist/mygo"
+
+	"pitta/internal/api"
+	"pitta/internal/bridge"
+	"pitta/internal/i18n"
 )
 
-// The exported actions below are what the application menu calls. They hop to
-// the UI thread through apply, so the menu can live on the main thread while
-// the state stays where the view owns it.
-
-// MenuNewChat starts a chat in the current project.
-func (a *App) MenuNewChat() {
-	a.apply(func() { a.newConversation() })
-}
-
-// MenuAttachImage opens the panel that attaches pictures.
-func (a *App) MenuAttachImage() { a.chooseImages() }
-
-// MenuOpenProject asks for a workspace folder.
-func (a *App) MenuOpenProject() { a.chooseProject() }
-
-// MenuToggleSide folds or unfolds the side panel.
-func (a *App) MenuToggleSide() {
-	a.apply(func() {
-		a.toggleSide()
-		a.invalidate()
-	})
-}
-
-// MenuToggleTheme walks system, light and dark.
-func (a *App) MenuToggleTheme() {
-	a.apply(func() {
-		a.toggleTheme()
-		a.invalidate()
-	})
-}
-
-// MenuToggleLanguage switches between English and Chinese.
-func (a *App) MenuToggleLanguage() {
-	a.apply(func() {
-		a.toggleLang()
-		a.invalidate()
-	})
-}
-
-// MenuFind opens the in-chat find bar.
-func (a *App) MenuFind() {
-	a.apply(func() {
-		a.findOpen = true
-		a.invalidate()
-	})
-}
-
-// MenuSwitcher opens the ⌘K jump list.
-func (a *App) MenuSwitcher() {
-	a.apply(func() { a.openSwitcher() })
-}
-
-// MenuRestartBridge restarts the local agent, as the rail's button does.
-func (a *App) MenuRestartBridge() { a.control("restart") }
-
-// MenuBackup runs the agent's backup script.
-func (a *App) MenuBackup() { a.control("backup") }
-
-// previewFile opens the file in the system's preview window, which reads PDFs,
-// images and Office documents that the line view cannot show. qlmanage is the
-// Quick Look helper every macOS install carries; elsewhere the file opens in
-// whatever handles it.
-func (a *App) previewFile() {
-	if a.filePath == "" {
+func (a *App) submit() {
+	text := strings.TrimSpace(a.draft)
+	images := a.draftImage
+	convID := a.active
+	if convID == 0 || (text == "" && len(images) == 0) {
 		return
 	}
-	path := a.filePath
+	if text != "" {
+		a.history = append(a.history, text)
+		if len(a.history) > 50 {
+			a.history = a.history[len(a.history)-50:]
+		}
+	}
+	a.histIndex = len(a.history)
+	a.draft, a.draftImage = "", nil
+	request := api.SubmitRequest{
+		ConversationID: convID,
+		Text:           text,
+		Mode:           api.ModeFollowUp,
+		Images:         attachmentImages(images),
+		RequestID:      fmt.Sprintf("%d-%d", convID, time.Now().UnixNano()),
+	}
 	go func() {
-		if err := exec.Command("qlmanage", "-p", path).Start(); err != nil {
-			log.Printf("app: preview %s: %v", path, err)
+		ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+		defer cancel()
+		if err := a.api.Submit(ctx, request); err != nil {
+			a.post(event{kind: evNotice, notice: i18n.T("sendFailed") + " · " + err.Error()})
+			return
+		}
+		a.loadThread(convID)
+	}()
+}
+
+// abort stops the active chat's run, or takes back a message still in line.
+func (a *App) abort() {
+	convID := a.active
+	if convID == 0 {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
+		defer cancel()
+		if _, err := a.api.Abort(ctx, convID); err != nil {
+			a.post(event{kind: evNotice, notice: i18n.T("stopFailed") + " · " + err.Error()})
 		}
 	}()
 }
 
-// MenuShortcuts opens the cheat sheet.
-func (a *App) MenuShortcuts() {
-	a.apply(func() {
-		a.shortcutsOpen = true
-		a.invalidate()
-	})
+// decide answers one pending approval. The protocol addresses a decision by
+// call id alone; approvals are global, not tied to the chat on screen.
+func (a *App) decide(callID string, approved bool) {
+	if callID == "" || a.busy[callID] {
+		return
+	}
+	a.busy[callID] = true
+	go func() {
+		ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
+		defer cancel()
+		err := a.api.DecideApproval(ctx, api.ApprovalDecision{CallID: callID, Approved: approved})
+		if err != nil {
+			a.post(event{kind: evNotice, notice: i18n.T("approvalFailed") + " · " + err.Error()})
+		}
+		a.post(event{kind: evDecided, callID: callID})
+		a.requestRefresh()
+	}()
 }
+
+// newChat starts an empty chat in the built-in workspace and opens it.
+func (a *App) newChat() {
+	go func() {
+		ctx, cancel := context.WithTimeout(a.ctx, 20*time.Second)
+		defer cancel()
+		convID, _, err := a.api.NewConversation(ctx, "")
+		if err != nil {
+			a.post(event{kind: evNotice, notice: i18n.T("sendFailed") + " · " + err.Error()})
+			return
+		}
+		a.post(event{kind: evSelect, convID: convID})
+		a.requestRefresh()
+	}()
+}
+
+// attachImages opens the file picker and reads the picks, off the frame thread
+// because the panel blocks until it closes.
+func (a *App) attachImages() {
+	go func() {
+		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+			Title: i18n.T("attachImage"),
+			Filters: []mygo.FileFilter{
+				{Name: "Images", Extensions: []string{"png", "jpg", "jpeg", "gif", "webp"}},
+			},
+			Multiple: true,
+		})
+		if err != nil || len(paths) == 0 {
+			return
+		}
+		var images []imageRef
+		for _, path := range paths {
+			if img, ok := readImage(path); ok {
+				images = append(images, img)
+			}
+		}
+		if len(images) > 0 {
+			a.post(event{kind: evFiles, images: images})
+		}
+	}()
+}
+
+// attachPath reads one file the app was asked to open (a drop, or the menu's
+// Open item) into the composer.
+func (a *App) attachPath(path string) {
+	go func() {
+		if img, ok := readImage(path); ok {
+			a.post(event{kind: evFiles, images: []imageRef{img}})
+		}
+	}()
+}
+
+func readImage(path string) (imageRef, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return imageRef{}, false
+	}
+	mime := "image/png"
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".jpg", ".jpeg":
+		mime = "image/jpeg"
+	case ".gif":
+		mime = "image/gif"
+	case ".webp":
+		mime = "image/webp"
+	}
+	return imageRef{mime: mime, data: data}, true
+}
+
+func (a *App) addImages(images []imageRef) {
+	if len(images) == 0 {
+		return
+	}
+	a.draftImage = append(a.draftImage, images...)
+	a.invalidate()
+}
+
+// restartAgent restarts the agent process, not the bridge.
+func (a *App) restartAgent() {
+	go func() {
+		if out := bridge.Agentctl("restart"); strings.Contains(out, "error") {
+			a.post(event{kind: evNotice, notice: out})
+		}
+	}()
+}
+
+// View is the frame: apply what arrived, then draw.
+
+// same actions the composer's controls do.
+func (a *App) NewChat() { a.newChat() }
+
+func (a *App) AttachImages() { a.attachImages() }
+
+func (a *App) RestartAgent() { a.restartAgent() }
