@@ -1,6 +1,7 @@
 import { defineExtension, defineTask, defineTool } from "@earendil-works/pi-durable";
 import { obj, opt, str } from "@earendil-works/pi-schema";
-import { startTurn, surfaceForConversation } from "./channel.ts";
+import { conversationForSurface, startTurn, surfaceForConversation } from "./channel.ts";
+import { recordSpend, spentSoFar } from "./spend.ts";
 import { log, logError } from "./log.ts";
 import { getHarness } from "./runtime-ref.ts";
 
@@ -152,6 +153,11 @@ const Routine = defineTask<RoutineInput, RoutineState, string>({
     },
     fire: async (task, runtime, context) => {
       const surfaceId = surfaceForConversation(task.conversationId) ?? task.input.surfaceId;
+      // What the chat's ledger says before the turn, so the routine can report what its own run
+      // cost: nobody is watching an unattended run spend money.
+      const chatConversation = conversationForSurface(surfaceId);
+      const before =
+        chatConversation === undefined ? undefined : await spentSoFar(runtime, context, chatConversation).catch(() => undefined);
       // The turn is told it is unattended, because the expensive failure mode of a routine is a
       // turn that stops halfway to ask a question nobody is there to answer.
       const instruction = `⏰ 定时任务（无人在线：不要反问我，做完直接在回复里给结果和验证方式）\n\n${task.input.text}`;
@@ -161,6 +167,16 @@ const Routine = defineTask<RoutineInput, RoutineState, string>({
           surface: surfaceId,
           scheduled: formatWhen(task.state.checkpoint.at),
         });
+        if (started && chatConversation !== undefined && before !== undefined) {
+          const after = await spentSoFar(runtime, context, chatConversation).catch(() => undefined);
+          if (after !== undefined && after.cost > before.cost) {
+            await recordSpend(runtime as never, context, task.id, {
+              cost: after.cost - before.cost,
+              tokens: after.tokens - before.tokens,
+              at: Date.now(),
+            });
+          }
+        }
       } catch (error) {
         // A failed start must not fault the phase: the retry would fire the routine again, and a
         // routine that throws twice a day is worse than one that skips a beat.
