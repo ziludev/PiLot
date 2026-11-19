@@ -369,6 +369,10 @@ type threadRow struct {
 
 	// liveStep is the tool the turn in flight is running now, for rowLive.
 	liveStep string
+	// liveHint is what that call is doing: the tail of its output, or the
+	// command or path it was given. A turn runs `bash` twenty times; the name
+	// alone makes every one of them look the same.
+	liveHint string
 	span     time.Duration
 	noSpan   bool
 }
