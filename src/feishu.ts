@@ -603,25 +603,38 @@ type CardTrace = { digest: string };
  * running now (with its age, the only signal a hanging round gives), then the answer as it streams.
  * The step trail is why a five-minute turn no longer reads `bash · 0s` and nothing else.
  */
+/** How much of a thought fits on a card before it stops being a card. */
+const THINKING_TAIL = 280;
+
+/**
+ * The model's thinking, flattened to one italic line.
+ *
+ * Thinking is the only part of a run that says *why*, and it is worth showing while the card is the
+ * only thing on screen. It is not worth letting it win: a long reasoning block carries its own
+ * headings and lists, and pasted raw it shoves the answer off the card. So: one line, the newest
+ * end of it, and the same clip the answer text gets.
+ */
+function thinkingLine(thinking: string | undefined): string {
+  const flat = (thinking ?? "").replace(/\s+/g, " ").trim();
+  if (flat.length === 0) return "";
+  return `_💭 ${flat.length > THINKING_TAIL ? `…${flat.slice(-THINKING_TAIL)}` : flat}_`;
+}
+
 export function renderLive(live: LiveSnapshot, trace?: CardTrace, trail?: Trail, stages?: string[]): string {
   const body = live.text.trim();
   const steps = trail === undefined ? "" : renderSteps(trail, Date.now());
+  const thought = thinkingLine(live.thinking);
+  const activity = live.activity !== undefined && live.activity.length > 0 ? `_${live.activity}_` : "";
   const parts: string[] = [];
   // A pipeline's stage is the biggest thing happening, so it goes above the tool rounds.
   if (stages !== undefined && stages.length > 0) parts.push(stages.join("\n"));
-  if (steps.length > 0) {
-    parts.push(steps);
-    if (live.activity !== undefined && live.activity.length > 0) parts.push(`_${live.activity}_`);
-    if (body.length > 0) parts.push(clip(body));
-    else if (live.tools.length === 0) parts.push("🤔 思考中…");
-  } else if (body.length > 0) {
-    parts.push(clip(body));
-  } else if (live.tools.length > 0) {
-    parts.push(`⚙️ ${live.tools.join(" · ")}`);
-    if (live.activity !== undefined && live.activity.length > 0) parts.push(`_${live.activity}_`);
-  } else {
-    parts.push("🤔 思考中…");
-  }
+  if (steps.length > 0) parts.push(steps);
+  else if (body.length === 0 && thought.length === 0 && live.tools.length > 0) parts.push(`⚙️ ${live.tools.join(" · ")}`);
+  if (activity.length > 0) parts.push(activity);
+  // Thought sits directly above the answer: the order the model produced them in.
+  if (thought.length > 0) parts.push(thought);
+  if (body.length > 0) parts.push(clip(body));
+  else if (thought.length === 0 && (steps.length > 0 || live.tools.length === 0)) parts.push("🤔 思考中…");
   const inner = parts.join("\n\n");
   return trace === undefined || trace.digest.length === 0 ? inner : `▸ ${trace.digest}\n\n${inner}`;
 }

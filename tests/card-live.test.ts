@@ -14,3 +14,22 @@ test("a running pipeline's stage sits above the tool rounds", async () => {
   assert.ok(stage >= 0, `no stage line in:\n${out}`);
   assert.ok(stage < round, `stage should come before the tool rounds:\n${out}`);
 });
+
+test("the model's thinking rides above its answer, clipped to a line", async () => {
+  const { renderLive } = await import("../src/feishu.ts");
+  const long = `${"推敲一下分支名。".repeat(60)}结论：先删孤儿。`;
+  const out = renderLive({ text: "好了", tools: ["bash"], thinking: long, busy: true } as never);
+  const thought = out.indexOf("💭");
+  assert.ok(thought >= 0, `no thinking on the card:\n${out}`);
+  assert.ok(thought < out.indexOf("好了"), `thinking should sit above the answer:\n${out}`);
+  assert.ok(out.includes("结论：先删孤儿。"), `the newest end is what survives the clip:\n${out}`);
+  assert.equal(out.split("\n").filter((line) => line.includes("💭")).length, 1, "one line, not a wall");
+});
+
+test("a card with no thinking says so instead of showing an empty thought", async () => {
+  const { renderLive } = await import("../src/feishu.ts");
+  // Providers that withhold reasoning send redacted thinking: no words, and no claim either.
+  const out = renderLive({ text: "", tools: ["bash"], busy: true } as never);
+  assert.equal(out.includes("💭"), false);
+  assert.match(out, /⚙️ bash/);
+});

@@ -10,8 +10,8 @@ export type LiveSnapshot = {
   activity?: string;
   /** Identities of the calls in this round: two `bash` rounds in a row differ here, not by name. */
   callIds?: string[];
-  /** Arguments each call was made with, by call id: the trail names a round by what it did. */
-  args?: Record<string, Json>;
+  /** What the model is thinking right now, as it writes it: the card's window into the why. */
+  thinking?: string;
   /** Tool rounds the run has taken so far, as the engine counts them. */
   turns?: number;
   busy: boolean;
@@ -24,44 +24,28 @@ function asRecord(value: unknown): Json | undefined {
 }
 
 function textOfMessage(message: unknown): string {
+  return partsOfMessage(message, "text", "text");
+}
+
+/**
+ * The model's thinking, which arrives as its own content block before the answer does. A provider
+ * that withholds it sends `redacted_thinking` instead, which has no words to show — those stay empty
+ * rather than turning into a placeholder that claims a thought happened.
+ */
+function thinkingOfMessage(message: unknown): string {
+  return partsOfMessage(message, "thinking", "thinking");
+}
+
+function partsOfMessage(message: unknown, type: string, key: string): string {
   const record = asRecord(message);
   const content = record?.["content"];
   if (!Array.isArray(content)) return "";
   let text = "";
   for (const part of content) {
     const item = asRecord(part);
-    if (item?.["type"] === "text" && typeof item["text"] === "string") text += item["text"];
+    if (item?.["type"] === type && typeof item[key] === "string") text += item[key] as string;
   }
   return text;
-}
-
-/**
- * Arguments of every call in the view's window, by call id.
- *
- * `pi.live` carries a call's name and id but not its arguments; the assistant message that issued
- * it does, and the window holds the newest fifty entries — every round the trail can still show.
- */
-export function readCallArgs(entries: unknown): Record<string, Json> {
-  const args: Record<string, Json> = {};
-  if (!Array.isArray(entries)) return args;
-  for (const entry of entries) {
-    const model = asRecord(entry)?.["model"];
-    if (!Array.isArray(model)) continue;
-    for (const message of model) {
-      const record = asRecord(message);
-      if (record?.["role"] !== "assistant") continue;
-      const content = record["content"];
-      if (!Array.isArray(content)) continue;
-      for (const part of content) {
-        const item = asRecord(part);
-        if (item?.["type"] !== "toolCall") continue;
-        const id = item["id"];
-        const callArgs = asRecord(item["arguments"]);
-        if (typeof id === "string" && callArgs !== undefined) args[id] = callArgs;
-      }
-    }
-  }
-  return args;
 }
 
 /** Reads `pi.live` out of a conversation view. */
@@ -72,6 +56,7 @@ function readLive(view: unknown): LiveSnapshot {
 
   const generation = asRecord(live["generation"]);
   const text = textOfMessage(generation?.["message"]);
+  const thinking = thinkingOfMessage(generation?.["message"]);
 
   const tools: string[] = [];
   const callIds: string[] = [];
@@ -99,12 +84,11 @@ function readLive(view: unknown): LiveSnapshot {
 
   const run = asRecord(live["run"]);
   const turns = run?.["turns"];
-  const args = readCallArgs(asRecord(view)?.["entries"]);
   return {
     text,
     tools,
     callIds,
-    ...(Object.keys(args).length === 0 ? {} : { args }),
+    ...(thinking.length === 0 ? {} : { thinking }),
     ...(typeof turns === "number" ? { turns } : {}),
     activity,
     busy: run !== undefined,
