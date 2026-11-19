@@ -1,10 +1,10 @@
-// feishu-gw is the transport half of the bridge: it holds the Feishu long connection so the Node
-// side can stop depending on the Node SDK for it.
+// feishu-gw owns the two things that only a long-lived Feishu process should own: the long
+// connection and the credentials. The bridge talks to it over localhost HTTP; nothing else changes
+// shape.
 //
-// P1 is receive-only. Every message event is written to the log with the same chat/sender facts the
-// Node bridge logs, and nothing is sent back — so it can run next to the Node client without
-// changing what alex sees. What P1 answers: does this connection see the same events, once, while
-// the Node connection is still up? (P2 adds the send/patch/reply operations and the HTTP contract.)
+// Receiving (P1) and sending (P2) live here because they share one failure mode: an app token that
+// went stale, or a connection that reports "connected" while Feishu is not routing events to it.
+// Kept in one process, "we are up" means one thing.
 package main
 
 import (
@@ -21,98 +21,151 @@ import (
 	"syscall"
 	"time"
 
+	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher"
+	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	"github.com/larksuite/oapi-sdk-go/v3/ws"
 )
 
-type counters struct {
-	messages  atomic.Int64
-	duplicate atomic.Int64
-	lastEvent atomic.Int64 // unix seconds of the most recent event
+type config struct {
+	appID     string
+	appSecret string
+	addr      string
+	bridgeURL string
+	// The bridge authenticates its own HTTP API with AGENT_HTTP_TOKEN; forwarded events have to
+	// arrive with it or the bridge refuses them like any other stranger.
+	bridgeToken string
+	token       string
+	debug       bool
+}
+
+type stats struct {
+	events    atomic.Int64 // message events seen on the long connection
+	cards     atomic.Int64 // card actions seen
+	delivered atomic.Int64 // events the bridge accepted
+	dropped   atomic.Int64 // events no retry could deliver
+	lastEvent atomic.Int64 // unix seconds, 0 = never
+	connected atomic.Bool
 	started   time.Time
 }
 
 func main() {
-	envPath := flag.String("env", "../.env", "dotenv file to read FEISHU_APP_ID / FEISHU_APP_SECRET from")
-	addr := flag.String("addr", "127.0.0.1:8788", "address for /healthz")
-	send := flag.Bool("send", false, "enable outbound messages (P2); off means receive-only")
+	envPath := flag.String("env", "../.env", "dotenv file to read credentials from")
+	addr := flag.String("addr", "", "address for the HTTP API (default FEISHU_GW_ADDR or 127.0.0.1:8788)")
 	debug := flag.Bool("debug", false, "log every frame the connection receives")
 	flag.Parse()
 
 	if err := loadEnv(*envPath); err != nil {
 		log.Fatalf("env: %v", err)
 	}
-	appID, appSecret := os.Getenv("FEISHU_APP_ID"), os.Getenv("FEISHU_APP_SECRET")
-	if appID == "" || appSecret == "" {
+	conf := config{
+		appID:       os.Getenv("FEISHU_APP_ID"),
+		appSecret:   os.Getenv("FEISHU_APP_SECRET"),
+		addr:        firstNonEmpty(*addr, os.Getenv("FEISHU_GW_ADDR"), "127.0.0.1:8788"),
+		bridgeURL:   firstNonEmpty(os.Getenv("BRIDGE_URL"), "http://127.0.0.1:8787"),
+		bridgeToken: os.Getenv("AGENT_HTTP_TOKEN"),
+		token:       os.Getenv("FEISHU_GW_TOKEN"),
+		debug:       *debug,
+	}
+	if conf.appID == "" || conf.appSecret == "" {
 		log.Fatalf("env: FEISHU_APP_ID / FEISHU_APP_SECRET missing from %s", *envPath)
 	}
+	if conf.token == "" {
+		// The API can send messages as the bot. Reachable only from loopback, but a token is what
+		// keeps a stray local process from posting as us.
+		log.Print("warning: FEISHU_GW_TOKEN is empty, the local API is unauthenticated")
+	}
 
-	stats := &counters{started: time.Now()}
 	out := newLogger()
-
-	// A long connection does not verify a webhook token, so both are empty; the app secret is the
-	// only credential and it never leaves this process.
-	events := dispatcher.NewEventDispatcher("", "")
-	events.OnP2MessageReceiveV1(func(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
-		record(out, stats, event)
-		return nil
-	})
-
+	state := &stats{started: time.Now()}
 	level := larkcore.LogLevelInfo
-	if *debug {
+	if conf.debug {
 		level = larkcore.LogLevelDebug
 	}
-	client := ws.NewClient(appID, appSecret,
+	client := lark.NewClient(conf.appID, conf.appSecret, lark.WithLogLevel(level))
+
+	forwarder := &forwarder{base: conf.bridgeURL, token: conf.bridgeToken, out: out, state: state}
+	events := dispatcher.NewEventDispatcher("", "")
+
+	// A long connection does not verify a webhook token, and nothing here is encrypted, so both
+	// dispatcher strings are empty; the app secret is the only credential and it stays in-process.
+	events.OnP2MessageReceiveV1(func(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
+		state.events.Add(1)
+		state.lastEvent.Store(time.Now().Unix())
+		// Returning now is the ack. The bridge runs a turn for minutes; a handler that waited for it
+		// is why Feishu used to redeliver nearly every message.
+		body := map[string]any{"type": "message", "event": innerEvent(event)}
+		go forwarder.deliver(body)
+		return nil
+	})
+	events.OnP2CardActionTrigger(func(ctx context.Context, event *callback.CardActionTriggerEvent) (*callback.CardActionTriggerResponse, error) {
+		state.cards.Add(1)
+		state.lastEvent.Store(time.Now().Unix())
+		// Feishu gives a card action roughly three seconds before it shows its own error, so this
+		// path is synchronous with a budget under that. A timeout is a toast, not a lost click.
+		return forwarder.card(ctx, map[string]any{"type": "card", "event": innerCard(event)}), nil
+	})
+
+	conn := ws.NewClient(conf.appID, conf.appSecret,
 		ws.WithEventHandler(events),
 		ws.WithLogLevel(level),
 		ws.WithAutoReconnect(true),
 		ws.WithOnReady(func() {
-			out.emit("ready", map[string]any{"mode": modeName(*send)})
+			state.connected.Store(true)
+			out.emit("ready", nil)
 		}),
-		ws.WithOnReconnecting(func() { out.emit("reconnecting", nil) }),
-		ws.WithOnReconnected(func() { out.emit("reconnected", nil) }),
-		ws.WithOnDisconnected(func() { out.emit("disconnected", nil) }),
+		ws.WithOnReconnecting(func() {
+			state.connected.Store(false)
+			out.emit("reconnecting", nil)
+		}),
+		ws.WithOnReconnected(func() {
+			state.connected.Store(true)
+			out.emit("reconnected", nil)
+		}),
+		ws.WithOnDisconnected(func() {
+			state.connected.Store(false)
+			out.emit("disconnected", nil)
+		}),
 		ws.WithOnError(func(err error) { out.emit("ws error", map[string]any{"err": err.Error()}) }),
 	)
 
-	serveHealthz(out, stats, *addr, *send)
+	server := newServer(conf, client, state, out)
+	listener, err := net.Listen("tcp", conf.addr)
+	if err != nil {
+		log.Fatalf("listen %s: %v", conf.addr, err)
+	}
+	out.emit("listening", map[string]any{"addr": listener.Addr().String(), "bridge": conf.bridgeURL})
+	go func() {
+		if err := http.Serve(listener, server); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			out.emit("http failed", map[string]any{"err": err.Error()})
+		}
+	}()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	out.emit("starting", map[string]any{"mode": modeName(*send), "appId": appID[:min(8, len(appID))] + "…"})
-	if err := client.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+	out.emit("starting", map[string]any{"appId": conf.appID[:min(8, len(conf.appID))] + "…"})
+	if err := conn.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatalf("long connection: %v", err)
 	}
-	out.emit("stopped", map[string]any{"messages": stats.messages.Load()})
+	out.emit("stopped", map[string]any{"events": state.events.Load(), "dropped": state.dropped.Load()})
 }
 
-// record writes one line per event. The fields are the ones the Node bridge logs for the same
-// event, so the two logs can be diffed line by line during P1.
-func record(out *logging, stats *counters, event *larkim.P2MessageReceiveV1) {
-	stats.messages.Add(1)
-	stats.lastEvent.Store(time.Now().Unix())
-	fields := map[string]any{}
-	if event != nil && event.Event != nil && event.Event.Message != nil {
-		message := event.Event.Message
-		fields["messageId"] = value(message.MessageId)
-		fields["chat"] = value(message.ChatId)
-		fields["type"] = value(message.MessageType)
-		if message.Content != nil {
-			fields["chars"] = len(*message.Content)
-		}
+// innerEvent unwraps the 2.0 envelope: the bridge's handler takes {sender, message}, which is what
+// the Node SDK handed it before, so the forwarding keeps that shape rather than a new one.
+func innerEvent(event *larkim.P2MessageReceiveV1) any {
+	if event == nil || event.Event == nil {
+		return nil
 	}
-	if event != nil && event.Event != nil && event.Event.Sender != nil && event.Event.Sender.SenderId != nil {
-		fields["sender"] = value(event.Event.Sender.SenderId.OpenId)
-		fields["senderType"] = value(event.Event.Sender.SenderType)
+	return event.Event
+}
+
+func innerCard(event *callback.CardActionTriggerEvent) any {
+	if event == nil || event.Event == nil {
+		return nil
 	}
-	if event != nil && event.EventV2Base != nil {
-		if event.EventV2Base.Header != nil {
-			fields["eventId"] = event.EventV2Base.Header.EventID
-		}
-	}
-	out.emit("message", fields)
+	return event.Event
 }
 
 type logging struct{ logger *log.Logger }
@@ -136,115 +189,11 @@ func (l *logging) emit(kind string, fields map[string]any) {
 	l.logger.Print(string(body))
 }
 
-func serveHealthz(out *logging, stats *counters, addr string, send bool) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(writer http.ResponseWriter, _ *http.Request) {
-		body := map[string]any{
-			"ok":       true,
-			"mode":     modeName(send),
-			"uptime":   int64(time.Since(stats.started).Seconds()),
-			"messages": stats.messages.Load(),
-			"lastEvent": func() int64 {
-				if at := stats.lastEvent.Load(); at != 0 {
-					return at
-				}
-				return 0
-			}(),
-		}
-		encoded, _ := json.Marshal(body)
-		writer.Header().Set("content-type", "application/json")
-		_, _ = writer.Write(encoded)
-	})
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		log.Fatalf("healthz: %v", err)
-	}
-	out.emit("healthz listening", map[string]any{"addr": listener.Addr().String()})
-	go func() {
-		if err := http.Serve(listener, mux); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			out.emit("healthz failed", map[string]any{"err": err.Error()})
-		}
-	}()
-}
-
-// loadEnv is the smallest dotenv reader that works on the bridge's file: KEY=VALUE lines, optional
-// quotes, `#` comments, no expansion. Values already in the environment win, so the launcher can
-// override without editing the file.
-func loadEnv(path string) error {
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	for _, line := range splitLines(string(body)) {
-		key, value, ok := parseEnvLine(line)
-		if !ok {
-			continue
-		}
-		if _, exists := os.LookupEnv(key); !exists {
-			_ = os.Setenv(key, value)
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
 		}
 	}
-	return nil
-}
-
-func parseEnvLine(line string) (key, value string, ok bool) {
-	line = trimSpace(line)
-	if line == "" || line[0] == '#' {
-		return "", "", false
-	}
-	at := -1
-	for index := 0; index < len(line); index++ {
-		if line[index] == '=' {
-			at = index
-			break
-		}
-	}
-	if at <= 0 {
-		return "", "", false
-	}
-	key = trimSpace(line[:at])
-	value = trimSpace(line[at+1:])
-	if len(value) >= 2 {
-		if (value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'') {
-			value = value[1 : len(value)-1]
-		}
-	}
-	return key, value, key != ""
-}
-
-func splitLines(body string) []string {
-	lines := []string{}
-	start := 0
-	for index := 0; index < len(body); index++ {
-		if body[index] == '\n' {
-			lines = append(lines, body[start:index])
-			start = index + 1
-		}
-	}
-	return append(lines, body[start:])
-}
-
-func trimSpace(text string) string {
-	start, end := 0, len(text)
-	for start < end && (text[start] == ' ' || text[start] == '\t' || text[start] == '\r') {
-		start++
-	}
-	for end > start && (text[end-1] == ' ' || text[end-1] == '\t' || text[end-1] == '\r') {
-		end--
-	}
-	return text[start:end]
-}
-
-func value(pointer *string) string {
-	if pointer == nil {
-		return ""
-	}
-	return *pointer
-}
-
-func modeName(send bool) string {
-	if send {
-		return "p2"
-	}
-	return "p1-receive-only"
+	return ""
 }
