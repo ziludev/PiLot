@@ -21,6 +21,9 @@ func (a *App) composerArea(c *ui.Context, t theme.Tokens) {
 			a.approvalCard(c, t, a.pending[0], len(a.pending)-1)
 			return
 		}
+		if a.pick.open {
+			a.modelPanel(c, t)
+		}
 		a.composerCard(c, t)
 	})
 }
@@ -45,6 +48,7 @@ func (a *App) composerCard(c *ui.Context, t theme.Tokens) {
 		})
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
 			a.attachButton(c, t)
+			a.modelChip(c, t)
 			if cue := a.composerCue(); cue == "" {
 				ui.Box(c).Grow(1)
 			} else {

@@ -348,3 +348,33 @@ func TestSnapshotToolOutput(t *testing.T) {
 	}
 	writePNG(t, "/tmp/clientv2-tooloutput.png", tt.Image())
 }
+
+// TestSnapshotModelPanel draws the picker open over the composer: the chip it
+// came from, the filter, and four of the catalog's rows.
+func TestSnapshotModelPanel(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	a.model = &protocol.ModelRef{Provider: "anthropic", ModelID: "claude-sonnet-4.5"}
+	a.thinking = "high"
+	a.pick.open = true
+	a.pick.fetched = true
+	a.pick.catalog = []protocol.ModelEntry{
+		{Provider: "anthropic", ProviderName: "Anthropic", ID: "claude-sonnet-4.5", Name: "Claude Sonnet 4.5",
+			ContextWindow: 200000, Cost: protocol.ModelCost{Input: 3, Output: 15}, ThinkingLevels: []string{"off", "low", "high"}},
+		{Provider: "anthropic", ProviderName: "Anthropic", ID: "claude-haiku-4.5", Name: "Claude Haiku 4.5",
+			ContextWindow: 200000, Cost: protocol.ModelCost{Input: 0.8, Output: 4}},
+		{Provider: "google", ProviderName: "Google", ID: "gemini-2.5-pro", Name: "Gemini 2.5 Pro",
+			ContextWindow: 1000000, Cost: protocol.ModelCost{Input: 1.25, Output: 10}},
+		{Provider: "deepseek", ProviderName: "DeepSeek", ID: "deepseek-chat", Name: "DeepSeek Chat",
+			ContextWindow: 64000, Cost: protocol.ModelCost{Input: 0.27, Output: 1.1}},
+	}
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	for _, text := range []string{"Claude Sonnet 4.5 · high", "Gemini 2.5 Pro", "Anthropic · 200k · $3/$15", "思考"} {
+		if !tt.HasText(text) {
+			t.Fatalf("missing %q; texts = %v", text, tt.Texts())
+		}
+	}
+	writePNG(t, "/tmp/clientv2-model.png", tt.Image())
+}

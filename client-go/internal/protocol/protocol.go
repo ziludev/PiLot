@@ -175,6 +175,12 @@ type ModelEntry struct {
 	ThinkingLevels []string  `json:"thinkingLevels"`
 }
 
+// Models is GET /api/models: the catalog and the model a new chat starts on.
+type Models struct {
+	Models  []ModelEntry `json:"models"`
+	Default *ModelRef    `json:"default"`
+}
+
 // ModelCost is the price per million tokens.
 type ModelCost struct {
 	Input  float64 `json:"input"`
