@@ -19,21 +19,17 @@ const request = {
 type Button = { text: { content: string }; value: Record<string, unknown> };
 
 function buttonsOf(card: Record<string, unknown>): Button[] {
-  const elements = (card["elements"] ?? []) as Array<Record<string, unknown>>;
-  const row = elements.find((element) => element["tag"] === "action");
-  return (row?.["actions"] as Button[] | undefined) ?? [];
+  const body = card["body"] as { elements?: Array<Record<string, unknown>> };
+  const row = (body.elements ?? []).find((element) => element["tag"] === "column_set");
+  const columns = (row?.["columns"] as Array<{ elements?: Button[] }> | undefined) ?? [];
+  return columns.flatMap((column) => column.elements ?? []);
 }
 
-// 2.0 is not an option: this tenant's cards come back as 「请升级至最新版本客户端，以查看内容」,
-// header only. Anything 2.0-only (collapsible_panel, table, text_size) degrades the same way.
-test("the approval card is 1.0, with the buttons in an action row", () => {
+test("the approval card is 2.0, because 1.0 cannot show a collapsible panel", () => {
   const built = approvalCard(request);
-  assert.equal(built["schema"], undefined);
-  assert.equal(built["body"], undefined);
-  assert.ok(Array.isArray(built["elements"]));
-  const tags = (built["elements"] as Array<Record<string, unknown>>).map((element) => element["tag"]);
-  assert.ok(tags.includes("action"));
-  assert.ok(!tags.includes("column_set"));
+  assert.equal(built["schema"], "2.0");
+  assert.equal(built["elements"], undefined);
+  assert.ok(Array.isArray((built["body"] as { elements?: unknown[] }).elements));
 });
 
 test("a grantable call offers the conversation-wide answer", () => {
