@@ -115,6 +115,8 @@ type App struct {
 	settings settingsPanel
 	// find is the Cmd-F bar over the transcript.
 	find findState
+	// changes is the changes drawer: the worktree patch and the branch.
+	changes changesPanel
 }
 
 type viewModel struct {
@@ -239,6 +241,10 @@ const (
 	evMemory
 	evCurate
 	evMemorySaved
+	// The changes drawer: the worktree patch, the branch, one commit's patch.
+	evChanges
+	evGit
+	evCommitDiff
 )
 
 type event struct {
@@ -263,6 +269,10 @@ type event struct {
 	memory   *protocol.Memory
 	curation *protocol.Curation
 	applied  *protocol.MemoryApplied
+	changes  *protocol.Changes
+	git      *protocol.Git
+	hash     string
+	diff     string
 	err      error
 }
 
@@ -584,6 +594,12 @@ func (a *App) apply(ev event) {
 		a.applyCuration(ev.curation, ev.err)
 	case evMemorySaved:
 		a.applyMemorySaved(ev.applied, ev.err)
+	case evChanges:
+		a.applyChanges(ev.convID, ev.changes, ev.err)
+	case evGit:
+		a.applyGit(ev.convID, ev.git, ev.err)
+	case evCommitDiff:
+		a.applyCommitDiff(ev.hash, ev.diff, ev.err)
 	}
 }
 

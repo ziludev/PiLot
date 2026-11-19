@@ -32,6 +32,10 @@ func (a *App) shell(c *ui.Context, t theme.Tokens) {
 			ui.Box(c).Width(1).FillHeight().Background(t.SidebarBorder)
 			a.memoryView(c, t)
 		}
+		if a.changes.open {
+			ui.Box(c).Width(1).FillHeight().Background(t.SidebarBorder)
+			a.changesView(c, t)
+		}
 	})
 }
 
@@ -55,6 +59,7 @@ func (a *App) paneHeader(c *ui.Context, t theme.Tokens) {
 		}
 		ui.Spacer(c)
 		a.memoryToggle(c, t)
+		a.changesToggle(c, t)
 		if !a.online {
 			ui.Icon(c, icons.AlertTriangle).Size(11, 11).TextColor(t.Destructive)
 			ui.Text(c, i18n.T("loadFailed")).FontSize(11).TextColor(t.MutedFg).MaxLines(1)
@@ -83,6 +88,24 @@ func (a *App) memoryToggle(c *ui.Context, t theme.Tokens) {
 		ui.Icon(c, icons.Database).Size(12, 12).TextColor(color)
 	})
 	btn.OnClick(a.toggleMemory)
+}
+
+// changesToggle is the header's way into the changes drawer, next to memory
+// because both read the chat rather than act on it.
+func (a *App) changesToggle(c *ui.Context, t theme.Tokens) {
+	color := t.MutedFg
+	if a.changes.open {
+		color = t.Foreground
+	}
+	btn := ui.ButtonBase(c).Size(22, 22).Radius(5).Justify(ui.Center).AlignItems(ui.Center).
+		Cursor(ui.CursorPointer).Tooltip(i18n.T("changesTab"))
+	if a.changes.open {
+		btn.Background(t.Secondary)
+	}
+	btn.Children(func() {
+		ui.Icon(c, icons.GitBranch).Size(12, 12).TextColor(color)
+	})
+	btn.OnClick(a.toggleChanges)
 }
 
 // queueRows is how many waiting messages the strip spells out; past that it

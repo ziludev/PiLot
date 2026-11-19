@@ -300,3 +300,58 @@ func TestApplyMemorySendsTheKeptLines(t *testing.T) {
 		t.Fatalf("applied %+v", applied)
 	}
 }
+
+func TestChangesAsksForTheChatsWorktree(t *testing.T) {
+	var got capture
+	client := serve(t, `{"repo":true,"branch":"app/x","workspace":"/tmp/w",`+
+		`"files":[{"path":"a.go","status":"modified","added":3,"removed":1}],`+
+		`"diff":"diff --git a/a.go b/a.go\n+one\n"}`, &got)
+	changes, err := client.Changes(context.Background(), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.path != "/api/changes?conversationId=7" {
+		t.Fatalf("path %s", got.path)
+	}
+	if !changes.Repo || changes.Branch != "app/x" || len(changes.Files) != 1 {
+		t.Fatalf("changes %+v", changes)
+	}
+	if changes.Files[0].Added != 3 || changes.Files[0].Removed != 1 {
+		t.Fatalf("counts %+v", changes.Files[0])
+	}
+}
+
+func TestGitReadsTheCommitsAndTheCompareURL(t *testing.T) {
+	var got capture
+	client := serve(t, `{"branch":"app/x","base":"main","compareUrl":"https://h/c",`+
+		`"commits":[{"hash":"abc1234","short":"abc1234","subject":"app: one","files":2,"added":5,"removed":1}],`+
+		`"remote":{"kind":"github","webUrl":"https://h"}}`, &got)
+	git, err := client.Git(context.Background(), 7, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.path != "/api/git?conversationId=7&limit=20" {
+		t.Fatalf("path %s", got.path)
+	}
+	if len(git.Commits) != 1 || git.Commits[0].Subject != "app: one" {
+		t.Fatalf("commits %+v", git.Commits)
+	}
+	if git.CompareURL != "https://h/c" || git.Base != "main" {
+		t.Fatalf("git %+v", git)
+	}
+}
+
+func TestCommitDiffSendsTheHashEscaped(t *testing.T) {
+	var got capture
+	client := serve(t, `{"hash":"abc","diff":"@@ -1 +1 @@"}`, &got)
+	diff, err := client.CommitDiff(context.Background(), 7, "abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.path != "/api/git/diff?conversationId=7&hash=abc" {
+		t.Fatalf("path %s", got.path)
+	}
+	if diff != "@@ -1 +1 @@" {
+		t.Fatalf("diff %q", diff)
+	}
+}
