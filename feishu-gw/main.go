@@ -38,6 +38,7 @@ func main() {
 	envPath := flag.String("env", "../.env", "dotenv file to read FEISHU_APP_ID / FEISHU_APP_SECRET from")
 	addr := flag.String("addr", "127.0.0.1:8788", "address for /healthz")
 	send := flag.Bool("send", false, "enable outbound messages (P2); off means receive-only")
+	debug := flag.Bool("debug", false, "log every frame the connection receives")
 	flag.Parse()
 
 	if err := loadEnv(*envPath); err != nil {
@@ -59,9 +60,13 @@ func main() {
 		return nil
 	})
 
+	level := larkcore.LogLevelInfo
+	if *debug {
+		level = larkcore.LogLevelDebug
+	}
 	client := ws.NewClient(appID, appSecret,
 		ws.WithEventHandler(events),
-		ws.WithLogLevel(larkcore.LogLevelInfo),
+		ws.WithLogLevel(level),
 		ws.WithAutoReconnect(true),
 		ws.WithOnReady(func() {
 			out.emit("ready", map[string]any{"mode": modeName(*send)})
