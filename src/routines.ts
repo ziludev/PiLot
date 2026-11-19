@@ -231,10 +231,26 @@ const routines = defineTool({
       if (targets.length === 0) {
         return { output: [{ type: "text" as const, text: `没有这个任务：${args.cancel}` }] };
       }
-      for (const entry of targets) await harness.abortTask(entry.record.id, context);
-      return {
-        output: [{ type: "text" as const, text: `取消了 ${targets.length} 个定时任务` }],
-      };
+      // A routine that is running right now is running *inside this turn* — it drove the submission
+      // this tool call belongs to — so awaiting its abort would wait for the answer being written.
+      // Mark it and let its phase end once the turn does.
+      const running: string[] = [];
+      for (const entry of targets) {
+        if (entry.state.kind === "running") {
+          running.push(idOf(entry));
+          void harness
+            .abortTask(entry.record.id, context)
+            .catch((error) => logError("routines", `could not cancel ${idOf(entry)}`, error));
+          continue;
+        }
+        await harness.abortTask(entry.record.id, context);
+      }
+      const done = targets.length - running.length;
+      const text =
+        running.length === 0
+          ? `取消了 ${done} 个定时任务`
+          : `${done === 0 ? "" : `取消了 ${done} 个定时任务；`}${running.join("、")} 正在跑这一轮，跑完就停`;
+      return { output: [{ type: "text" as const, text }] };
     }
 
     if (live.length === 0) return { output: [{ type: "text" as const, text: "现在没有定时任务。" }] };
