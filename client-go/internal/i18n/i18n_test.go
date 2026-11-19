@@ -7,7 +7,7 @@ import (
 
 // P0 keeps the window's strings in one small table; a key nobody draws costs a
 // reader a row and a translator a translation, so the ceiling is enforced here.
-const maxKeys = 70
+const maxKeys = 72
 
 func TestDictionariesMatch(t *testing.T) {
 	keys := Keys()

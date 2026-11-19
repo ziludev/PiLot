@@ -143,6 +143,18 @@ func (a *App) stepsRow(c *ui.Context, t theme.Tokens, row threadRow) {
 				ui.Text(c, step.body).Grow(1).FontSize(10.5).
 					TextColor(t.MutedFg).MaxLines(2)
 			})
+			// The result, as the thing it is: a diff, a log, a stack trace,
+			// a document. This is what was being asked for when the fold was
+			// opened, so it is not summarized again here.
+			if step.out != "" {
+				ui.Column(c).FillWidth().Gap(1).Padding(5, 7).Radius(5).
+					Background(t.Muted).Children(func() {
+					for _, line := range outputLines(step.out, maxOutputLines) {
+						ui.Text(c, line.text).Font("SF Mono, Menlo, monospace").
+							FontSize(10).TextColor(outputColor(t, line.kind)).MaxLines(2)
+					}
+				})
+			}
 		}
 	})
 }
@@ -159,6 +171,23 @@ func (a *App) stepsSummary(row threadRow) string {
 		summary += " · " + shortDuration(row.span)
 	}
 	return summary
+}
+
+// outputColor says what a line of tool output is by its color: a removal is
+// red, an addition green, a warning amber, a failure red and bold-ish by being
+// the only red at full strength.
+func outputColor(t theme.Tokens, kind outKind) ui.Color {
+	switch kind {
+	case outAdd:
+		return t.Success
+	case outDel, outError:
+		return t.Destructive
+	case outWarn:
+		return t.Warning
+	case outSkip:
+		return t.MutedFg
+	}
+	return t.Foreground
 }
 
 func (a *App) errorRow(c *ui.Context, t theme.Tokens, row threadRow) {

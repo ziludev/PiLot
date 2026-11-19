@@ -42,9 +42,13 @@ func TestProjectEntriesFoldsSteps(t *testing.T) {
 	if rows[1].kind != rowSteps || len(rows[1].steps) != 2 {
 		t.Fatalf("row 1 = %+v", rows[1])
 	}
-	// The tool result joins the call it answers instead of taking a line.
-	if got := rows[1].steps[1].body; got != "echo blue → blue" {
+	// The tool result joins the call it answers instead of taking a line, and
+	// is kept whole for the output block rather than clipped into the summary.
+	if got := rows[1].steps[1].body; got != "echo blue" {
 		t.Fatalf("tool step body = %q", got)
+	}
+	if got := rows[1].steps[1].out; got != "blue" {
+		t.Fatalf("tool step out = %q", got)
 	}
 	// The span runs from the first step to the tool result that closed it.
 	if rows[1].noSpan || rows[1].span != 3*time.Second {

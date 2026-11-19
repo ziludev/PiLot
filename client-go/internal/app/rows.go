@@ -288,7 +288,10 @@ const (
 type step struct {
 	label string
 	body  string
-	at    time.Time
+	// out is the tool's result, unclipped: the fold shows a summary of the
+	// call, and the output block under it is drawn from this.
+	out string
+	at  time.Time
 }
 
 type imageRef struct {
@@ -385,7 +388,11 @@ func projectEntries(conversationID int, entries []protocol.Entry) ([]threadRow, 
 				}
 				if idx, ok := stepRows[turn]; ok && len(rows[idx].steps) > 0 {
 					last := &rows[idx].steps[len(rows[idx].steps)-1]
-					last.body = joinSummary(last.body, block.text)
+					if last.out == "" {
+						last.out = block.text
+					} else {
+						last.out += "\n" + block.text
+					}
 					if !block.at.IsZero() {
 						last.at = block.at
 					}
@@ -448,18 +455,6 @@ func stepsSpan(steps []step) (time.Duration, bool) {
 		return 0, false
 	}
 	return last.Sub(first), true
-}
-
-// joinSummary adds a tool's result to the line that names the call.
-func joinSummary(body, result string) string {
-	result = clip(oneLine(result), 80)
-	switch {
-	case body == "":
-		return result
-	case result == "":
-		return body
-	}
-	return body + " → " + result
 }
 
 // entryBlock is one drawable piece of an entry, in source order.
