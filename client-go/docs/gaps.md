@@ -12,7 +12,6 @@
 | --- | --- | --- | --- |
 | 会话菜单：重命名 / 归档 / 清理 worktree | `ChatMenu.tsx`（未合并的分支拒绝并提示） | `POST /api/surface-meta`、`POST /api/worktree/remove` | `ui.Popover` + `ui.MenuBase` + `ui.Modal` |
 | 跨会话搜索 | `SearchBox.tsx` 提交走 `/api/search`，列命中、点进会话 | `GET /api/search` | 列表 + 防抖 |
-| 模型选择（含思考档） | `ModelPicker.tsx` | `GET /api/models`、`POST /api/model`、`POST /api/default-model` | 内联面板（见 §2） |
 | 改动 / 文件 / 提交 / 合并 / 项目栏 | `SidePanel.tsx` + `side/*.go` | `/api/changes`、`/api/git/diff`、`/api/file`、`/api/git`、`/api/commit`、`/api/git/push`、`/api/merge`、`/api/git/base`、`/api/projects` | `ui.Split` 右栏 + `ui.Tabs` + 折叠卡片 |
 | 任务详情对话框 + 用量日历 | `TaskDialog.tsx`、`UsageCalendar.tsx` | `GET /api/tasks`、`POST /api/task/cancel`、`GET /api/usage-calendar` | `ui.Modal`、`ui.Table` |
 | 权限页 | `AccessPanel.tsx` | `GET /api/access`、`/api/audit` | `ui.Segmented` 过滤 + 表格 |
@@ -24,8 +23,8 @@
 
 ## 2. 搬回来时别踩的坑
 
-- **`ui.Popover` 会把 Enter 当成自己的关闭键**。模型面板要 Enter 选中，所以第一版把它做成 composer
-  上方的内联面板而不是浮层；现在若要做，同样别用 Popover，或者在 Popover 里自己拦键。
+- **`ui.Popover` 会把 Enter 当成自己的关闭键**。模型面板要 Enter 选中，所以它是 composer 上方的内联
+  面板（`internal/app/model.go`）而不是浮层；别的面板要 Enter 也别用 Popover，或者在 Popover 里自己拦键。
 - **`Exit` 动效挂在 `ui.List` 的行上不生效**（v0.10.0 仍是）：行在数据消失的那一帧就被丢掉，没有元素
   可以挂。要收拢动画就自己记账 + `AnimateTo`，或者等 `ListState.MoveAnimation` 覆盖这个场景。
 - **transcript 的步骤折叠是手写的**（`rows.go` 里数 agent / tool 行数生成一行摘要）。往里面加结构化

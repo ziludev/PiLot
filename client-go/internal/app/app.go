@@ -101,6 +101,13 @@ type App struct {
 	// rename is the dialog the row menu opens: which chat it renames and the
 	// text in it, so a frame that redraws the dialog keeps what was typed.
 	rename renameState
+
+	// model is the chat's own model, and thinking its level; both come from the
+	// conversation page, which is the only place the bridge states them.
+	model        *protocol.ModelRef
+	thinking     string
+	defaultModel *protocol.ModelRef
+	pick         modelPick
 }
 
 type viewModel struct {
@@ -218,6 +225,9 @@ const (
 	evMetaFailed
 	evSearch
 	evSearchDone
+	// The model panel: the catalog's reply, and the write's outcome.
+	evModels
+	evModelSet
 )
 
 type event struct {
@@ -238,6 +248,8 @@ type event struct {
 	seq      int
 	hits     []protocol.SearchHit
 	undo     *surfaceUndo
+	models   *protocol.Models
+	err      error
 }
 
 type snapshotResult struct {
@@ -254,7 +266,11 @@ type snapshotResult struct {
 type pageResult struct {
 	convID  int
 	entries []protocol.Entry
-	err     error
+	// model and thinking belong to the chat, not the window: the picker in the
+	// composer draws them, and this page is where the bridge states them.
+	model    *protocol.ModelRef
+	thinking string
+	err      error
 }
 
 type frameResult struct {
@@ -437,6 +453,8 @@ func (a *App) loadThread(convID int) {
 		result := &pageResult{convID: convID, err: err}
 		if err == nil {
 			result.entries = conversation.Entries
+			result.model = conversation.Model
+			result.thinking = conversation.ThinkingLevel
 		}
 		a.post(event{kind: evThread, page: result})
 	}()
@@ -521,6 +539,10 @@ func (a *App) apply(ev event) {
 		a.startSearch(ev.seq, ev.text)
 	case evSearchDone:
 		a.applySearch(ev.seq, ev.text, ev.hits)
+	case evModels:
+		a.applyModels(ev.models, ev.err)
+	case evModelSet:
+		a.applyModelSet(ev.convID, ev.err)
 	}
 }
 
@@ -573,6 +595,8 @@ func (a *App) applyPage(result *pageResult) {
 	}
 	th.failed = false
 	th.loaded = true
+	a.model = result.model
+	a.thinking = result.thinking
 	th.entries = result.entries
 	th.rev = make(map[int]uint64, len(result.entries))
 	for _, entry := range result.entries {

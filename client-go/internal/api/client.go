@@ -265,6 +265,27 @@ type SurfaceMeta struct {
 	Archived       *bool   `json:"archived,omitempty"`
 }
 
+// Models is the whole catalog, with the default a new chat starts on.
+func (c *Client) Models(ctx context.Context) (*protocol.Models, error) {
+	var out protocol.Models
+	if err := c.get(ctx, "/api/models", &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SetModel points one chat at a model, and at a thinking level when the model
+// takes one. An empty level leaves the chat's level as the bridge has it.
+func (c *Client) SetModel(ctx context.Context, convID int, ref protocol.ModelRef, level string) error {
+	body := struct {
+		ConversationID int    `json:"conversationId"`
+		Provider       string `json:"provider"`
+		ModelID        string `json:"modelId"`
+		ThinkingLevel  string `json:"thinkingLevel,omitempty"`
+	}{convID, ref.Provider, ref.ModelID, level}
+	return c.post(ctx, "/api/model", body, nil)
+}
+
 // PatchSurface writes a chat's title or archive flag (POST /api/surface-meta).
 func (c *Client) PatchSurface(ctx context.Context, meta SurfaceMeta) error {
 	return c.post(ctx, "/api/surface-meta", meta, nil)
