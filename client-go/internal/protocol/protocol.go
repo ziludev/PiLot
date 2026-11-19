@@ -222,6 +222,11 @@ type PendingApproval struct {
 type Note struct {
 	At   string `json:"at"`
 	Text string `json:"text"`
+	// Source is where the line came from: "chat:12" when the agent remembered
+	// it while talking in that conversation, "curator" for the nightly pass,
+	// "feishu" for a memo typed into chat. Empty for lines written before
+	// receipts existed, and the drawer then says nothing rather than guessing.
+	Source string `json:"source,omitempty"`
 }
 
 // Memory is GET /api/memory: the three scopes the client shows.

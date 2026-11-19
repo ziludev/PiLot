@@ -214,6 +214,12 @@ func (a *App) taskFacts(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
 			a.fact(c, t, i18n.T("taskMode"), i18n.T("taskBackground"))
 		}
 		a.fact(c, t, i18n.T("taskID"), itoa(task.ID))
+		// A stop is not a close: the turn ends, the chat and the files stay where
+		// they are. Saying it out loud is the difference between a paused task
+		// and one the user thinks they threw away.
+		if task.AbortRequested || task.Status == "aborted" || task.Status == "canceled" {
+			a.fact(c, t, i18n.T("taskStopped"), i18n.T("taskStopLeaves"))
+		}
 	})
 }
 

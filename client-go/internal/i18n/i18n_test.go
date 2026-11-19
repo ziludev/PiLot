@@ -34,8 +34,12 @@ import (
 // the two groupings and the line that says which one is on. 239 keys: a sheet of
 // five shortcuts, the line that says how to call it back, one verb for the last
 // of them that reads as a verb ("Latest" is a pill, not a sentence), and the HTML
-// export.
-const maxKeys = 240
+// export. 243 keys: a remembered line now carries its receipt, and the three
+// kinds of receipt (a chat, the nightly pass, a memo typed into Feishu) each
+// need a phrase rather than a raw "chat:12" leaking into the window; 249 adds the
+// six words for the two delivery settings (night, how many a day) and their offs,
+// plus the two that say a stopped task is not a lost one.
+const maxKeys = 251
 
 func TestDictionariesMatch(t *testing.T) {
 	keys := Keys()

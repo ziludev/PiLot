@@ -191,3 +191,20 @@ func TestUsagePanelDropsAClosedReply(t *testing.T) {
 		t.Fatalf("a closed calendar kept %+v", a.usage.days)
 	}
 }
+
+// TestAStoppedTaskSaysWhatSurvives: linger's rule, and the right one — cancel is
+// not close. A dialog that only says "stopped" leaves the user wondering whether
+// the work is gone, and the answer (the chat and the files are still there) is
+// the one thing that decides whether they dare stop anything again.
+func TestAStoppedTaskSaysWhatSurvives(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	a.openTaskDetail(9)
+	a.applyTaskDetail(9, a.detail.seq, &api.TaskDetail{ID: 9, Status: "aborted", Title: "Review the diff"}, nil)
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	if !tt.HasText(i18n.T("taskStopLeaves")) {
+		t.Fatalf("a stopped task did not say what survives; drew %v", tt.Texts())
+	}
+}
