@@ -23,6 +23,7 @@ import { ChatMemory, GlobalMemory, WorkMemory } from "./memory.ts";
 import { healthReport } from "./health.ts";
 import { topicTitle, type ThreadInfo } from "./threads.ts";
 import { TaskSpend } from "./spend.ts";
+import { taskTitle } from "./task-title.ts";
 
 /**
  * Local HTTP + WebSocket bridge so a desktop client is just another watcher.
@@ -84,14 +85,6 @@ function send(res: ServerResponse, status: number, body: unknown): void {
     "access-control-allow-methods": "GET, POST, OPTIONS",
   });
   res.end(payload);
-}
-
-/** A line of text that says what a background task is about, when it has one. */
-function taskTitle(kind: string, input: unknown): string | undefined {
-  const value = input as { text?: string; spec?: string } | undefined;
-  if (kind === "app.reminder" && typeof value?.text === "string") return value.text;
-  if (kind === "app.feature" && typeof value?.spec === "string") return value.spec.replace(/\s+/g, " ").slice(0, 60);
-  return undefined;
 }
 
 /** Plain text of one entry's messages, for search snippets. */
