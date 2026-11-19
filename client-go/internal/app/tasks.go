@@ -31,7 +31,7 @@ func (a *App) taskRows(filter string) []railRow {
 			if taskState(task) != group.state {
 				continue
 			}
-			title := taskTitle(task)
+			title := a.taskTitle(task)
 			if filter != "" && !containsFold(title, filter) {
 				continue
 			}
@@ -70,22 +70,60 @@ func taskState(task protocol.Task) string {
 	return "working"
 }
 
-func taskTitle(task protocol.Task) string {
+// taskTitle is what the row says about a task. The bridge names a task when the
+// task knows what it is about; otherwise the chat it belongs to is the honest
+// answer, because a turn's kind — "pi.generation" — is the same for every turn
+// ever run, and says nothing about this one.
+func (a *App) taskTitle(task protocol.Task) string {
 	if task.Title != "" {
 		return task.Title
 	}
-	return task.Kind
+	if task.ConversationID != 0 {
+		for _, s := range a.surfaceSnapshot() {
+			if s.ConversationID == task.ConversationID && s.Title != "" {
+				return s.Title
+			}
+		}
+	}
+	return taskKindLabel(task.Kind)
+}
+
+// taskKindLabel puts the scheduler's name for a kind into words.
+func taskKindLabel(kind string) string {
+	switch kind {
+	case "pi.generation":
+		return i18n.T("taskTurn")
+	case "pi.tool":
+		return i18n.T("taskTool")
+	case "app.routine":
+		return i18n.T("taskRoutine")
+	case "app.digest":
+		return i18n.T("taskDigest")
+	case "app.usage-sampler":
+		return i18n.T("taskSampler")
+	case "app.reminder":
+		return i18n.T("taskReminder")
+	case "app.feature":
+		return i18n.T("taskFeature")
+	}
+	return kind
 }
 
 func (a *App) railTaskRow(c *ui.Context, t theme.Tokens, row railRow) {
-	// Two lines of title: a task name plus its id and the next fire do not fit
-	// on one line of a 260pt rail, and a clipped name is a task you cannot
-	// recognise.
+	// The name over what kind of task it is: two lines, because a clipped name
+	// with its id on the same line is a task you cannot recognise.
 	item := ui.ButtonBase(c).FillWidth().Height(34).Radius(5).Padding(2, 7).
 		Gap(6).AlignItems(ui.Center)
 	item.Children(func() {
-		ui.Text(c, "#"+itoa(row.task.ID)+" · "+taskTitle(row.task)).Grow(1).
-			FontSize(11).TextColor(t.Foreground).MaxLines(2)
+		name, kind := a.taskTitle(row.task), taskKindLabel(row.task.Kind)
+		ui.Column(c).Grow(1).Gap(1).Children(func() {
+			ui.Text(c, name).FontSize(11).TextColor(t.Foreground).MaxLines(1)
+			// A task with nothing to name it but its kind says it once, not
+			// twice under itself.
+			if kind != name {
+				ui.Text(c, kind).FontSize(9).TextColor(t.MutedFg).MaxLines(1)
+			}
+		})
 		if row.when != "" || row.cost != "" {
 			ui.Column(c).Gap(1).AlignItems(ui.End).Children(func() {
 				if row.when != "" {

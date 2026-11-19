@@ -378,3 +378,40 @@ func TestSnapshotModelPanel(t *testing.T) {
 	}
 	writePNG(t, "/tmp/clientv2-model.png", tt.Image())
 }
+
+// TestSnapshotTasks draws the 任务 tab with the kinds the bridge actually runs:
+// one task the bridge names itself, one turn that is only knowable by its chat,
+// and one housekeeping job with no conversation at all. Each used to be a kind
+// name and an id, which is a row nobody can read.
+func TestSnapshotTasks(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	now := a.now
+	a.rail = railTasks
+	a.tasks = []protocol.Task{
+		{ID: 84338, Kind: "app.routine", Title: "从过去 24 小时的真实痕迹里找出流程哪里不对", State: "waiting", Until: now.Add(4 * time.Hour).UnixMilli()},
+		{ID: 100316, Kind: "pi.generation", ConversationID: 11, State: "working", Until: now.Add(20 * time.Minute).UnixMilli(), Spend: &protocol.TaskSpend{Cost: 0.031, Tokens: 12043}},
+		{ID: 100324, Kind: "app.usage-sampler", State: "sleeping", Until: now.Add(26 * time.Hour).UnixMilli()},
+	}
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	for _, text := range []string{"从过去 24 小时的真实痕迹里找出流程哪里不对", "Why is the sky blue", "用量采样", "例行任务", "对话回合"} {
+		if !tt.HasText(text) {
+			t.Fatalf("missing %q; drew %v", text, tt.Texts())
+		}
+	}
+	if tt.HasText("pi.generation") {
+		t.Fatalf("the rail still speaks the scheduler's names; drew %v", tt.Texts())
+	}
+	said := 0
+	for _, text := range tt.Texts() {
+		if text == "用量采样" {
+			said++
+		}
+	}
+	if said != 1 {
+		t.Fatalf("a task named only by its kind says it %d times; drew %v", said, tt.Texts())
+	}
+	writePNG(t, "/tmp/clientv2-tasks.png", tt.Image())
+}

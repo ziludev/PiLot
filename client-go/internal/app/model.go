@@ -34,36 +34,105 @@ type modelPick struct {
 	catalog []protocol.ModelEntry
 	fetched bool
 	failed  bool
+	// list is the panel's scroll: the catalog is 756 rows across a dozen
+	// providers, and a window of eight with no wheel is a worse answer than
+	// the list itself.
+	list ui.ListState
 }
 
-// modelRows is how many models the panel shows at once.
-const modelRows = 8
+// modelPanelHeight is how tall the list is: about seven rows, then the wheel.
+const modelPanelHeight = 244
 
-// modelMatches is what the panel lists: the catalog narrowed by the filter,
-// with the chat's own model first when nothing is typed.
+// modelRowSpan is roughly how much room a row takes, which is what the panel's
+// height is made of when the list is shorter than the panel.
+const modelRowSpan = 26
+
+// modelRecents is how many models the panel remembers having been chosen from.
+const modelRecents = 5
+
+// modelMatches is what the panel lists: the catalog narrowed by the filter. With
+// nothing typed it is ordered by what the person has actually used — the chat's
+// model, the models chosen before, the default's provider — because the
+// catalog's own order starts at whichever aggregator sorts first.
 func (a *App) modelMatches() []protocol.ModelEntry {
 	filter := strings.ToLower(strings.TrimSpace(a.pick.filter))
+	if filter == "" {
+		return a.modelOrdered()
+	}
 	var out []protocol.ModelEntry
 	for _, entry := range a.pick.catalog {
-		if filter == "" {
-			out = append(out, entry)
-			continue
-		}
 		hay := strings.ToLower(entry.Name + " " + entry.ID + " " + entry.Provider + " " + entry.ProviderName)
 		if strings.Contains(hay, filter) {
 			out = append(out, entry)
 		}
 	}
-	if filter == "" && a.model != nil {
-		for i, entry := range out {
-			if entry.Provider == a.model.Provider && entry.ID == a.model.ModelID {
-				copy(out[1:i+1], out[:i])
-				out[0] = entry
-				break
-			}
+	return out
+}
+
+// modelOrdered is the panel with nothing typed: current, recent, the default
+// provider, then the rest of the catalog as the bridge lists it.
+func (a *App) modelOrdered() []protocol.ModelEntry {
+	seen := make(map[string]bool, len(a.pick.catalog))
+	out := make([]protocol.ModelEntry, 0, len(a.pick.catalog))
+	add := func(entry protocol.ModelEntry) {
+		key := modelKey(entry)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, entry)
+	}
+	if entry := a.modelEntry(a.model); entry != nil {
+		add(*entry)
+	}
+	for _, key := range a.prefs.Recent {
+		if entry := a.modelEntryByKey(key); entry != nil {
+			add(*entry)
 		}
 	}
+	provider := ""
+	if a.defaultModel != nil {
+		provider = a.defaultModel.Provider
+	}
+	if provider == "" && a.model != nil {
+		provider = a.model.Provider
+	}
+	for _, entry := range a.pick.catalog {
+		if entry.Provider == provider {
+			add(entry)
+		}
+	}
+	for _, entry := range a.pick.catalog {
+		add(entry)
+	}
 	return out
+}
+
+// modelKey names a model the way prefs remembers it: provider and id.
+func modelKey(entry protocol.ModelEntry) string {
+	return entry.Provider + "/" + entry.ID
+}
+
+// modelEntryByKey is the catalog's row for a remembered key.
+func (a *App) modelEntryByKey(key string) *protocol.ModelEntry {
+	provider, id, ok := strings.Cut(key, "/")
+	if !ok {
+		return nil
+	}
+	return a.modelEntry(&protocol.ModelRef{Provider: provider, ModelID: id})
+}
+
+// rememberModel puts a chosen model at the head of the panel's recent list.
+func (a *App) rememberModel(entry protocol.ModelEntry) {
+	key := modelKey(entry)
+	recent := []string{key}
+	for _, k := range a.prefs.Recent {
+		if k != key && len(recent) < modelRecents {
+			recent = append(recent, k)
+		}
+	}
+	a.prefs.Recent = recent
+	savePrefs(a.prefs)
 }
 
 // modelEntry is the catalog's row for a reference, nil when it is not there.
@@ -130,6 +199,7 @@ func (a *App) chooseModel(entry protocol.ModelEntry) {
 			level = l
 		}
 	}
+	a.rememberModel(entry)
 	a.model = &protocol.ModelRef{Provider: entry.Provider, ModelID: entry.ID}
 	a.thinking = level
 	a.pick.open = false
@@ -171,6 +241,7 @@ func (a *App) movePick(delta int) {
 		return
 	}
 	a.pick.sel = (a.pick.sel + delta + n) % n
+	a.pick.list.ScrollIntoView(a.pick.sel)
 }
 
 // choosePick takes the highlighted row; Enter and a click both land here.
@@ -209,6 +280,7 @@ func (a *App) modelPanel(c *ui.Context, t theme.Tokens) {
 	if a.pick.seen != a.pick.filter {
 		a.pick.seen = a.pick.filter
 		a.pick.sel = 0
+		a.pick.list.ScrollTo(0, ui.Start)
 	}
 	ui.Column(c).Width(380).Padding(8, 8, 8, 8).Radius(10).Gap(4).
 		Border(1, t.Border).Background(t.Card).Children(func() {
@@ -237,21 +309,15 @@ func (a *App) modelPanel(c *ui.Context, t theme.Tokens) {
 		if a.pick.sel >= len(matches) {
 			a.pick.sel = len(matches) - 1
 		}
-		start := 0
-		if a.pick.sel >= modelRows {
-			start = a.pick.sel - modelRows + 1
+		// As tall as its rows, up to where the wheel takes over: a panel for
+		// four models should not be a 244pt hole under them.
+		height := float32(modelPanelHeight)
+		if want := float32(len(matches) * modelRowSpan); want < height {
+			height = want
 		}
-		end := start + modelRows
-		if end > len(matches) {
-			end = len(matches)
-		}
-		for i := start; i < end; i++ {
-			a.modelRow(c, t, matches[i], i == a.pick.sel)
-		}
-		if len(matches) > end-start {
-			hint := i18n.TF("modelMore", map[string]any{"n": len(matches) - (end - start)})
-			ui.Text(c, hint).FontSize(10).TextColor(t.MutedFg).Padding(2, 6)
-		}
+		ui.List(c, &a.pick.list, len(matches), func(row int) {
+			a.modelRow(c, t, matches[row], row == a.pick.sel)
+		}).Height(height)
 		a.levelChips(c, t)
 	})
 }
