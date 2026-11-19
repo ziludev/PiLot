@@ -250,6 +250,7 @@ Conversation commands go through the local HTTP/WS bridge, so they work while la
 ```
 
 - The plist is a template (`launchd/*.plist.tmpl`) rendered at install time, so a different machine needs no edits.
+- `agentctl` is a Go program (`agentctl/`, built to `bin/agentctl`); `./scripts/agentctl` is a shim that rebuilds it when the sources are newer. Same commands, same launchd labels — the control logic just stopped being a 357-line shell script that quoted its way into a `unexpected EOF`.
 - Backups: `sqlite3 .backup`, then `journal_mode=DELETE` to collapse it to one file, an integrity check, 14 kept; a restore stops the process and waits for it to really exit.
 - **One storage, one writer.** `.data/agent.owner` is created exclusively (`wx`) with the pid; a second process errors out instead of corrupting a live conversation. A **recycled pid does not block startup**: besides `kill(pid, 0)`, the command line from `ps -p <pid> -o command=` must look like `node … main.ts`. Before this, a hard kill could leave the lock pointing at somebody else's process and launchd would retry forever — which looks exactly like "it did not start after a reboot".
 - **A broken storage heals itself.** Once a session reports `Session failed after a storage error`, only a new process can recover it, so the bridge exits and lets launchd start a fresh one; at most once per 10 minutes (`.data/storage-selfheal`), so a truly corrupt database cannot become a restart loop.
