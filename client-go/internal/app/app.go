@@ -397,24 +397,45 @@ func (a *App) probeTails() {
 	go func() {
 		defer a.tailBusy.Store(false)
 		known := a.tailTimes()
+		var pending []protocol.Surface
 		for _, s := range a.surfaceSnapshot() {
-			if _, ok := known[s.ConversationID]; ok {
-				continue
-			}
-			ctx, cancel := context.WithTimeout(a.ctx, 4*time.Second)
-			page, err := a.api.ConversationTail(ctx, s.ConversationID)
-			cancel()
-			if err == nil {
-				a.post(event{kind: evTail, tail: &tailResult{convID: s.ConversationID, at: newestTime(page.Entries)}})
-			}
-			select {
-			case <-a.ctx.Done():
-				return
-			case <-time.After(150 * time.Millisecond):
+			if _, ok := known[s.ConversationID]; !ok {
+				pending = append(pending, s)
 			}
 		}
+		// A window that has never run holds no times at all, and the rail sorts
+		// by them: probing one chat every 150ms means a hundred chats take a
+		// quarter of a minute to settle, with rows hopping under the cursor the
+		// whole way. Six at a time lands the same set in about a second.
+		work := make(chan protocol.Surface)
+		var wg sync.WaitGroup
+		for range tailProbes {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for s := range work {
+					ctx, cancel := context.WithTimeout(a.ctx, 4*time.Second)
+					page, err := a.api.ConversationTail(ctx, s.ConversationID)
+					cancel()
+					if err == nil {
+						a.post(event{kind: evTail, tail: &tailResult{convID: s.ConversationID, at: newestTime(page.Entries)}})
+					}
+				}
+			}()
+		}
+		for _, s := range pending {
+			select {
+			case <-a.ctx.Done():
+			case work <- s:
+			}
+		}
+		close(work)
+		wg.Wait()
 	}()
 }
+
+// tailProbes is how many chats' newest times are asked for at once.
+const tailProbes = 6
 
 // tailTimes is a snapshot of which chats already have a time, taken on the
 // frame goroutine so the prober does not read the view-model.

@@ -5,6 +5,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,9 +67,19 @@ func (b *modelBridge) take(t *testing.T) map[string]any {
 	}
 }
 
+// tuckedPrefs keeps a test's model choices out of the real window's file.
+func tuckedPrefs(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	saved := prefsPath
+	prefsPath = func() string { return filepath.Join(dir, "window.json") }
+	t.Cleanup(func() { prefsPath = saved })
+}
+
 // pickerApp is one chat on a model, with the catalog already in hand.
 func pickerApp(t *testing.T, b *modelBridge) *App {
 	t.Helper()
+	tuckedPrefs(t)
 	a := railApp(t, b.srv.URL)
 	a.model = &protocol.ModelRef{Provider: "anthropic", ModelID: "claude-sonnet-4.5"}
 	a.pick.catalog = catalogOf(t)
@@ -247,4 +260,39 @@ func TestModelFailureReloads(t *testing.T) {
 		a.drain()
 		return a.model != nil && a.model.ModelID == "claude-sonnet-4.5"
 	})
+}
+
+// TestModelRecentsLeadThePanel: the catalog's own order starts with whichever
+// provider sorts first, which is nobody's question. What the person picked last
+// is the better first guess, and it survives in prefs.
+func TestModelRecentsLeadThePanel(t *testing.T) {
+	i18n.Set(i18n.EN)
+	b := newModelBridge(t)
+	a := pickerApp(t, b)
+	a.openModelPicker()
+	a.pick.filter = "gemini"
+	a.chooseModel(a.modelMatches()[0])
+	waitFor(t, func() bool { return a.model != nil && a.model.ModelID == "gemini-2.5-pro" })
+
+	a.openModelPicker()
+	got := ids(a.modelMatches())
+	if got[0] != "gemini-2.5-pro" {
+		t.Fatalf("current model first: %v", got)
+	}
+	// The model just picked is remembered even when another chat opens the panel.
+	a.model = &protocol.ModelRef{Provider: "deepseek", ModelID: "deepseek-chat"}
+	got = ids(a.modelMatches())
+	if got[0] != "deepseek-chat" || got[1] != "gemini-2.5-pro" {
+		t.Fatalf("recent model second, behind the current one: %v", got)
+	}
+	if _, err := os.Stat(prefsPath()); err != nil {
+		t.Fatalf("prefs: %v", err)
+	}
+	data, err := os.ReadFile(prefsPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "google/gemini-2.5-pro") {
+		t.Fatalf("prefs = %s", data)
+	}
 }

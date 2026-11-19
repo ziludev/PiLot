@@ -143,8 +143,9 @@ func TestRailRowsTasks(t *testing.T) {
 	a.tasks = []protocol.Task{
 		{ID: 12, Title: "follow up on the review", State: "sleeping", Until: until.UnixMilli()},
 		{ID: 9, Title: "waiting on a human", State: "waiting"},
-		{ID: 11, State: "running", Kind: "app.usage-sampler"},
+		{ID: 11, State: "running", Kind: "app.usage-sampler", ConversationID: 7},
 	}
+	a.setSurfaces([]protocol.Surface{{ConversationID: 7, Kind: "direct", Title: "Sky's build"}})
 	rows := a.railRows()
 	// working, waiting, sleeping: three groups, each with its own header.
 	var groups []string
@@ -165,9 +166,13 @@ func TestRailRowsTasks(t *testing.T) {
 	if tasks[2].when != "15:04" {
 		t.Fatalf("next = %q, want 15:04", tasks[2].when)
 	}
-	// A task without a title falls back to its kind rather than drawing a gap.
-	if taskTitle(tasks[0].task) != "app.usage-sampler" {
-		t.Fatalf("untitled task title = %q", taskTitle(tasks[0].task))
+	// A task without a title of its own is named by the chat it belongs to, and
+	// only a task with no chat at all falls back to its kind in words.
+	if got := a.taskTitle(tasks[0].task); got != "Sky's build" {
+		t.Fatalf("task title = %q, want the chat's", got)
+	}
+	if got := taskKindLabel("app.usage-sampler"); got != "Usage sample" {
+		t.Fatalf("kind label = %q", got)
 	}
 }
 
@@ -394,5 +399,38 @@ func TestRailSearchResults(t *testing.T) {
 	a.filter = "deploy more"
 	if rows := a.railRowsCached(); rows[0].kind == railGroup {
 		t.Fatalf("cached rows = %+v, want them rebuilt for the new filter", rows)
+	}
+}
+
+// TestSectionFoldRedrawsTheRail: folding a section changes no data from the
+// bridge, so the cached rows have to be retired by hand. Without that the
+// chevron turns and the list stays exactly as it was, which reads as a dead
+// click on every section header.
+func TestSectionFoldRedrawsTheRail(t *testing.T) {
+	i18n.Set(i18n.EN)
+	tuckedPrefs(t)
+	a := newApp(Config{})
+	a.setSurfaces([]protocol.Surface{
+		{ConversationID: 1, Kind: "feishu", ChatType: "p2p", Title: "one"},
+		{ConversationID: 2, Kind: "feishu", ChatType: "p2p", Title: "two"},
+	})
+	// A new window opens 进行中 and folds everything else, so this one starts
+	// folded: header and nothing under it.
+	folded := a.railRowsCached()
+	if len(folded) != 1 {
+		t.Fatalf("folded section drew %d rows", len(folded))
+	}
+	a.toggleSection("direct")
+	opened := a.railRowsCached()
+	if len(opened) != len(folded)+2 {
+		t.Fatalf("opening the section changed %d rows to %d", len(folded), len(opened))
+	}
+	if header := opened[0]; header.section != "direct" || !header.open {
+		t.Fatalf("header = %+v", header)
+	}
+
+	a.toggleSection("direct")
+	if again := a.railRowsCached(); len(again) != len(folded) {
+		t.Fatalf("folding again left %d rows, want %d", len(again), len(folded))
 	}
 }

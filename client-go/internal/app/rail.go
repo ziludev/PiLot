@@ -235,6 +235,10 @@ func (a *App) toggleSection(section string) {
 	}
 	a.prefs.Sections[section] = a.prefs.sectionClosed(section)
 	savePrefs(a.prefs)
+	// The rows are cached against the stamp; folding a section changes them
+	// without touching what the bridge said, so the cache has to be retired by
+	// hand or the chevron turns and the list stays as it was.
+	a.stamp++
 	a.invalidate()
 }
 

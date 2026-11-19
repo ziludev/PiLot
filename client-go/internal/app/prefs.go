@@ -19,6 +19,9 @@ type prefs struct {
 	// Sections is which chat sections the user has opened, by key. Absent means
 	// the section's default, so a section added later gets a sane first run.
 	Sections map[string]bool `json:"sections"`
+	// Recent is the models chosen last, most recent first, so the picker opens
+	// on what this person actually uses rather than on the catalog's own order.
+	Recent []string `json:"recentModels,omitempty"`
 }
 
 // prefsPath is this window's own file. The earlier client's ~/.pitta/ui.json is
@@ -49,12 +52,13 @@ func readPrefs() prefs {
 		Theme    string          `json:"theme"`
 		Rail     int             `json:"rail"`
 		Sections map[string]bool `json:"sections"`
+		Recent   []string        `json:"recentModels"`
 	}
 	if err := json.Unmarshal(data, &p); err != nil {
 		log.Printf("prefs: parse %s: %v", path, err)
 		return prefs{}
 	}
-	return prefs{Lang: p.Lang, Theme: p.Theme, Rail: p.Rail, Sections: p.Sections}
+	return prefs{Lang: p.Lang, Theme: p.Theme, Rail: p.Rail, Sections: p.Sections, Recent: p.Recent}
 }
 
 // loadPrefs reads the two settings this window keeps.
