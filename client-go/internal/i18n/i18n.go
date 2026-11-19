@@ -121,6 +121,15 @@ func render(s string, args map[string]any) string {
 	return b.String()
 }
 
+// Alt is the same label in the language the window is not in. A reader who
+// learned a verb in one language should still be able to type it in the other.
+func Alt(key string) string {
+	if Current() == ZH {
+		return en[key]
+	}
+	return zh[key]
+}
+
 // Keys lists every key, sorted, for whole-dictionary checks.
 func Keys() []string {
 	keys := make([]string, 0, len(zh))

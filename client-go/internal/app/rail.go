@@ -54,13 +54,23 @@ func (a *App) railBrand(c *ui.Context, t theme.Tokens) {
 }
 
 func (a *App) railFilter(c *ui.Context, t theme.Tokens) {
-	ui.Row(c).FillWidth().Height(36).Padding(0, 10, 8, 10).AlignItems(ui.Center).Children(func() {
+	ui.Row(c).FillWidth().Height(36).Padding(0, 10, 8, 10).AlignItems(ui.Center).Gap(6).Children(func() {
 		ui.Row(c).Grow(1).Height(28).Radius(7).Padding(0, 8).Gap(6).
 			Background(t.SidebarAccent).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, icons.Search).Size(11, 11).TextColor(t.MutedFg)
 			ui.TextInputBase(c, &a.filter).FontSize(11.5).
 				Placeholder(i18n.T("filter")).Height(20)
 		})
+		// The key, shown next to the box it stands in for: a palette nobody
+		// knows about is a palette nobody uses.
+		keys := ui.ButtonBase(c).Size(24, 20).Radius(4).Justify(ui.Center).
+			AlignItems(ui.Center).Cursor(ui.CursorPointer).Tooltip(i18n.T("palette"))
+		keys.Children(func() {
+			ui.Text(c, "⌘K").FontSize(9.5).TextColor(t.MutedFg)
+		})
+		if keys.Clicked() {
+			a.openPalette()
+		}
 	})
 	// What was typed is local filtering first; the bridge is asked a beat
 	// later, so a word typed at speed is one search rather than eight.

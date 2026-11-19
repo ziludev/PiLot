@@ -26,8 +26,9 @@ import (
 // settings panel grew the switch that silences them, and the changes drawer
 // learned how to hand the checkout to Finder or the editor, and a picture that
 // will not open says so, the thumbnail says what it is for, and the transcript
-// marks where the reader left off.
-const maxKeys = 210
+// marks where the reader left off, the ⌘K palette says what it found and what
+// the keys do, and an export says where the file went.
+const maxKeys = 221
 
 func TestDictionariesMatch(t *testing.T) {
 	keys := Keys()

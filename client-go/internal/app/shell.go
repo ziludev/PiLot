@@ -158,9 +158,15 @@ func (a *App) statusStrip(c *ui.Context, t theme.Tokens) {
 			})
 		}
 		if a.notice != "" {
+			// A notice is either news or a complaint, and the color says which:
+			// an export that worked should not look like a file that failed.
+			color, icon := t.Destructive, icons.AlertTriangle
+			if a.noticeOK {
+				color, icon = t.MutedFg, icons.Check
+			}
 			ui.Row(c).FillWidth().Gap(5).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, icons.AlertTriangle).Size(10, 10).TextColor(t.Destructive)
-				ui.Text(c, a.notice).FontSize(10.5).TextColor(t.Destructive).MaxLines(2)
+				ui.Icon(c, icon).Size(10, 10).TextColor(color)
+				ui.Text(c, a.notice).FontSize(10.5).TextColor(color).MaxLines(2)
 			})
 		}
 	})
