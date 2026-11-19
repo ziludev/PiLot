@@ -14,7 +14,8 @@
     "card": "node src/feishu-selftest.ts",
     "check:scopes": "node scripts/check-feishu-scopes.ts",
     "test": "node --test tests/*.test.ts",
-    "eval": "node evals/run.ts"
+    "eval": "node evals/run.ts",
+    "test:agentctl": "cd agentctl && go test ./..."
   },
   "dependencies": {
     "@earendil-works/chord": "1.5.2",

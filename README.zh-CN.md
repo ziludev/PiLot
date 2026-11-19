@@ -259,6 +259,7 @@ durable audit [n]       # 最近 n 条权限决定：谁、哪个会话、什么
 ```
 
 - plist 是模板（`launchd/*.plist.tmpl`），`install` 时渲染实路径，换机器不用手改
+- `agentctl` 现在是 Go 程序（`agentctl/`，构建到 `bin/agentctl`），`./scripts/agentctl` 只是转发、并在源码更新时自动重建的 shim：命令和 launchd label 一个没变，只是控制逻辑不再是那个会被引号绊倒的 357 行 shell
 - 备份：`sqlite3 .backup` 热备 → `journal_mode=DELETE` 收成单文件 → 完整性校验 → 保留 14 份；恢复会先停进程、等它真正退出
 - **一份 storage 只能一个进程写**：`openRuntime()` 用 `wx` 独占创建 `.data/agent.owner`（pid），第二个进程直接报错而不是把运行中的会话搞坏。**pid 被系统复用不会挡住启动**：除了 `kill(pid,0)`，还要 `ps -p <pid> -o command=` 里确实是 `node … main.ts` 才认（硬杀或重启后，那个号可能已经归别人；以前这种情况 launchd 会一直重启失败，看起来就是"开机后进程没起来"）
 - **写坏了会自己重开**：storage 一旦报 `Session failed after a storage error`（比如撞上重复 id），session 就永久废了——只有重开进程能救。所以 bridge 遇到这种错误会直接 `exit`，让 launchd 起新进程；10 分钟内不重复触发（标记在 `.data/storage-selfheal`），避免真的坏库变成重启死循环
