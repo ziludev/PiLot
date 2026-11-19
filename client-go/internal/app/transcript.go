@@ -66,7 +66,33 @@ func (a *App) transcriptView(c *ui.Context, t theme.Tokens) {
 			ui.List(c, &a.vm.threadList, len(rows), func(row int) {
 				a.threadRowMarked(c, t, rows[row], a.findMark(row))
 			}).Grow(1).Padding(8, 0, 12, 0)
+			a.jumpToLatest(c, t, len(rows))
 		})
+	})
+}
+
+// jumpToLatest is the pill that appears once the reader has scrolled up: the
+// transcript follows a running turn, so the only way to read an older answer is
+// to leave the end, and then the only way back is a button.
+func (a *App) jumpToLatest(c *ui.Context, t theme.Tokens, rows int) {
+	if rows == 0 || a.findBrowsing() {
+		return
+	}
+	_, last := a.vm.threadList.Visible()
+	if last >= rows-1 {
+		return
+	}
+	pill := ui.ButtonBase(c).Absolute().Right(24).Bottom(12).Height(26).Radius(13).
+		Padding(0, 10).Gap(4).AlignItems(ui.Center).Background(t.Card).
+		Border(1, t.Border).Cursor(ui.CursorPointer).Tooltip(i18n.T("jumpLatest"))
+	pill.Children(func() {
+		ui.Icon(c, icons.ChevronDown).Size(11, 11).TextColor(t.Foreground)
+		ui.Text(c, i18n.T("jumpLatest")).FontSize(10.5).TextColor(t.Foreground).MaxLines(1)
+	})
+	pill.OnClick(func() {
+		a.vm.threadList.FollowEnd = true
+		a.vm.threadList.ScrollToEnd()
+		a.invalidate()
 	})
 }
 
@@ -102,14 +128,19 @@ func (a *App) threadRow(c *ui.Context, t theme.Tokens, row threadRow) {
 // userRow is the right-aligned bubble: the user's own words, tinted so they are
 // not mistaken for the agent's.
 func (a *App) userRow(c *ui.Context, t theme.Tokens, row threadRow) {
-	ui.Row(c).FillWidth().Justify(ui.End).Padding(6, 0).Gap(9).AlignItems(ui.Start).Children(func() {
-		bubble := ui.Column(c).MaxWidth(560).Padding(8, 12).Radius(12).
-			Background(t.Secondary).Gap(6)
-		bubble.Children(func() {
-			a.images(c, row.images, 180, 120)
-			if row.text != "" {
-				ui.Text(c, row.text).FontSize(12.5).TextColor(t.SecondFg)
-			}
+	outer := ui.Row(c).FillWidth().Justify(ui.End).Padding(6, 0).Gap(9).AlignItems(ui.Start)
+	hovered := outer.Hovered()
+	outer.Children(func() {
+		ui.Column(c).MaxWidth(560).Gap(4).Children(func() {
+			bubble := ui.Column(c).Padding(8, 12).Radius(12).
+				Background(t.Secondary).Gap(6)
+			bubble.Children(func() {
+				a.images(c, row.images, 180, 120)
+				if row.text != "" {
+					ui.Text(c, row.text).FontSize(12.5).TextColor(t.SecondFg)
+				}
+			})
+			a.messageActions(c, t, row, hovered, true)
 		})
 		a.userAvatarView(c, t, avatarSize)
 	})
@@ -118,13 +149,16 @@ func (a *App) userRow(c *ui.Context, t theme.Tokens, row threadRow) {
 // assistantRow is full width and has no bubble: the answer belongs to the page,
 // not to a card.
 func (a *App) assistantRow(c *ui.Context, t theme.Tokens, row threadRow) {
-	ui.Row(c).FillWidth().Padding(6, 0).Gap(9).AlignItems(ui.Start).Children(func() {
+	outer := ui.Row(c).FillWidth().Padding(6, 0).Gap(9).AlignItems(ui.Start)
+	hovered := outer.Hovered()
+	outer.Children(func() {
 		a.avatarView(c, avatarSize)
-		ui.Column(c).Grow(1).MinWidth(0).Gap(6).Children(func() {
+		ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
 			a.images(c, row.images, 240, 160)
 			if row.text != "" {
 				markdown.View(c, row.text, nil)
 			}
+			a.messageActions(c, t, row, hovered, false)
 		})
 	})
 }

@@ -416,6 +416,7 @@ func projectEntries(conversationID int, entries []protocol.Entry) ([]threadRow, 
 				id:     "u" + itoa(entry.ID),
 				text:   view.userText,
 				images: view.images,
+				turn:   entry.ID,
 			})
 		}
 		for _, block := range view.blocks {
@@ -426,6 +427,7 @@ func projectEntries(conversationID int, entries []protocol.Entry) ([]threadRow, 
 					id:     "a" + itoa(entry.ID) + "." + itoa(block.index),
 					text:   block.text,
 					images: block.images,
+					turn:   turn,
 				})
 			case "tool-result":
 				// A result belongs to the call above it: one line per step.
