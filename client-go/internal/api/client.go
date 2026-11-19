@@ -426,3 +426,23 @@ func (c *Client) UsageCalendar(ctx context.Context, days int) ([]UsageDay, error
 	}
 	return reply.Days, nil
 }
+
+// FileText is one file as GET /api/file hands it over: the text, whether it was
+// cut short, and how big it is on disk.
+type FileText struct {
+	Path      string `json:"path"`
+	Size      int64  `json:"size"`
+	Truncated bool   `json:"truncated"`
+	Lines     int    `json:"lines"`
+	Content   string `json:"content"`
+}
+
+// File reads a file from the chat's workspace, for the preview beside a patch:
+// a diff says what changed, and sometimes the question is what the file says
+// now.
+func (c *Client) File(ctx context.Context, convID int, path string) (FileText, error) {
+	var out FileText
+	query := "/api/file?conversationId=" + strconv.Itoa(convID) + "&path=" + url.QueryEscape(path)
+	err := c.get(ctx, query, &out)
+	return out, err
+}

@@ -162,6 +162,11 @@ var zh = map[string]string{
 	"taskStopRequested":  "已请求停止",
 	"close":              "关闭",
 
+	"changesPatch":  "改动",
+	"changesWhole":  "全文",
+	"fileEmpty":     "这个文件是空的",
+	"fileTruncated": "文件太大，只显示了开头",
+
 	// The usage calendar: four months of spend, a square a day.
 	"usage":       "用量日历",
 	"usageCost":   "花费",
@@ -336,4 +341,9 @@ var en = map[string]string{
 	"weekdayMon":  "M",
 	"weekdayWed":  "W",
 	"weekdayFri":  "F",
+
+	"changesPatch":  "Diff",
+	"changesWhole":  "File",
+	"fileEmpty":     "This file is empty",
+	"fileTruncated": "Too large to show in full; the start is here",
 }

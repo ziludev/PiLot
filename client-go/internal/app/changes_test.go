@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -203,4 +204,73 @@ func stubBridge(t *testing.T, bodies ...string) string {
 	}))
 	t.Cleanup(server.Close)
 	return server.URL
+}
+
+// TestWholeFileShowsTheFile: a patch answers what moved, not what the file says
+// now, and the drawer has to be able to answer the second question.
+func TestWholeFileShowsTheFile(t *testing.T) {
+	a := changesFixture(t)
+	tt := ui.NewTester(a.View, 1180, 820)
+	a.openChangeFile("notes.md")
+	tt.Frame()
+	if !tt.HasText("first") {
+		t.Fatalf("the patch did not draw; %v", tt.Texts())
+	}
+
+	var asked string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked = r.URL.RequestURI()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"path":"notes.md","size":42,"truncated":false,"lines":3,"content":"package app\n\nfunc main() {}\n"}`))
+	}))
+	defer server.Close()
+	a.api = api.New(server.URL, "")
+
+	a.showWholeFile(true)
+	deadline := time.Now().Add(2 * time.Second)
+	for asked == "" && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	// No frame loop here, so the reply is drained by hand, the way a frame
+	// would have done it.
+	time.Sleep(50 * time.Millisecond)
+	for len(a.inbox) > 0 {
+		ev := <-a.inbox
+		if ev.kind == evFile {
+			a.applyFileText(ev.convID, ev.path, ev.fileText, ev.truncated, ev.err)
+		}
+	}
+	if len(a.changes.text) != 3 {
+		t.Fatalf("the preview kept %d lines", len(a.changes.text))
+	}
+	if !strings.Contains(asked, "/api/file?") || !strings.Contains(asked, "path=notes.md") {
+		t.Fatalf("the preview asked for %q", asked)
+	}
+	if !strings.Contains(asked, "conversationId="+itoa(a.changes.conv)) {
+		t.Fatalf("the preview read from the wrong workspace: %q", asked)
+	}
+
+	tt.Frame()
+	for _, want := range []string{"package app", "func main() {}", "1", "3"} {
+		if !tt.HasText(want) {
+			t.Errorf("the preview does not show %q; drew %v", want, tt.Texts())
+		}
+	}
+}
+
+// TestFileTextIsRetiredWhenTheDrawerMoves: a slow read for a file the user left
+// must not paint itself over the file they are looking at.
+func TestFileTextIsRetiredWhenTheDrawerMoves(t *testing.T) {
+	a := changesFixture(t)
+	a.openChangeFile("app.go")
+	a.showWholeFile(true)
+	asked := a.changes.textPath
+	a.openChangeFile("notes.md")
+	if a.changes.whole {
+		t.Fatal("opening another file kept the file view")
+	}
+	a.applyFileText(a.changes.conv, asked, "package other\n", false, nil)
+	if a.changes.text != nil {
+		t.Fatalf("a reply for %s landed on %s", asked, a.changes.openFile)
+	}
 }
