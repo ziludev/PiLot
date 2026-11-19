@@ -19,7 +19,7 @@ import (
 // stepsCount is ours, for the line a whole long turn folds into; queueDepth and
 // agentUnreachable are ours too, for the footer's health segment.
 // TestOriginDictionaryStillMatches keeps those lines.
-const wantKeys = 195
+const wantKeys = 196
 
 // useLang switches the package language for one test and restores it after.
 func useLang(t *testing.T, l Lang) {
@@ -63,7 +63,8 @@ func TestKeysAreUniqueAndSorted(t *testing.T) {
 }
 
 // Only baseChangedHint interpolates in i18n.ts:30 and i18n.ts:215; a placeholder
-// creeping into other copy means the tables drifted from the source.
+// creeping into other copy means the tables drifted from the source. hiddenLines,
+// toolCallsCount, toolRunFailed and stopQueued are ours and carry counts of their own.
 func TestPlaceholdersMatchSource(t *testing.T) {
 	var withPlaceholder []string
 	for k, v := range zh {
@@ -75,7 +76,7 @@ func TestPlaceholdersMatchSource(t *testing.T) {
 		}
 	}
 	sort.Strings(withPlaceholder)
-	if want := []string{"baseChangedHint", "hiddenLines", "toolCallsCount", "toolRunFailed"}; !slices.Equal(withPlaceholder, want) {
+	if want := []string{"baseChangedHint", "hiddenLines", "stopQueued", "toolCallsCount", "toolRunFailed"}; !slices.Equal(withPlaceholder, want) {
 		t.Fatalf("interpolated keys = %v, want %v", withPlaceholder, want)
 	}
 }
