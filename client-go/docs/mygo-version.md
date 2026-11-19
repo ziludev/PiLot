@@ -1,93 +1,31 @@
-# mygo 版本说明：为什么钉在 v0.9.1，而不是 v0.6.4
+# mygo 的版本
 
-> 结论已由用户确认（2026-11-16）：**保持最新版 v0.9.1**，不降级。
+当前：`github.com/egoist/mygo v0.10.0`（`go.mod`），构建走 `go tool mygo build`。
 
-目标里写的是「钉死 mygo v0.6.4（0.5→0.6 ui 包有破坏性变化，升级需单独说明）」。实际仓库
-`go.mod:5` 是 `github.com/egoist/mygo v0.9.1`。本文就是那份额外的说明：先按 0.6.4 真的降过一次，
-记录降级代价与放弃原因，再给出 0.9.1 的实测证据。
+## 为什么不是 v0.6.4
 
-## 1. 降级实验（2026-11-16，可复现）
+`0.5 → 0.6` 有过一次破坏性变化，所以目标里 2026-11-16 曾写「钉死 v0.6.4」。真降了一次，发现它在
+**中文输入法组词期间按下 Enter 时会把未上屏的拼音串提交进正文**：`ui/editor.go` 先
+`commitCompose()` 把 `"nihao"` 落进缓冲区，再走常规 Enter 分支插入换行，应用层拿不到「是否正在组词」
+的信号（`TextKey` 只给最终文本），绕不过去。用中文打到一半按 ⌘Enter 就会发出一串拼音，这是本项目
+的硬需求内的阻断项，所以退回最新版。同一个测试（`internal/app/input_test.go` 的
+`TestIMECompositionDoesNotSend`）在 0.9.1 之后是绿的：组词期间 Enter 既不提交也不换行。
 
-```bash
-cd /Users/alexwang/work/pitta-mygo
-go get github.com/egoist/mygo@v0.6.4
-go build ./...
-```
+若将来必须回 0.6.4：组词期间禁止键盘发送（或只留 Send 按钮），并把上面那个测试的期望改成降级版本。
 
-编译期只有 3 个 api 缺失，逐个都能量身替代：
+## v0.9.1 → v0.10.0
 
-| 0.9.1 的 API | 用在 | v0.6.4 的替代 |
-| --- | --- | --- |
-| `Element.TruncateMiddle()` | `internal/diff/render.go:124`、`internal/side/{changes,commits,file}.go`、`internal/app/rail.go:334` | 去掉该方法，自己在送进 `ui.Text` 前做中段省略（`elidePath`） |
-| `Element.ScrollbarAxes(horizontal, vertical bool)` | `internal/diff/render.go:156` | 去掉，退回默认滚动条（0.6.4 只有 `ScrollbarInsets`） |
-| `Element.FillEqually()`（`ui.Segmented`） | `internal/ops/access.go:44`、`internal/app/rail.go:101` | 去掉，分段按钮按文字宽度排（与 React 等宽分段有视觉差） |
-| `Element.RowClicked() bool` | `internal/side/changes.go:127,160`、`commits.go:122`、`file.go:84` | 改成在行元素上挂 `OnClick`（0.6.4 没有列表行点击回调） |
+48 个 commit，没有破坏性 API 变化，`go build ./...`、`go vet ./...`、`go test ./...` 一次通过。
 
-替代后 `go build ./...`、`go vet ./...` 通过，只剩一个测试红：
-`internal/app/input_test.go` 的 `TestIMECompositionDoesNotSend` 报
-`draft after commit = "nihao\n你好"`（期望 `"你好"`）。
-
-## 2. 放弃 0.6.4 的原因：组词期间的 Enter
-
-同一个测试在 0.6.4 上的行为拆解：
-
-1. `tt.Compose("nihao", 5)` 建立预编辑，此时 draft 仍是空（这一步 0.6.4 也是对的）；
-2. 预编辑期间按 Enter：0.6.4 的 `editor.commitCompose()`（`ui/editor.go:182`）先把 `"nihao"`
-   落进缓冲区，再走常规 Enter 分支插入换行 → draft 变成 `"nihao\n"`；
-3. 继续 `tt.Type("你好")` 才得到 `"nihao\n你好"`。
-
-换成真机场景就是：用中文输入法打到一半（拼音还在候选框里）按 ⌘Enter 发送，客户端会把未上屏的
-拼音串当成正文发出去。这正好踩在目标要求的「中文 IME 候选词」上——0.6.4 在编辑器层就替输入法
-做了决定，应用层拿不到「是否正在组词」的信号（`TextKey` 只给最终文本），没法用 app 代码绕过。
-
-0.9.1 在这个路径上是「组词期间 Enter 既不提交也不换行」，预编辑只由输入法上屏（`tt.Type` 提交），
-所以同一个测试直接通过。
-
-## 3. 0.9.1 的验证证据
-
-```bash
-cd /Users/alexwang/work/pitta-mygo
-go build ./... && go vet ./... && go test ./internal/... -count=1
-```
-
-`api / app / diff / i18n / icons / ops / side / theme / turns` 全部 ok，其中直接覆盖差异点的是：
-
-- `internal/app/input_test.go`：`TestPasteInsertsClipboardText`、`TestSelectAllAndBackspaceClears`、
-  `TestIMECompositionDoesNotSend`（组词不发不换行、`tt.Type` 上屏、⌘Enter 发出中文）；
-- `internal/app/snapshot_test.go`：浅/深色关键像素断言（主题 token 真的落在画面上）；
-- `internal/app/long_test.go`、`e2e_test.go`、`writeops_live_test.go`：真实后端 200 条会话、
-  流式、markdown、patch、切模型/重命名/push dry-run。
-
-## 4. 结论与复评条件
-
-- 交付版本：`github.com/egoist/mygo v0.9.1`（`go.mod:5`），构建用 `go tool mygo build`。
-- 0.9.1 是升上来的，不是顺手拿的最新版：0.6.4 在 IME 上会漏拼音，属于本项目硬需求内的阻断项。
-- 若将来必须回到 0.6.4（例如上游把 0.9 的 API 收回），需要同时做三件事：按上表补回四个替代，
-  在 `internal/app` 层禁止组词期间用键盘发送（或改成只能点 Send 按钮），并把
-  `TestIMECompositionDoesNotSend` 的期望改成「组词期间 Enter 不发送」的降级断言。
-
-## 5. 2026-11-18：v0.9.1 → v0.10.0
-
-升到 `github.com/egoist/mygo v0.10.0`（`go.mod`）。v0.9.1…v0.10.0 之间 48 个 commit，没有破坏性 API
-变化：`go build ./...`、`go vet ./...`、`go test ./...` 一次通过，没有任何一行调用需要改。
-
-和这个客户端相关的几条：
-
-| commit | 对我们的意义 |
+| 变化 | 对我们的意义 |
 | --- | --- |
-| `#1921` capture paints again after another window moved the shared atlas | 带 `Transition` 的列表行曾画出重复行与白色块（§4 的阻塞项），可疑成因就在共享 atlas 的捕获；v0.10.0 下已复现不出来（见下） |
-| `#1928` lay out a tree with fewer reads of its elements | 布局少读元素属性，2000 行大文件的首帧开销测试仍在阈值内（62 ms 那次是并行跑测试的噪声，单独跑稳定通过） |
-| `#1904` `ListState.MoveAnimation` | 行进出、换位时的滑行交给 `ui.List` 自己做。我们的会话栏不做重排动画，暂时不用；将来要做「归档后行自动收拢」时先看它 |
-| `Exit` 动效在 `ui.List` 的行上仍不生效 | v0.10.0 也没变：行在数据消失的那一帧就被丢掉，没有元素可挂 Exit。会话行的离场因此走 app 侧记账 + `AnimateTo`（见 `docs/ui-motion-todo.md` §4） |
-| `#1975` read a child a container walks in four lines of the element | 内部实现变化，无迁移成本 |
+| 共享 atlas 在别的窗口移动后能重新绘制（#1921） | 曾经「带 `Transition` 的列表行画出重复行与白色块」的原因就在这里；v0.10.0 下未复现。现在 rail 行没挂过渡，将来要挂可以试 |
+| `ListState.MoveAnimation`（#1904） | 行进出、换位的滑行交给框架。现在没用；要做「归档后行自动收拢」先看它 |
+| `Exit` 动效挂在 `ui.List` 的行上仍不生效 | 行在数据消失的那一帧就被丢掉，没有元素挂 Exit。要用收拢动画得 app 侧记账 + `AnimateTo` |
+| 布局少读元素属性（#1928） | 2000 行大文件首帧开销仍在阈值内 |
 
-### 顺带解掉的阻塞：会话行的颜色过渡
+## 可用的东西里容易被忘的
 
-`docs/ui-motion-todo.md` §4 记着「行内颜色/阴影过渡挂在 `ui.List` 行上会出现重复行与白色块，暂不做」。
-升到 v0.10.0 后给 `railRow` 加回 `Transition(motion.Hover())`，悬停、滚动中途各截一帧，都是干净的
-（`/tmp/pitta-motion-row-hover.png`、`pitta-motion-row-scroll.png`），所以这一项补上了：
-
-- 颜色从 `250,250,250` 经 `245,245,246`（30 ms）滑到 `233,233,236`，不是一帧跳过去；
-- 测试 `internal/app/motion_row_test.go:TestRailRowColourGlides` 采样行内留白的像素来判定，
-  去掉 `Transition` 后必然失败（已做变异验证）；
-- 行本身的 2px 抬升仍然由 app 侧 `AnimateTo` 管，框架只管颜色和阴影，两者不打架。
+- `ui.Popover` 把 Enter 当成自己的关闭键。要 Enter 选中的面板（模型、命令面板）要么内联，要么自己拦键。
+- 没有 HTML 渲染、没有 `backdrop-filter`；毛玻璃用 `plugins/glass`，纯色+边高光用 theme token。
+- 剪贴板只给文本（`windowHost.ReadText`），图片只能走路径选择。

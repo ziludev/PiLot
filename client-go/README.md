@@ -2,7 +2,7 @@
 
 pi-durable-agent 的桌面客户端，用 Go 和 [mygo](https://github.com/egoist/mygo) 的 `ui` 包原生渲染（GPU，Metal），不走 webview。渲染基于 `github.com/egoist/mygo` **v0.10.0**（`go.mod`；为什么不是 0.6.4 见 `docs/mygo-version.md`）。
 
-窗口只有三块：左边 rail、中间 transcript、底下 composer。`94c8c28` 之后是这样——它之前的两版（React webview，以及后来那版带 diff / 提交 / 权限 / 运维面板的 Go 客户端）都已删除，[docs/history.md](docs/history.md) 和 [docs/parity.md](docs/parity.md) 是它们的旧账：里面提到的 `internal/side`、`internal/ops`、`internal/diff`、`internal/turns` 现在都不存在，别照着找。
+窗口只有三块：左边 rail、中间 transcript、底下 composer。`94c8c28` 之后是这样——它之前的两版（React webview，以及后来那版带 diff / 提交 / 权限 / 运维面板的 Go 客户端）都已删除，代码和文档都没留；那些面板现在缺什么、接口在哪，看 [docs/gaps.md](docs/gaps.md)。
 
 ## 构建与运行
 

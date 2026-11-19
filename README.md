@@ -235,9 +235,10 @@ ship. Screens and key bindings are in [client-go/README.md](client-go/README.md)
 open conversation as frames over a websocket, so a turn started on Feishu arrives in the window
 without a refresh and the two surfaces are never looking at different conversations.
 
-The client it replaced was a webview page backed by the bridge; it is gone, and
-[client-go/docs/history.md](client-go/docs/history.md) is the record of what it had and where
-the Go one now covers it.
+The client it replaced was a webview page backed by the bridge, and before that a Go client with
+diff, commit, access and ops panels; both are deleted, not parked. What the first of them could do
+and this one cannot is [client-go/docs/gaps.md](client-go/docs/gaps.md) — the endpoints are still
+live, so each line there is client work, not a feature request.
 
 ## CLI
 
