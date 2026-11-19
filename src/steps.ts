@@ -8,7 +8,6 @@
  */
 
 import type { LiveSnapshot } from "./live.ts";
-import { describeCall } from "./progress.ts";
 
 export type Round = { label: string; ms: number; tail?: string };
 
@@ -33,11 +32,13 @@ function identity(live: LiveSnapshot): string {
   return live.tools.join(" · ");
 }
 
-/** The round's name on the card: `跑 npm test`, not `bash`. */
+/**
+ * The round's name on the card is the tool's own name. Translating `bash` into `跑 …` read nicer
+ * and told less: the arguments were reworded, clipped and sometimes guessed, so the card no longer
+ * showed what was actually called. The bare name is what the model asked for.
+ */
 function labelOf(live: LiveSnapshot): string {
-  return live.tools
-    .map((name, index) => describeCall(name, live.args?.[live.callIds?.[index] ?? ""]))
-    .join(" · ");
+  return live.tools.join(" · ");
 }
 
 /** Folds one snapshot into the trail: a changed identity ends the previous round. */
