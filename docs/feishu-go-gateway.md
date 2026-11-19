@@ -176,12 +176,22 @@ TS 侧
 - 桥接层保留一个 SDK client：`im.message.list`（线程历史/摘要）不在 gw 的五个操作里，仍走 SDK。
 - 守护：`launchd/feishu-gw.plist.tmpl` + `agentctl install-gateway`，`KeepAlive` 常驻；
   `agentctl install` 只在 `FEISHU_TRANSPORT=go` 时才装它——两条连接并存会让每条消息被回答两次。
+- **告警判据是 `connected`，不是 `ready`**（实测发现）：`ready = connected && 收到过事件`，所以每次
+  重启网关之后它都会一直是 `false`，直到下一条消息到来。拿它当健康判据，安静的夜里会每半小时
+  报一次假警、还顺手 `kickstart` 一次网关。所以 watchdog 只看 `connected`（连不上飞书才算坏），
+  「连着但没流量」只写进 `/health` 的 `lastError`，不打扰人。
+- watchdog：bridge 每 30s 探一次 `/healthz`，连续 10 次（5 分钟）不健康 → 一条告警 + `kickstart -k`
+  重启网关（标签从 `~/Library/LaunchAgents/*feishu-gw.plist` 反查，不写死），恢复后再发一条
+  「已恢复」。告警本身走 **SDK 直发**（`im.message.create` 到 owner 会话）：网关正是坏掉的那一环，
+  不能再指望它送这条消息。`kickstart -k gui/501/com.pitta.agent.feishu-gw` 已实测能重启并让
+  `/healthz` 重新 `connected:true`。判据抽成 `gatewayWatchStep()`（纯函数，4 个单测）：掉线报一次、
+  半小时内不重复、恢复只报一次。
 
 ## 9. 风险
 
 | 风险 | 影响 | 对策 |
 |---|---|---|
-| 多一个进程，起不来时飞书静默失联 | 高（收不到消息） | `/healthz` + `agentctl status` 聚合；bridge 每 5 分钟探一次，连续 3 次失败发飞书告警（gw 挂了只能靠文本消息以外的手段——用 macOS 通知 + 日志） |
+| 多一个进程，起不来时飞书静默失联 | 高（收不到消息） | 已实现：bridge 每 30s 探 `/healthz`，连续 10 次连不上 → SDK 直发告警 + `kickstart -k` 重启网关；恢复后再报一条。`agentctl status` 一并显示 |
 | 按钮回调 2.5s 超时截断 | 中（点按钮看到超时提示，卡片没更新） | 现网 `set-model`/`open-chat` 都只碰 SQLite，实测 < 200ms；把慢操作（起 turn）继续放在「已 ack 后异步」这条线里，不在回调里做 |
 | 事件 HTTP 投递丢 | 中（少一条消息） | 重试 + `eventId` 幂等 + `dropped` 日志；P1 阶段先只观察不动 |
 | 两套传输层并存期间逻辑漂移 | 中 | node 路径冻结（只修 bug），P4 直接删 |
