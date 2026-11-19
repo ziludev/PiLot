@@ -11,7 +11,7 @@
 | 缺的 | 第一版怎么做的 | 接口 | mygo 原语 |
 | --- | --- | --- | --- |
 | 会话菜单里的「清理 worktree」 | `ChatMenu.tsx`（未合并的分支拒绝并提示） | `POST /api/worktree/remove` | 现在重命名 / 归档直接进 `button.Menu`，加一项即可 |
-| 右栏剩下的：提交 / 推送 / 合并的写操作、项目栏 | `SidePanel.tsx` + `side/*.go` | `/api/file`、`/api/commit`、`/api/git/push`、`/api/merge`、`/api/git/base`、`/api/projects` | 改动 / 提交两栏已经回来了（`internal/app/changes.go`，只读）；写操作得走批准路径 |
+| 右栏剩下的：项目栏 | `SidePanel.tsx` + `side/*.go` | `/api/file`、`/api/commit`、`/api/git/push`、`/api/merge`、`/api/git/base`、`/api/projects` | 改动 / 提交两栏和提交/推送/合并都回来了（`internal/app/changes.go`、`gitwrite.go`） |
 | 权限页 | `AccessPanel.tsx` | `GET /api/access`、`/api/audit` | `ui.Segmented` 过滤 + 表格 |
 | 拖拽排序 / 置顶 | `Rail.tsx` + `prefs.Order/Pinned` | 无（本地） | `ui.List` 的 `Reorder` |
 | 每步耗时竖轨 | `TurnRail.tsx` / `TurnDurations.tsx` | 无 | 现在折叠成一行 `⋯ 4 步 · 12s` |
@@ -40,6 +40,9 @@
 - **文件和它的改动并排**（`changes.go` 的 `fileTextView`）：改动回答「动了什么」，全文回答「现在写着什么」，
   读 diff 去回答后者是猜。切换按钮只在 worktree 的文件上有——一个提交的 diff 背后没有「全文」这回事。
   行号放在同一串里靠 figure space 右对齐：行首普通空格会被排版吃掉，行号就会贴上文件自己的缩进。
+- **写操作只问一句，做的是 bridge**（`gitwrite.go`）：提交要一句话，推送和合并各要一次确认；结果留在抽屉底部而不是
+  只弹 toast —— 冲突是一串文件名，飘过去就读不到了。bridge 拒绝（工作区脏、目标分支脏、冲突）都当作可读的指令，原样显示。
+  合并成功后整份重读，不照着回包改列表：分支的提交在合并那一刻就变了。
 - **右栏是抽屉，两个抽屉轮着来**（`internal/app/changes.go`、`memory.go`）：同一个右边缘，打开一个
   就关另一个——两个 460 点的栏会把 transcript 挤成一条。窄窗口时抽屉 `Shrink(1)` 到 300，rail 的 260
   之外还得给 transcript 留活路。

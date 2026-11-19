@@ -367,6 +367,64 @@ func (c *Client) CommitDiff(ctx context.Context, convID int, hash string) (strin
 	return out.Diff, nil
 }
 
+// CommitResult is what POST /api/commit answers: the commit it made.
+type CommitResult struct {
+	Head string `json:"head"`
+}
+
+// Commit records everything in the worktree as one commit.
+func (c *Client) Commit(ctx context.Context, convID int, message string) (CommitResult, error) {
+	var out CommitResult
+	err := c.post(ctx, "/api/commit", struct {
+		ConversationID int    `json:"conversationId"`
+		Message        string `json:"message"`
+	}{ConversationID: convID, Message: message}, &out)
+	return out, err
+}
+
+// PushResult is one of four answers from POST /api/git/push. A dry run is not a
+// failure: the bridge refuses to force, and says what it would send first.
+type PushResult struct {
+	Status     string `json:"status"` // pushed | dry-run | no-remote | error
+	Branch     string `json:"branch"`
+	Remote     string `json:"remote"`
+	CompareURL string `json:"compareUrl"`
+	Output     string `json:"output"`
+	Message    string `json:"message"`
+}
+
+// Push sends the chat's branch to origin, never forced.
+func (c *Client) Push(ctx context.Context, convID int, dryRun bool) (PushResult, error) {
+	var out PushResult
+	err := c.post(ctx, "/api/git/push", struct {
+		ConversationID int  `json:"conversationId"`
+		DryRun         bool `json:"dryRun"`
+	}{ConversationID: convID, DryRun: dryRun}, &out)
+	return out, err
+}
+
+// MergeResult is what POST /api/merge answers. The bridge would rather refuse
+// than guess: both sides must be committed, and a conflict is undone and
+// reported with the files that caused it.
+type MergeResult struct {
+	Status    string   `json:"status"` // merged | up-to-date | dirty | main-dirty | conflict | error
+	Branch    string   `json:"branch"`
+	Base      string   `json:"base"`
+	Commits   int      `json:"commits"`
+	Files     []string `json:"files"`
+	Conflicts []string `json:"conflicts"`
+	Message   string   `json:"message"`
+}
+
+// Merge merges the chat's branch back into the base branch.
+func (c *Client) Merge(ctx context.Context, convID int) (MergeResult, error) {
+	var out MergeResult
+	err := c.post(ctx, "/api/merge", struct {
+		ConversationID int `json:"conversationId"`
+	}{ConversationID: convID}, &out)
+	return out, err
+}
+
 // TaskDetail is one task as GET /api/task describes it: what it is doing, what
 // it was asked, and what it spawned.
 type TaskDetail struct {
