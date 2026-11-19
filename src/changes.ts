@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { log, logError } from "./log.ts";
@@ -56,6 +56,57 @@ const STATUS_LABEL: Record<string, string> = {
   U: "conflicted",
   "?": "untracked",
 };
+
+/**
+ * Where a turn started from: the commit it began at, and when.
+ *
+ * The finished card wants to say "改了这几个文件" — the one thing a phone reader cannot get without
+ * opening the client. `git diff --name-only <head>` finds everything the turn left behind, and it
+ * still finds it after the turn committed its own work; the timestamp then drops the files that
+ * were already dirty when the turn began, because those are somebody else's unfinished business.
+ */
+export type TreeMark = { head: string; startedAt: number };
+
+export async function markTree(dir: string): Promise<TreeMark | undefined> {
+  if (!existsSync(join(dir, ".git"))) return undefined;
+  try {
+    const head = (await git(dir, ["rev-parse", "HEAD"])).trim();
+    return head.length === 0 ? undefined : { head, startedAt: Date.now() };
+  } catch {
+    return undefined;
+  }
+}
+
+/** Files this turn touched, oldest first. Empty is a real answer: a turn that only talked. */
+export async function touchedSince(dir: string, mark: TreeMark): Promise<string[]> {
+  let changed: string[];
+  try {
+    const status = await git(dir, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+    const untracked = status
+      .split("\0")
+      .filter((entry) => entry.startsWith("?? "))
+      .map((entry) => entry.slice(3));
+    const againstHead = (await git(dir, ["diff", "--name-only", mark.head])).split("\n").map((line) => line.trim());
+    changed = [...new Set([...againstHead, ...untracked].filter((path) => path.length > 0))];
+  } catch {
+    return [];
+  }
+  const touched: string[] = [];
+  for (const path of changed) {
+    const written = await mtimeOf(join(dir, path));
+    // No mtime means the file is gone: only a deletion this turn put it in the list.
+    if (written === undefined || written >= mark.startedAt) touched.push(path);
+  }
+  return touched;
+}
+
+async function mtimeOf(path: string): Promise<number | undefined> {
+  try {
+    return (await stat(path)).mtimeMs;
+  } catch {
+    return undefined;
+  }
+}
 
 export async function collectChanges(dir: string): Promise<ChangesSnapshot> {
   if (!existsSync(join(dir, ".git"))) {
