@@ -139,6 +139,9 @@ var zh = map[string]string{
 	"notifySomething":  "一个写操作",
 	"chatNumber":       "会话 {n}",
 	"reveal":           "在 Finder 中显示",
+	"imageBroken":      "这张图打不开",
+	"openImage":        "点开看大图",
+	"newHere":          "新消息",
 	"openInEditor":     "用编辑器打开",
 
 	"themeDark":       "切到深色",
@@ -372,6 +375,9 @@ var en = map[string]string{
 	"notifySomething":  "a write",
 	"chatNumber":       "Chat {n}",
 	"reveal":           "Reveal in Finder",
+	"imageBroken":      "This picture will not open",
+	"openImage":        "Open full size",
+	"newHere":          "New",
 	"openInEditor":     "Open in editor",
 
 	"themeDark":       "Switch to dark",

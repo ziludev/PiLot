@@ -363,6 +363,10 @@ type threadRow struct {
 	steps []step
 	turn  int
 
+	// entry is the id of the entry that produced the row, so the transcript can
+	// place the line that marks what arrived since the last visit.
+	entry int
+
 	// liveStep is the tool the turn in flight is running now, for rowLive.
 	liveStep string
 	span     time.Duration
@@ -417,6 +421,7 @@ func projectEntries(conversationID int, entries []protocol.Entry) ([]threadRow, 
 				text:   view.userText,
 				images: view.images,
 				turn:   entry.ID,
+				entry:  entry.ID,
 			})
 		}
 		for _, block := range view.blocks {
@@ -428,6 +433,7 @@ func projectEntries(conversationID int, entries []protocol.Entry) ([]threadRow, 
 					text:   block.text,
 					images: block.images,
 					turn:   turn,
+					entry:  entry.ID,
 				})
 			case "tool-result":
 				// A result belongs to the call above it: one line per step.
@@ -458,9 +464,10 @@ func projectEntries(conversationID int, entries []protocol.Entry) ([]threadRow, 
 				idx, ok := stepRows[turn]
 				if !ok {
 					rows = append(rows, threadRow{
-						kind: rowSteps,
-						id:   foldKey(conversationID, turn),
-						turn: turn,
+						kind:  rowSteps,
+						id:    foldKey(conversationID, turn),
+						turn:  turn,
+						entry: entry.ID,
 					})
 					idx = len(rows) - 1
 					stepRows[turn] = idx
@@ -475,7 +482,8 @@ func projectEntries(conversationID int, entries []protocol.Entry) ([]threadRow, 
 				id:   "e" + itoa(entry.ID),
 				text: view.errText,
 				// Which words to send again when the reader asks to retry.
-				turn: turn,
+				turn:  turn,
+				entry: entry.ID,
 			})
 		}
 	}

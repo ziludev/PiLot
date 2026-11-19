@@ -55,6 +55,7 @@ func (a *App) transcriptView(c *ui.Context, t theme.Tokens) {
 	// Following the end and holding a hit are two answers to the same question,
 	// and a search wins: otherwise the newest turn pulls the view back down.
 	a.vm.threadList.FollowEnd = !a.findBrowsing()
+	divider := a.dividerRow(a.active, rows)
 	a.vm.threadList.Key = func(row int) any {
 		if row < 0 || row >= len(rows) {
 			return row
@@ -64,10 +65,49 @@ func (a *App) transcriptView(c *ui.Context, t theme.Tokens) {
 	ui.Row(c).Grow(1).FillWidth().Justify(ui.Center).Children(func() {
 		ui.Column(c).Grow(1).FillHeight().MaxWidth(maxContent).Children(func() {
 			ui.List(c, &a.vm.threadList, len(rows), func(row int) {
-				a.threadRowMarked(c, t, rows[row], a.findMark(row))
+				if row != divider {
+					a.threadRowMarked(c, t, rows[row], a.findMark(row))
+					return
+				}
+				ui.Column(c).FillWidth().Children(func() {
+					a.newLine(c, t)
+					a.threadRowMarked(c, t, rows[row], a.findMark(row))
+				})
 			}).Grow(1).Padding(8, 0, 12, 0)
 			a.jumpToLatest(c, t, len(rows))
 		})
+	})
+}
+
+// dividerRow is where the line marking new entries goes: above the first row
+// written after the user last had this chat open. -1 means no line — nothing
+// arrived since, or this is the first time they have opened it, in which case
+// everything is new and a line would say nothing.
+func (a *App) dividerRow(convID int, rows []threadRow) int {
+	from := a.vm.newFrom[convID]
+	if from == 0 {
+		return -1
+	}
+	for i, row := range rows {
+		if row.entry > from {
+			// A line above everything separates nothing: the whole page is new,
+			// and the rail's dot already said so.
+			if i == 0 {
+				return -1
+			}
+			return i
+		}
+	}
+	return -1
+}
+
+// newLine is the rule between what the reader has seen and what arrived while
+// they were in another chat.
+func (a *App) newLine(c *ui.Context, t theme.Tokens) {
+	ui.Row(c).FillWidth().Padding(10, 0).Gap(8).AlignItems(ui.Center).Children(func() {
+		ui.Box(c).Grow(1).Height(1).Background(t.Destructive.Alpha(0.45))
+		ui.Text(c, i18n.T("newHere")).FontSize(9).TextColor(t.Destructive)
+		ui.Box(c).Grow(1).Height(1).Background(t.Destructive.Alpha(0.45))
 	})
 }
 
@@ -336,7 +376,15 @@ func (a *App) images(c *ui.Context, images []imageRef, w, h float32) {
 			if bitmap == nil {
 				continue
 			}
-			ui.Image(c, bitmap).Size(w, h).Radius(8).Clip()
+			// The thumbnail is also the way in: a screenshot at 180 points is a
+			// placeholder for the picture, not the picture.
+			picture := images[i]
+			shot := ui.ButtonBase(c).Size(w, h).Radius(8).Cursor(ui.CursorPointer).
+				Tooltip(i18n.T("openImage"))
+			shot.Children(func() {
+				ui.Image(c, bitmap).Size(w, h).Radius(8).Clip()
+			})
+			shot.OnClick(func() { a.zoomImage(picture) })
 		}
 	})
 }
