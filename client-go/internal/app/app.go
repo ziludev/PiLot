@@ -70,6 +70,9 @@ type App struct {
 	notes notifier
 	// zoom is the picture opened from a message, if one is open over the window.
 	zoom zoomState
+	// delivery is when and how often an alert may interrupt: quiet hours, and a
+	// ceiling on finished turns a day.
+	delivery delivery
 	// banner is where an alert goes. The window hands it to the system; tests
 	// keep it, because whether a banner is right is a question about snapshots,
 	// not about Notification Center.
@@ -190,6 +193,7 @@ func New(cfg Config) *App {
 	// the frames a test draws by hand stay independent of the owner's settings.
 	a.prefs = loadPrefs()
 	a.prefs.applyLang()
+	a.delivery = deliveryFor(a.prefs, time.Now)
 	a.railW = a.prefs.railWidth()
 	for key, entry := range a.prefs.Seen {
 		if convID, err := strconv.Atoi(key); err == nil {
@@ -735,6 +739,9 @@ func (a *App) applySnapshot(result *snapshotResult) {
 	// in: a chat whose turn ended is only knowable against both the task list
 	// and the surfaces that name it.
 	for _, al := range a.notes.observe(a.surfaceSnapshot(), a.tasks, a.pending, a.watchingChat) {
+		if !a.delivery.spend(al, a.delivery.at()) {
+			continue
+		}
 		a.banner(al)
 	}
 
@@ -913,6 +920,18 @@ func (a *App) activeConv() (protocol.Surface, bool) {
 		}
 	}
 	return protocol.Surface{}, false
+}
+
+// surfaceOf is the chat row for a conversation, so a link can check the chat it
+// points at still exists before offering to open it.
+func (a *App) surfaceOf(convID int) *protocol.Surface {
+	for _, s := range a.surfaceSnapshot() {
+		if s.ConversationID == convID {
+			found := s
+			return &found
+		}
+	}
+	return nil
 }
 
 // running reports whether the active chat has a turn in flight.

@@ -10,6 +10,8 @@ package app
 
 import (
 	"context"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -285,8 +287,55 @@ func (a *App) memoryNotes(c *ui.Context, t theme.Tokens) {
 func (a *App) memoryNote(c *ui.Context, t theme.Tokens, note protocol.Note) {
 	ui.Column(c).FillWidth().Gap(3).Padding(7, 0).Children(func() {
 		ui.Text(c, note.Text).FontSize(11.5).TextColor(t.Foreground).MaxLines(memNoteLines)
-		ui.Text(c, memWhen(note.At)).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
+		ui.Row(c).FillWidth().Gap(5).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, memWhen(note.At)).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
+			a.memoryReceipt(c, t, note.Source)
+		})
 	})
+}
+
+// memoryReceipt says where a line came from. The first thing a wrong note makes
+// you ask is "where did you get that", and the answer should be a place you can
+// open, not another guess — so a line the agent wrote while talking in a chat
+// links back to that chat. The chat you are in needs no receipt, and a note older
+// than receipts says nothing rather than inventing one.
+func (a *App) memoryReceipt(c *ui.Context, t theme.Tokens, source string) {
+	label, conv := memSource(source)
+	if label == "" || (conv != 0 && conv == a.active) {
+		return
+	}
+	openable := conv != 0 && a.surfaceOf(conv) != nil
+	if !openable {
+		ui.Text(c, "· "+label).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
+		return
+	}
+	btn := ui.ButtonBase(c).Height(16).Radius(4).Padding(0, 3).Cursor(ui.CursorPointer)
+	btn.Children(func() {
+		ui.Text(c, "· "+label).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
+	})
+	btn.OnClick(func() {
+		a.mem.open = false
+		a.selectConversation(conv)
+	})
+}
+
+// memSource turns a receipt into words: the chat it was said in, the pass that
+// wrote it down, or the memo typed in Feishu. The conversation comes back too so
+// the view can offer to open it; "" means this note predates receipts.
+func memSource(source string) (string, int) {
+	switch {
+	case strings.HasPrefix(source, "chat:"):
+		id, err := strconv.Atoi(strings.TrimPrefix(source, "chat:"))
+		if err != nil || id <= 0 {
+			return "", 0
+		}
+		return i18n.TF("memFromChat", map[string]any{"n": id}), id
+	case source == "curator":
+		return i18n.T("memFromPass"), 0
+	case source == "feishu":
+		return i18n.T("memFromFeishu"), 0
+	}
+	return "", 0
 }
 
 // memoryProposal is the pass's answer: each line with a box to keep it, and the

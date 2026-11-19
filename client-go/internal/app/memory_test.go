@@ -1,6 +1,8 @@
 package app
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -193,3 +195,71 @@ func TestMemoryWhenFallsBackToTheRawString(t *testing.T) {
 type errFake string
 
 func (e errFake) Error() string { return string(e) }
+
+// TestMemoryNoteSaysWhereItCameFrom checks a remembered line carries its receipt.
+// The note is a claim about the user; the first thing a wrong one makes you ask is
+// where it was said, and "from chat #11" is an answer you can go and read.
+func TestMemoryNoteSaysWhereItCameFrom(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := memoryFixture(t)
+	a.mem.notes[0] = append(a.mem.notes[0],
+		protocol.Note{At: time.Now().Add(-4 * time.Hour).Format(time.RFC3339), Text: "周五不提测", Source: "chat:8"},
+		protocol.Note{At: time.Now().Add(-30 * time.Minute).Format(time.RFC3339), Text: "分支红线", Source: "curator"},
+		protocol.Note{At: time.Now().Add(-9 * time.Minute).Format(time.RFC3339), Text: "手敲的备忘", Source: "feishu"},
+		protocol.Note{At: time.Now().Add(-9 * time.Minute).Format(time.RFC3339), Text: "老记忆没有出处"},
+	)
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	writePNG(t, "/tmp/memory-receipts.png", tt.Image())
+	for _, want := range []string{"来自 会话 #8", "来自夜间整理", "来自飞书备忘"} {
+		if !tt.HasText(want) {
+			t.Fatalf("receipt %q not drawn; drew %v", want, tt.Texts())
+		}
+	}
+}
+
+// TestMemoryReceiptOpensTheChatItCameFrom checks the receipt is a door, not a
+// label: asking "where did you get that" should land you in the conversation,
+// with the drawer out of the way.
+func TestMemoryReceiptOpensTheChatItCameFrom(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := memoryFixture(t)
+	a.mem.notes[0] = append(a.mem.notes[0],
+		protocol.Note{At: time.Now().Add(-4 * time.Hour).Format(time.RFC3339), Text: "周五不提测", Source: "chat:8"})
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	if a.active == 8 {
+		t.Fatalf("fixture already on chat 8")
+	}
+	if err := tt.Click("· 来自 会话 #8"); err != nil {
+		t.Fatalf("receipt not clickable: %v", err)
+	}
+	tt.Frame()
+	if a.active != 8 {
+		t.Fatalf("receipt left the window on chat %d, want 8", a.active)
+	}
+	if a.mem.open {
+		t.Fatalf("drawer stayed open over the chat it opened")
+	}
+}
+
+// TestMemoryNoteFromThisChatNeedsNoReceipt checks the chat tab stays quiet: every
+// line there came from the chat you are already reading.
+func TestMemoryNoteFromThisChatNeedsNoReceipt(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := memoryFixture(t)
+	a.mem.tab = 2
+	a.mem.notes[2] = []protocol.Note{
+		{At: time.Now().Add(-5 * time.Minute).Format(time.RFC3339), Text: "折叠归用户", Source: "chat:" + strconv.Itoa(a.active)},
+	}
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	for _, text := range tt.Texts() {
+		if strings.Contains(text, "来自 会话") {
+			t.Fatalf("chat tab repeated its own receipt: %q", text)
+		}
+	}
+}

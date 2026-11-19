@@ -298,6 +298,43 @@ func (a *App) setSilent(silent bool) {
 	a.invalidate()
 }
 
+// setQuiet turns the night hours on or off. The gate is rebuilt in place so the
+// change lands on the next snapshot instead of the next launch.
+func (a *App) setQuiet(on bool) {
+	want := ""
+	if !on {
+		want = "off"
+	}
+	if a.prefs.Quiet == want {
+		return
+	}
+	a.prefs.Quiet = want
+	day, spent := a.delivery.day, a.delivery.spent
+	a.delivery = deliveryFor(a.prefs, a.delivery.now)
+	a.delivery.day, a.delivery.spent = day, spent
+	go savePrefs(a.prefs)
+	a.invalidate()
+}
+
+// setCap turns the daily ceiling on or off. Counting restarts from what was
+// already spent today rather than from zero: turning the setting on is not a
+// fresh day.
+func (a *App) setCap(on bool) {
+	want := ""
+	if !on {
+		want = "off"
+	}
+	if a.prefs.DailyCap == want {
+		return
+	}
+	a.prefs.DailyCap = want
+	day, spent := a.delivery.day, a.delivery.spent
+	a.delivery = deliveryFor(a.prefs, a.delivery.now)
+	a.delivery.day, a.delivery.spent = day, spent
+	go savePrefs(a.prefs)
+	a.invalidate()
+}
+
 // setRailGroup files the rail by kind ("") or by project. The headings are
 // rebuilt on the next frame; nothing about the chats themselves changes.
 func (a *App) setRailGroup(group string) {

@@ -69,3 +69,40 @@ func TestSettingsDialogReadsPrefsWhenItOpens(t *testing.T) {
 		t.Fatalf("clicking the already-chosen side changed prefs.Theme to %q", a.prefs.Theme)
 	}
 }
+
+// TestSettingsTurnDeliveryDown: the two numbers that decide whether the window is
+// worth having — the hours it keeps quiet and how many finished turns a day it may
+// announce — have to be reachable without editing the prefs file by hand.
+func TestSettingsTurnDeliveryDown(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	a.delivery = deliveryFor(a.prefs, nil)
+	a.settings.open = true
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	writePNG(t, "/tmp/settings-delivery.png", tt.Image())
+	for _, want := range []string{"夜间静音", "22:00–08:00", "每天最多", "5 条提醒", "不限"} {
+		if !tt.HasText(want) {
+			t.Fatalf("settings missing %q; drew %v", want, tt.Texts())
+		}
+	}
+
+	tt.Click("不静音")
+	tt.Frame()
+	if a.prefs.Quiet != "off" {
+		t.Fatalf("picking 不静音 left Quiet=%q", a.prefs.Quiet)
+	}
+	if a.delivery.quiet(at(23, 30)) {
+		t.Fatal("the gate stayed quiet after the user turned the night off")
+	}
+
+	tt.Click("不限")
+	tt.Frame()
+	if a.prefs.DailyCap != "off" {
+		t.Fatalf("picking 不限 left DailyCap=%q", a.prefs.DailyCap)
+	}
+	if a.delivery.budget != 0 {
+		t.Fatalf("the gate kept a budget of %d after 不限", a.delivery.budget)
+	}
+}

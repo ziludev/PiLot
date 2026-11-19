@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"pitta/internal/i18n"
@@ -34,6 +35,14 @@ type prefs struct {
 	// Group is how the rail files chats that are not pinned: by what they are
 	// ("" — the default) or by the project they belong to ("project").
 	Group string `json:"railGroup,omitempty"`
+	// Quiet is when the window keeps its news to itself: "off", or a window of
+	// local hours like "22-8". Absent means 22-8, because a personal agent that
+	// wakes you for a finished turn is the failure mode, not the feature.
+	Quiet string `json:"quietHours,omitempty"`
+	// DailyCap is how many banners a day may be spent on finished turns: "off",
+	// or a number. Absent means five. Past it the rail's dot still holds the
+	// news — it just stops interrupting.
+	DailyCap string `json:"dailyCap,omitempty"`
 	// Silent is the banners switched off. Written the other way round because
 	// the file is read from disk where a missing field means false — and the
 	// window should tell you about a finished turn until you ask it not to.
@@ -178,6 +187,45 @@ func (p *prefs) keepChat(convID int) {
 }
 
 // dark is whether to draw dark: the saved choice, else the system's.
+// quietWindow is the hours the window does not speak, from-to in local time and
+// wrapping midnight; equal hours mean it is never quiet. A malformed window falls
+// back to the default rather than to silence: the file is hand-editable, and a
+// typo should not mean a week of missed news.
+func (p prefs) quietWindow() (int, int) {
+	if p.Quiet == "off" {
+		return 0, 0
+	}
+	if p.Quiet == "" {
+		return 22, 8
+	}
+	from, to, ok := strings.Cut(p.Quiet, "-")
+	if !ok {
+		return 22, 8
+	}
+	start, errFrom := strconv.Atoi(strings.TrimSpace(from))
+	end, errTo := strconv.Atoi(strings.TrimSpace(to))
+	if errFrom != nil || errTo != nil || start < 0 || start > 23 || end < 0 || end > 23 {
+		return 22, 8
+	}
+	return start, end
+}
+
+// bannerBudget is how many finished turns a day may be announced; 0 is no
+// ceiling. Same grace for a typo as the quiet window.
+func (p prefs) bannerBudget() int {
+	switch p.DailyCap {
+	case "off":
+		return 0
+	case "":
+		return 5
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(p.DailyCap))
+	if err != nil || n <= 0 {
+		return 5
+	}
+	return n
+}
+
 func (p prefs) dark(systemDark bool) bool {
 	switch p.Theme {
 	case "dark":

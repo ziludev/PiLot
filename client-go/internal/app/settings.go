@@ -71,6 +71,24 @@ func (a *App) settingsDialog(c *ui.Context, t theme.Tokens) {
 					return 0
 				},
 				func(picked int) { a.setSilent(picked == 1) })
+			a.settingsChoice(c, t, i18n.T("quietHours"),
+				[]string{i18n.T("quietOn"), i18n.T("quietOff")},
+				func() int {
+					if a.prefs.Quiet == "off" {
+						return 1
+					}
+					return 0
+				},
+				func(picked int) { a.setQuiet(picked == 0) })
+			a.settingsChoice(c, t, i18n.T("dailyCap"),
+				[]string{i18n.T("capFive"), i18n.T("capOff")},
+				func() int {
+					if a.prefs.DailyCap == "off" {
+						return 1
+					}
+					return 0
+				},
+				func(picked int) { a.setCap(picked == 0) })
 			a.settingsChoice(c, t, i18n.T("railGroup"),
 				[]string{i18n.T("railGroupKind"), i18n.T("railGroupProject")},
 				func() int {

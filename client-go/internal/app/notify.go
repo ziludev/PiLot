@@ -32,6 +32,9 @@ type alert struct {
 	title  string
 	body   string
 	id     string
+	// ask marks an approval: somebody is waiting on the answer, so it is not
+	// news the window may save for later.
+	ask bool
 }
 
 // notifier reads each snapshot against the one before it. It holds only what a
@@ -100,6 +103,7 @@ func (n *notifier) observe(surfaces []protocol.Surface, tasks []protocol.Task,
 			title:  titleOf(surfaces, conv),
 			body:   i18n.TF("notifyApproval", map[string]any{"what": approvalWhat(waiting)}),
 			id:     "ask-" + waiting.CallID,
+			ask:    true,
 		})
 	}
 	n.busy, n.approvals = busy, seen
@@ -142,6 +146,72 @@ func approvalWhat(waiting protocol.PendingApproval) string {
 		return summary
 	}
 	return tool + " · " + summary
+}
+
+// delivery is how much the window may interrupt, and when. A finish is news: it
+// waits for you in the rail's dot, so it can also wait for morning. An approval is
+// a decision somebody filed and is standing next to, so it only respects the hours.
+//
+// The day's budget lives here, in this run, on purpose: a relaunch buys back five
+// banners, which is the right size of amnesia for a counter whose job is to stop
+// the window from becoming the thing you mute.
+type delivery struct {
+	from, to int // local hours, wrapping midnight; equal means never quiet
+	budget   int // finished-turn banners a day; 0 means no ceiling
+	day      string
+	spent    int
+	now      func() time.Time
+}
+
+// deliveryFor reads the two settings into a gate that speaks on behalf of them.
+func deliveryFor(p prefs, now func() time.Time) delivery {
+	from, to := p.quietWindow()
+	return delivery{from: from, to: to, budget: p.bannerBudget(), now: now}
+}
+
+// at is the clock the gate reads. A window built without one (the test fixtures,
+// which draw a frame at whatever hour the suite runs) is never quiet: a banner
+// test that passes before eight and fails after ten would be measuring the clock.
+func (d delivery) at() time.Time {
+	if d.now == nil {
+		return time.Time{}
+	}
+	return d.now()
+}
+
+// quiet says the hour is one the user asked the window to keep to itself.
+func (d delivery) quiet(at time.Time) bool {
+	if d.from == d.to {
+		return false
+	}
+	hour := at.Hour()
+	if d.from < d.to {
+		return hour >= d.from && hour < d.to
+	}
+	return hour >= d.from || hour < d.to
+}
+
+// spend answers whether this banner is worth showing now, and books a finished
+// turn against the day when it is. Approvals do not spend it: five finishes
+// before lunch should not be able to silence the one decision blocking a task.
+func (d *delivery) spend(al alert, at time.Time) bool {
+	if at.IsZero() {
+		return true
+	}
+	if d.quiet(at) {
+		return false
+	}
+	if al.ask || d.budget <= 0 {
+		return true
+	}
+	if day := at.Format("2006-01-02"); day != d.day {
+		d.day, d.spent = day, 0
+	}
+	if d.spent >= d.budget {
+		return false
+	}
+	d.spent++
+	return true
 }
 
 // showBanner hands one alert to the system. It runs off the frame thread because
