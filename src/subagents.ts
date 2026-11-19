@@ -17,6 +17,8 @@ import { getHarness } from "./runtime-ref.ts";
 import { log, logError } from "./log.ts";
 
 const ROLE_NAMES = Object.keys(ROLES) as RoleName[];
+/** How many times a stage is asked for the rest of its work before the pipeline gives up on it. */
+const STAGE_ROUNDS = 3;
 const CHILD_MAP = "subagents:children";
 
 // 失败也带着子会话号：一轮没答出来的孩子，它的会话恰恰是最该被翻的。
@@ -286,13 +288,21 @@ async function runStage(
     );
     let settled = await submission.wait(context);
     // A stage that ran out of steps is not a failed stage: the work is in its transcript, so ask
-    // for the rest the same way the chat does, up to three times.
-    for (let round = 1; round <= 3 && settled.status === "unanswered" && settled.reason === "turn_limit"; round += 1) {
+    // for the rest the same way the chat does, up to STAGE_ROUNDS times.
+    for (let round = 1; round <= STAGE_ROUNDS && settled.status === "unanswered" && settled.reason === "turn_limit"; round += 1) {
       log("feature", `${role} hit the step limit, continuing`, { key, round });
       const more = await child.submit({ type: "continue", requestId: `feature:${String(task.id)}:${key}:c${round}` }, context);
       settled = await more.wait(context);
     }
     if (settled.status !== "done" || settled.answer === undefined) {
+      // Running out of steps is not the same failure as answering badly: the edits are usually on
+      // disk by then, so say where to look instead of reporting an empty stage.
+      if (settled.reason === "turn_limit") {
+        return {
+          ok: false,
+          error: `${role} 用完 ${(STAGE_ROUNDS + 1) * ROLES[role].maxTurns} 步还没收尾，改动多半已经落盘，去会话 ${childId} 看`,
+        };
+      }
       return {
         ok: false,
         error: `${role} 没答出来：${settled.reason ?? "unanswered"}${settled.detail === undefined ? "" : `（${String(settled.detail)}）`}`,
