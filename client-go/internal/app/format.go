@@ -131,3 +131,15 @@ func money(spend *protocol.TaskSpend) string {
 	}
 	return fmt.Sprintf("$%.2f", spend.Cost)
 }
+
+// dollars is a bare amount in the same shape as money: the usage calendar has
+// costs without a task behind them.
+func dollars(cost float64) string {
+	if cost <= 0 {
+		return "$0"
+	}
+	if cost < 1 {
+		return fmt.Sprintf("$%.3f", cost)
+	}
+	return fmt.Sprintf("$%.2f", cost)
+}

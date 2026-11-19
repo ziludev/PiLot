@@ -12,7 +12,6 @@
 | --- | --- | --- | --- |
 | 会话菜单里的「清理 worktree」 | `ChatMenu.tsx`（未合并的分支拒绝并提示） | `POST /api/worktree/remove` | 现在重命名 / 归档直接进 `button.Menu`，加一项即可 |
 | 右栏剩下的：文件预览、提交 / 推送 / 合并的写操作、项目栏 | `SidePanel.tsx` + `side/*.go` | `/api/file`、`/api/commit`、`/api/git/push`、`/api/merge`、`/api/git/base`、`/api/projects` | 改动 / 提交两栏已经回来了（`internal/app/changes.go`，只读）；写操作得走批准路径 |
-| 任务详情对话框 + 用量日历 | `TaskDialog.tsx`、`UsageCalendar.tsx` | `GET /api/tasks`、`POST /api/task/cancel`、`GET /api/usage-calendar` | `ui.Modal`、`ui.Table` |
 | 权限页 | `AccessPanel.tsx` | `GET /api/access`、`/api/audit` | `ui.Segmented` 过滤 + 表格 |
 | 拖拽排序 / 置顶 | `Rail.tsx` + `prefs.Order/Pinned` | 无（本地） | `ui.List` 的 `Reorder` |
 | 每步耗时竖轨 | `TurnRail.tsx` / `TurnDurations.tsx` | 无 | 现在折叠成一行 `⋯ 4 步 · 12s` |
@@ -27,6 +26,12 @@
   输出时不要改折叠结构，只在展开后的内容里分派。
 - **rail 的分区是 `rows.go` 的 `chatSections` + `prefs.Sections`**。新的分区（比如「已归档」）照抄这套，
   默认折叠、点分区头开合、选过的状态进 `~/.pitta/window.json`。
+- **任务行能点开**（`internal/app/taskdetail.go`）：列表回答「有没有东西坏了」，不回答「为什么」。
+  对话框给类型/会话/开始时间/输入/结果/子 agent，运行中的才有「停止任务」——点完不假装停了，
+  而是再问一次 bridge（abort 是异步的）。
+- **用量日历**（`internal/app/usage.go`）：开销是唯一不能靠看屏幕核对的东西，所以给个形状——
+  17 周 × 7 的方格，颜色由浅到深按当天花费，底下是总额/总 tokens/最贵一天。只在任务 tab 出现，
+  因为它数的是那个 tab 列的工作。色阶用混色而不是 alpha：半透明叠在弹层上会糊。
 - **消息操作条照 assistant-ui 的样子**（`internal/app/message.go`）：每个气泡下面都有，平时 `Opacity(0)`、
   `IgnoreInput`，指针进来才亮——所以它既不让版面跳动，也不会误点。「编辑重发」只把文字放回输入框，
   不改历史：transcript 是 agent 的记录，改过的问句会让答案对着没人说过的话。

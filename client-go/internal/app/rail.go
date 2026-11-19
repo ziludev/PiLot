@@ -109,8 +109,29 @@ func (a *App) railSegment(c *ui.Context, t theme.Tokens, label string, section r
 func (a *App) railFooter(c *ui.Context, t theme.Tokens) {
 	ui.Row(c).FillWidth().Height(30).Padding(0, 10).Gap(2).AlignItems(ui.Center).Children(func() {
 		ui.Spacer(c)
+		// The calendar belongs to the task tab: that is the tab whose rows are
+		// the work, and the work is what the calendar counts.
+		if a.rail == railTasks {
+			a.usageButton(c, t)
+		}
 		a.settingsButton(c, t)
 	})
+}
+
+// usageButton opens the calendar. It exists only on the task tab, because the
+// calendar counts the work that tab lists.
+func (a *App) usageButton(c *ui.Context, t theme.Tokens) {
+	color := t.MutedFg
+	btn := ui.ButtonBase(c).Size(22, 22).Radius(5).Justify(ui.Center).AlignItems(ui.Center).
+		Cursor(ui.CursorPointer).Tooltip(i18n.T("usage"))
+	if a.usage.open {
+		color = t.Foreground
+		btn = btn.Background(t.Secondary)
+	}
+	btn.Children(func() {
+		ui.Icon(c, icons.Calendar).Size(12, 12).TextColor(color)
+	})
+	btn.OnClick(a.toggleUsage)
 }
 
 func (a *App) railList(c *ui.Context, t theme.Tokens) {
