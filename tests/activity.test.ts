@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { subAgentActivity } from "../src/activity.ts";
+import { shortRole, spanText, stageLine, subAgentActivity, subAgentStagesSince, type SubAgentActivity } from "../src/activity.ts";
 
 /** When the fixture's in-flight stage started, in wall clock ms. */
 const LIVE_START = 3_600_000;
@@ -165,4 +165,64 @@ test("a child whose prompt never names a role keeps its id", () => {
   } finally {
     rmSync(join(path, ".."), { recursive: true, force: true });
   }
+});
+
+test("a stage name is the role up to its first stop, not the whole sentence", () => {
+  // "按设计文档实现代码，跑通构建" on a card line is a sentence where a name belongs.
+  assert.equal(shortRole("按设计文档实现代码，跑通构建"), "按设计文档实现代码");
+  assert.equal(shortRole("把需求拆成可执行的步骤，标出依赖、风险和验收标准"), "把需求拆成可执行的步…");
+  assert.equal(shortRole(null), "子会话");
+  assert.equal(shortRole("   "), "子会话");
+});
+
+test("the card sees the stages of this turn, not every stage this chat ever ran", () => {
+  // The card is per turn and has no task id, so it reads by conversation plus "started after this
+  // turn began". A pipeline from an earlier turn shares the chat and must stay out of it.
+  const dir = mkdtempSync(join(tmpdir(), "activity-since-"));
+  const path = join(dir, "agent.sqlite");
+  const db = new DatabaseSync(path);
+  db.exec("create table conversations (id integer primary key, owner_task_id integer)");
+  db.exec("create table entries (id integer primary key autoincrement, conversation_id integer, record text)");
+  db.exec("create table tasks (id integer primary key autoincrement, conversation_id integer, status text, record text)");
+  const chat = 7;
+  const insertTask = (id: number, startedAt: number): void => {
+    const record = { startedAt, endedAt: null, state: { status: "running" } };
+    db.prepare("insert into tasks (id, conversation_id, status, record) values (?, ?, 'running', ?)").run(
+      id,
+      chat,
+      JSON.stringify(record),
+    );
+  };
+  insertTask(42, 20_000); // this turn
+  insertTask(41, 1_000); // an earlier turn in the same chat
+  for (const [id, owner] of [[100, 42], [101, 42], [90, 41]] as const) {
+    db.prepare("insert into conversations (id, owner_task_id) values (?, ?)").run(id, owner);
+    db.prepare("insert into entries (conversation_id, record) values (?, ?)").run(
+      id,
+      JSON.stringify({ kind: "pi.system", model: [{ sections: { instructions: "你的角色：写技术设计文档。" } }] }),
+    );
+  }
+  db.close();
+  try {
+    const stages = subAgentStagesSince(path, chat, 10_000);
+    assert.deepEqual(stages.map((stage) => stage.conversationId), [100, 101]);
+    assert.equal(stages[0].role, "写技术设计文档");
+    assert.deepEqual(subAgentStagesSince(path, chat, 30_000), []);
+    assert.deepEqual(subAgentStagesSince(join(tmpdir(), "no-such-dir", "agent.sqlite"), chat, 0), []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a stage line says which role, how long, and whether it broke", () => {
+  const base = { conversationId: 1, steps: 3, tool: null, role: "按设计文档实现代码，跑通构建" };
+  const now = 100 * 60_000;
+  const live = { ...base, live: true, startedAt: now - 138_000, endedAt: null, state: "live" } as SubAgentActivity;
+  assert.equal(stageLine(live, now), "▸ 按设计文档实现代码 · 2m 18s");
+  const done = { ...base, live: false, startedAt: now - 62_000, endedAt: now - 60_000, state: "done" } as SubAgentActivity;
+  assert.equal(stageLine(done, now), "✓ 按设计文档实现代码 · 2s");
+  const failed = { ...base, live: false, startedAt: now - 9_000, endedAt: now, state: "failed" } as SubAgentActivity;
+  assert.equal(stageLine(failed, now), "✗ 按设计文档实现代码 · 失败");
+  assert.equal(spanText(-5), "0s");
+  assert.equal(spanText(3_900_000), "1h 5m");
 });
