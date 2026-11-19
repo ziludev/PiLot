@@ -22,6 +22,10 @@ type prefs struct {
 	// Recent is the models chosen last, most recent first, so the picker opens
 	// on what this person actually uses rather than on the catalog's own order.
 	Recent []string `json:"recentModels,omitempty"`
+	// Kept is the chats taken back out of 已归档 by hand. The rail files a chat
+	// away once it has sat a week; this list is where the user says "not this
+	// one", and it has to survive a restart or the chat would go again.
+	Kept []int `json:"keptChats,omitempty"`
 }
 
 // prefsPath is this window's own file. The earlier client's ~/.pitta/ui.json is
@@ -53,12 +57,13 @@ func readPrefs() prefs {
 		Rail     int             `json:"rail"`
 		Sections map[string]bool `json:"sections"`
 		Recent   []string        `json:"recentModels"`
+		Kept     []int           `json:"keptChats"`
 	}
 	if err := json.Unmarshal(data, &p); err != nil {
 		log.Printf("prefs: parse %s: %v", path, err)
 		return prefs{}
 	}
-	return prefs{Lang: p.Lang, Theme: p.Theme, Rail: p.Rail, Sections: p.Sections, Recent: p.Recent}
+	return prefs{Lang: p.Lang, Theme: p.Theme, Rail: p.Rail, Sections: p.Sections, Recent: p.Recent, Kept: p.Kept}
 }
 
 // loadPrefs reads the two settings this window keeps.
@@ -92,6 +97,25 @@ func (p prefs) sectionClosed(key string) bool {
 		return !open
 	}
 	return key != sectionActive
+}
+
+// keptChat is whether the user has taken this chat back out of 已归档.
+func (p prefs) keptChat(convID int) bool {
+	for _, id := range p.Kept {
+		if id == convID {
+			return true
+		}
+	}
+	return false
+}
+
+// keepChat files a chat back into the sections for good. Appending once, since
+// the list is read on every frame and would otherwise grow with every click.
+func (p *prefs) keepChat(convID int) {
+	if p.keptChat(convID) {
+		return
+	}
+	p.Kept = append(p.Kept, convID)
 }
 
 // dark is whether to draw dark: the saved choice, else the system's.

@@ -240,7 +240,7 @@ func TestRailRowsSections(t *testing.T) {
 	a.vm.tails[2] = now.Add(-5 * day)
 	a.vm.tails[3] = now.Add(-6 * day)
 	a.vm.tails[4] = now.Add(-time.Hour)
-	a.vm.tails[6] = now.Add(-9 * day)
+	a.vm.tails[6] = now.Add(-5 * day) // a week would file it away
 
 	rows := a.railRows()
 	want := []struct {
@@ -432,5 +432,61 @@ func TestSectionFoldRedrawsTheRail(t *testing.T) {
 	a.toggleSection("direct")
 	if again := a.railRowsCached(); len(again) != len(folded) {
 		t.Fatalf("folding again left %d rows, want %d", len(again), len(folded))
+	}
+}
+
+// A chat nobody has said anything in for a week leaves its section by itself.
+// The rail is a place to work, and a hundred chats of history is not work — but
+// the chat on screen and one with an unread reply are still asking for
+// something, so those stay where they are.
+func TestAutoArchiveOldChats(t *testing.T) {
+	i18n.Set(i18n.EN)
+	tuckedPrefs(t)
+	a := newApp(Config{})
+	now := time.Date(2026, 11, 19, 15, 0, 0, 0, time.Local)
+	a.now = now
+	a.setSurfaces([]protocol.Surface{
+		{ConversationID: 1, Kind: "feishu", Title: "stale", ChatType: "p2p"},
+		{ConversationID: 2, Kind: "feishu", Title: "fresh", ChatType: "p2p"},
+		{ConversationID: 3, Kind: "feishu", Title: "unread", ChatType: "p2p"},
+	})
+	a.vm.tails[1] = now.Add(-8 * 24 * time.Hour)
+	a.vm.tails[2] = now.Add(-2 * time.Hour)
+	a.vm.tails[3] = now.Add(-8 * 24 * time.Hour)
+	a.vm.unread[3] = true
+
+	// The direct section is folded, so count its heading rather than its rows:
+	// what it holds is the two chats nobody filed away.
+	counts := map[string]int{}
+	for _, row := range a.railRows() {
+		if row.kind == railGroup {
+			counts[row.section] = row.count
+		}
+	}
+	if counts[sectionArchived] != 1 {
+		t.Fatalf("已归档 holds %d chats, want the one stale chat", counts[sectionArchived])
+	}
+	if counts[sectionActive] != 1 {
+		t.Fatalf("进行中 holds %d chats, want the fresh one", counts[sectionActive])
+	}
+	if counts[sectionDirect] != 1 {
+		t.Fatalf("直接 holds %d chats, want the unread one", counts[sectionDirect])
+	}
+
+	// Taking it back out is this window's opinion, not the bridge's: the chat
+	// returns and the file remembers, so it does not go again on the next frame
+	// or the next start.
+	a.setArchived(1, false)
+	counts = map[string]int{}
+	for _, row := range a.railRows() {
+		if row.kind == railGroup {
+			counts[row.section] = row.count
+		}
+	}
+	if counts[sectionArchived] != 0 || counts[sectionDirect] != 2 {
+		t.Fatalf("after the take-back: 已归档 %d, 直接 %d", counts[sectionArchived], counts[sectionDirect])
+	}
+	if !a.prefs.keptChat(1) {
+		t.Fatalf("the take-back was not remembered")
 	}
 }
