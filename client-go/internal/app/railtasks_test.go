@@ -97,3 +97,16 @@ func TestSnapshotTasksView(t *testing.T) {
 		writePNG(t, name, tt.Image())
 	}
 }
+
+// TestRailTaskMetaDropsTheKindItAlreadyNamed keeps a nameless job from reading
+// "Routine" and then "#84338 · Routine": the kind is only worth a second line
+// when the name is a real name.
+func TestRailTaskMetaDropsTheKindItAlreadyNamed(t *testing.T) {
+	if got := railTaskMeta(protocol.Task{ID: 84338, Kind: "app.routine"}); got != "#84338" {
+		t.Fatalf("nameless meta = %q, want #84338", got)
+	}
+	got := railTaskMeta(protocol.Task{ID: 12, Kind: "app.routine", Title: "Daily review"})
+	if got != "#12 · Routine" {
+		t.Fatalf("named meta = %q, want #12 · Routine", got)
+	}
+}
