@@ -346,6 +346,16 @@ type TaskSubAgent struct {
 	Steps          int    `json:"steps"`
 	Tool           string `json:"tool"`
 	Live           bool   `json:"live"`
+	// StartedAt and EndedAt are wall clock milliseconds for the stage, so the
+	// dialog can show how long this one has been running — the only progress a
+	// pipeline that takes tens of minutes can honestly report. EndedAt is null
+	// while the stage is still going.
+	StartedAt *int64 `json:"startedAt"`
+	EndedAt   *int64 `json:"endedAt"`
+	// State is pending, live, done or failed. Rows draw from it rather than
+	// from Live, because a stage that failed is not the same quiet as one that
+	// finished.
+	State string `json:"state"`
 }
 
 // MemorySuggestion is one candidate line from /api/memory/curate.

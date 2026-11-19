@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -27,12 +28,6 @@ type TaskProps struct {
 // chat behind it visible.
 const taskDialogWidth = 520
 
-// backgroundLabel and requestLabel have no dictionary key: the client hardcodes
-// them inline, so these English words stand in.
-const (
-	backgroundLabel = "background"
-	requestLabel    = "Request"
-)
 
 // TaskDialog shows a task in a modal: its state, the request behind it, its
 // result, and the button that cancels it.
@@ -67,27 +62,28 @@ func TaskDialog(c *ui.Context, p TaskProps) {
 			if meta := taskMeta(task); meta != "" {
 				ui.Text(c, meta).FontSize(10).TextColor(t.MutedFg).Wrap()
 			}
-			ui.Column(c).FillWidth().Padding(8, 10).Radius(8).Background(t.Muted).
+			// The title and the request are the same thing at two lengths, so
+			// they share one card: heading, then the spec underneath it.
+			ui.Column(c).FillWidth().Padding(8, 10).Radius(8).Gap(6).Background(t.Muted).
 				Border(1, t.Border).Children(func() {
 				text := task.Title
 				if text == "" {
 					text = untitledTask
 				}
 				ui.Text(c, text).FontSize(12).TextColor(t.Foreground).Wrap()
+				if asked := taskAsked(task.Input); asked != "" && asked != text {
+					ui.Scroll(c).FillWidth().MaxHeight(140).Children(func() {
+						ui.Text(c, asked).FontSize(10).TextColor(t.MutedFg).Wrap()
+					})
+				}
 			})
-			if asked := taskAsked(task.Input); asked != "" {
-				caption(c, t, requestLabel)
-				ui.Scroll(c).FillWidth().MaxHeight(140).Padding(6, 8).Radius(8).
-					Background(t.Background).Border(1, t.Border).Children(func() {
-					ui.Text(c, asked).FontSize(10).TextColor(t.MutedFg).Wrap()
-				})
-			}
 			if len(task.SubAgents) > 0 {
 				caption(c, t, i18n.T("subAgents"))
 				ui.Column(c).FillWidth().Padding(6, 8).Radius(8).Gap(4).
 					Background(t.Background).Border(1, t.Border).Children(func() {
+					now := time.Now().UnixMilli()
 					for _, agent := range task.SubAgents {
-						subAgentRow(c, t, agent)
+						subAgentRow(c, t, now, agent)
 					}
 				})
 			}
@@ -116,39 +112,102 @@ func TaskDialog(c *ui.Context, p TaskProps) {
 	}
 }
 
-// subAgentRow is one child conversation: what it was asked to be, how far it
-// got, and the last tool it reached for. A live pipeline keeps its dot amber, so
-// a task that has produced no outcome yet still shows where the work is.
-func subAgentRow(c *ui.Context, t theme.Tokens, agent protocol.TaskSubAgent) {
-	dot := t.MutedFg
-	if agent.Live {
+// subAgentRow is one child conversation: what it was asked to be, how long it
+// has been at it, how far it got, and the last tool it reached for. The dot
+// carries the state — amber in flight, red failed, quiet otherwise — because a
+// pipeline that takes tens of minutes has no other honest progress signal.
+func subAgentRow(c *ui.Context, t theme.Tokens, now int64, agent protocol.TaskSubAgent) {
+	dot := t.MutedFg // settled: a solid grey that has stopped moving
+	switch {
+	case agent.State == stateFailed:
+		dot = t.Destructive
+	case agent.State == "pending":
+		dot = t.Border // not begun: faint enough to read as "waiting its turn"
+	case agent.Live:
 		dot = t.Warning
 	}
 	role := agent.Role
 	if role == "" {
 		role = "#" + strconv.Itoa(agent.ConversationID)
 	}
-	meta := strconv.Itoa(agent.Steps) + " " + i18n.T("stepsCount")
-	if agent.Tool != "" {
-		meta += " · " + agent.Tool
-	}
+	meta := stageMeta(now, agent)
 	ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).Children(func() {
 		ui.Box(c).Size(6, 6).Radius(3).Background(dot)
 		ui.Text(c, role).FontSize(11).TextColor(t.Foreground).MaxLines(1)
 		ui.Spacer(c)
-		ui.Text(c, meta).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
+		if meta != "" {
+			ui.Text(c, meta).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
+		}
 	})
 }
 
+const stateFailed = "failed"
+
+// stageMeta is the right side of a stage row: how long it ran, how many steps
+// it took, and the tool it is on. A stage that has not started yet says
+// nothing, which is quieter than "0 steps".
+func stageMeta(now int64, agent protocol.TaskSubAgent) string {
+	if agent.State == "pending" && agent.StartedAt == nil {
+		return ""
+	}
+	parts := make([]string, 0, 3)
+	if ran := stageSpan(now, agent); ran != "" {
+		parts = append(parts, ran)
+	}
+	parts = append(parts, strconv.Itoa(agent.Steps)+" "+i18n.T("stepsCount"))
+	if agent.Tool != "" {
+		parts = append(parts, agent.Tool)
+	}
+	return strings.Join(parts, " · ")
+}
+
+// stageSpan is how long a stage has been running, or ran. A live stage counts
+// to now; a finished one to the moment it settled.
+func stageSpan(now int64, agent protocol.TaskSubAgent) string {
+	if agent.StartedAt == nil {
+		return ""
+	}
+	end := now
+	if agent.EndedAt != nil && *agent.EndedAt > 0 {
+		end = *agent.EndedAt
+	}
+	if end <= *agent.StartedAt {
+		return ""
+	}
+	return spanTime(end - *agent.StartedAt)
+}
+
+// spanTime reads at a glance at the size a row has room for: 42s, 6m, 2h10m.
+// Minutes are enough once a stage is past a minute — a counter that moves every
+// second pulls the eye away from the work.
+func spanTime(ms int64) string {
+	switch d := time.Duration(ms) * time.Millisecond; {
+	case d <= 0:
+		return ""
+	case d < time.Minute:
+		s := int(d / time.Second)
+		if s < 1 {
+			s = 1
+		}
+		return strconv.Itoa(s) + "s"
+	case d < time.Hour:
+		return strconv.Itoa(int(d/time.Minute)) + "m"
+	default:
+		h, m := int(d/time.Hour), int(d/time.Minute)%60
+		if m == 0 {
+			return strconv.Itoa(h) + "h"
+		}
+		return strconv.Itoa(h) + "h" + strconv.Itoa(m) + "m"
+	}
+}
+
 // taskMeta is the state line under the title: where the task lives, what phase
-// it is in, and when it wakes next.
+// it is in, and when it wakes next. Whether it runs in the background is not
+// worth a word here — a task you opened from the panel is one by construction.
 func taskMeta(task *protocol.TaskDetail) string {
 	parts := make([]string, 0, 4)
 	if task.ConversationID != 0 {
 		parts = append(parts, i18n.T("chat")+" #"+strconv.Itoa(task.ConversationID))
-	}
-	if task.Background {
-		parts = append(parts, backgroundLabel)
 	}
 	if task.Phase != nil && *task.Phase != "" {
 		parts = append(parts, *task.Phase)
