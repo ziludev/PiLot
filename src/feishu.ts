@@ -1023,6 +1023,23 @@ export async function handleGatewayEvent(payload: GatewayEvent): Promise<unknown
   return await gatewayIngress(payload);
 }
 
+const FINAL_PATCH_BACKOFF = [500, 1_500, 4_000];
+
+/**
+ * How long to wait before patching the final card again, or `undefined` to give up.
+ *
+ * A frame lost mid-stream is redrawn a second later by the next one, but the final patch has no
+ * follower: if it fails the card stays "thinking" for ever and the answer is only in the log. Most
+ * such failures are the gateway being restarted underneath us, which takes seconds — worth waiting
+ * out. A card Feishu itself refused ("This message is NOT a card", 230001) will be refused just as
+ * firmly next time, so that path goes straight to the fallbacks.
+ */
+export function patchRetryDelay(attempt: number, error: unknown): number | undefined {
+  const message = (error as Error)?.message ?? "";
+  if (/^patch failed: \d/.test(message)) return undefined;
+  return FINAL_PATCH_BACKOFF[attempt];
+}
+
 const feishuStatus: FeishuStatus = { ready: false, since: Date.now(), flaps: 0 };
 let feishuStarted = false;
 
@@ -1070,6 +1087,19 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       params: { receive_id_type: "chat_id" },
       data: { receive_id: chatId, msg_type: "text", content: JSON.stringify({ text }) },
     });
+  }
+
+  /**
+   * Straight to Feishu, past feishu-gw. The gateway is the half that fails, so a delivery that must
+   * survive it — the watchdog's outage notice, an answer whose every other route went through the
+   * gateway — uses the SDK client directly.
+   */
+  async function sendTextDirect(chatId: string, text: string): Promise<void> {
+    const response = await larkClient().im.message.create({
+      params: { receive_id_type: "chat_id" },
+      data: { receive_id: chatId, msg_type: "text", content: JSON.stringify({ text }) },
+    });
+    if ((response?.code ?? 0) !== 0) throw new Error(response?.msg ?? "direct send refused");
   }
 
   /** A card when there is no message to reply to — text would show `**bold**` and `|` as they are. */
@@ -1169,21 +1199,38 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     header?: CardHeader,
     details?: Omit<TurnDetails, "at">,
   ): Promise<void> {
-    try {
-      await patchCard(cardId, markdown, meta, buttons, header, details);
-      log("feishu", "final card patched", { chatId, cardId, chars: markdown.length });
-      return;
-    } catch (error) {
-      logError("feishu", "final card patch failed, falling back to text", error);
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await patchCard(cardId, markdown, meta, buttons, header, details);
+        log("feishu", "final card patched", { chatId, cardId, chars: markdown.length, attempts: attempt + 1 });
+        return;
+      } catch (error) {
+        const delay = patchRetryDelay(attempt, error);
+        if (delay === undefined) {
+          logError("feishu", `final card patch failed after ${attempt + 1} attempt(s), falling back`, error);
+          break;
+        }
+        log("feishu", "final card patch failed, retrying", {
+          attempt: attempt + 1,
+          inMs: delay,
+          error: (error as Error)?.message ?? String(error),
+        });
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
     }
     try {
       await sendMarkdown(chatId, markdown, meta, header);
       log("feishu", "answer sent as its own card after a failed patch");
     } catch (error) {
       logError("feishu", "card fallback failed, sending text", error);
-      await sendText(chatId, stripInlineCode(markdown)).catch((inner: unknown) =>
-        logError("feishu", "plain text fallback failed", inner),
-      );
+      try {
+        await sendText(chatId, stripInlineCode(markdown));
+      } catch (inner) {
+        logError("feishu", "plain text fallback failed, sending direct", inner);
+        await sendTextDirect(chatId, stripInlineCode(markdown)).catch((last: unknown) =>
+          logError("feishu", "direct send failed too: the answer is only in the log", last),
+        );
+      }
     }
   }
 
@@ -2823,11 +2870,7 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
   const tellOwnerDirect = async (text: string): Promise<void> => {
     const chat = await ownerChatId(runtime.harness, context).catch(() => undefined);
     if (chat === undefined) return;
-    const response = await larkClient().im.message.create({
-      params: { receive_id_type: "chat_id" },
-      data: { receive_id: chat, msg_type: "text", content: JSON.stringify({ text }) },
-    });
-    if ((response?.code ?? 0) !== 0) throw new Error(response?.msg ?? "direct send refused");
+    await sendTextDirect(chat, text);
   };
 
   /**

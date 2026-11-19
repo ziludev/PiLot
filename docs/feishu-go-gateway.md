@@ -207,6 +207,23 @@ TS 侧
 - 文件从 3143 行降到 3047 行，`npx tsc --noEmit` 干净，`npm test` 267/267。验收方式是真机跑一轮：
   这条消息本身就是走网关进来的，回答的卡片也是网关发出去的。
 
+### 8.4 网关之后补的两件小事（2026-11-19）
+
+日志翻出来的两个漏洞，都不是架构问题，但都会让「网关了」变成「用户看不到答案」：
+
+- **终帧 patch 现在会重试**。流式帧丢了下一帧会盖回来，终帧没有下一帧——它失败就是卡片永远停在
+  「处理中」。原来 `deliverAnswer` 一次失败就退到「另发一张卡」，而那张卡也走网关，网关正是坏的
+  那一半，于是三层 fallback 全落空（`12:14:56` 的三条 `stream patch failed fetch failed` 就是这个）。
+  现在按 `patchRetryDelay(attempt, error)` 退避重试 500ms/1.5s/4s，只重试「值得重试」的失败：
+  网络类（`fetch failed`）等它回来，飞书明确拒绝的（`patch failed: 230001`）不浪费这 6 秒。
+  三层 fallback 之外再加一层 `sendTextDirect`——绕开网关、用 SDK client 直发，是网关挂了时唯一
+  还通的出口（和 watchdog 的告警同一条路）。
+- **`/api/health` 现在带 `feishu` 字段**（`{ready, since, flaps, lastError, started, downMs}`），
+  `agentctl status` 头部打一行 `== feishu: ok / DOWN for N min — 原因`。此前这份状态只在
+  `/api/state`（桌面客户端读的那个）里，命令行上判断「飞书还通不通」只能去 curl 网关的 `/healthz`。
+  网关的 `/healthz` 说的是「网关自己」，桥接层这份说的是「从桥接层看过去的收发能力」，两者同时
+  为真才是真的通。
+
 ## 9. 风险
 
 | 风险 | 影响 | 对策 |

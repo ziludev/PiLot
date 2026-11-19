@@ -281,6 +281,23 @@ case "${1:-status}" in
     launchctl bootout "$DOMAIN" "$AGENTS/$LATER_LABEL.plist" 2>/dev/null || true
     ;;
   status)
+    # launchd only knows the process is loaded. Whether the bot can still hear Feishu is a fact the
+    # bridge keeps, and a silent bot and a quiet chat look identical from the outside.
+    token="$(grep -E '^AGENT_HTTP_TOKEN=' "$PROJECT/.env" 2>/dev/null | cut -d= -f2-)"
+    curl -s --max-time 3 -H "authorization: Bearer $token" \
+      "http://127.0.0.1:${BRIDGE_PORT:-8787}/api/health" 2>/dev/null | python3 -c '
+import json, sys
+try:
+    f = json.load(sys.stdin)["feishu"]
+except Exception:
+    sys.exit(0)
+if not f.get("started"):
+    print("== feishu: not started (no credentials or no owner)")
+elif f["ready"]:
+    print("== feishu: ok (gateway connected)")
+else:
+    print("== feishu: DOWN for %d min%s" % (f["downMs"] // 60000, (" — " + f["lastError"]) if f.get("lastError") else ""))
+'
     for label in "$LABEL" "$GW_LABEL" "$BACKUP_LABEL"; do
       if launchctl print "$DOMAIN/$label" >/dev/null 2>&1; then
         echo "== $label"
