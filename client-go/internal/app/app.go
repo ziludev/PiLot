@@ -111,6 +111,10 @@ type App struct {
 
 	// mem is the memory drawer: closed until the header button opens it.
 	mem memoryPanel
+	// settings is the preferences dialog, closed until the footer gear opens it.
+	settings settingsPanel
+	// find is the Cmd-F bar over the transcript.
+	find findState
 }
 
 type viewModel struct {
@@ -795,6 +799,7 @@ func (a *App) View(c *ui.Context) {
 	t := theme.Use(c, a.dark)
 	a.shell(c, t)
 	a.renameDialog(c, t)
+	a.settingsDialog(c, t)
 }
 
 // fingerprint of an entry, for deciding whether a frame carried a new version.

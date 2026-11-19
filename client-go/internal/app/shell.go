@@ -40,6 +40,8 @@ func (a *App) shell(c *ui.Context, t theme.Tokens) {
 func (a *App) paneView(c *ui.Context, t theme.Tokens) {
 	ui.Column(c).Grow(1).FillHeight().Children(func() {
 		a.paneHeader(c, t)
+		a.syncFind()
+		a.findBar(c, t)
 		a.transcriptView(c, t)
 		a.statusStrip(c, t)
 		a.composerArea(c, t)
@@ -72,12 +74,13 @@ func (a *App) memoryToggle(c *ui.Context, t theme.Tokens) {
 	if a.mem.open {
 		color = t.Foreground
 	}
-	btn := ui.ButtonBase(c).Height(22).Radius(5).Padding(0, 8).Cursor(ui.CursorPointer)
+	btn := ui.ButtonBase(c).Size(22, 22).Radius(5).Justify(ui.Center).AlignItems(ui.Center).
+		Cursor(ui.CursorPointer).Tooltip(i18n.T("memory"))
 	if a.mem.open {
 		btn.Background(t.Secondary)
 	}
 	btn.Children(func() {
-		ui.Text(c, i18n.T("memory")).FontSize(11).TextColor(color).MaxLines(1)
+		ui.Icon(c, icons.Database).Size(12, 12).TextColor(color)
 	})
 	btn.OnClick(a.toggleMemory)
 }

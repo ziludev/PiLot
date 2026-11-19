@@ -104,41 +104,13 @@ func (a *App) railSegment(c *ui.Context, t theme.Tokens, label string, section r
 	})
 }
 
-// railFooter is the two switches this window has no dialog for: the language and
-// the theme. They sit where a settings panel would have started.
+// railFooter is where the settings live now: one gear, because the panel behind
+// it is about to hold more than a language and a theme.
 func (a *App) railFooter(c *ui.Context, t theme.Tokens) {
 	ui.Row(c).FillWidth().Height(30).Padding(0, 10).Gap(2).AlignItems(ui.Center).Children(func() {
-		label, tip := "中文", "English"
-		if i18n.Current() == i18n.EN {
-			label, tip = "EN", "中文"
-		}
-		a.footerText(c, t, label, tip, a.toggleLang)
 		ui.Spacer(c)
-		dark := a.prefs.dark(c.Theme().Dark)
-		icon, tip := icons.Moon, i18n.T("themeDark")
-		if dark {
-			icon, tip = icons.Sun, i18n.T("themeLight")
-		}
-		a.footerIcon(c, t, icon, tip, a.toggleTheme)
+		a.settingsButton(c, t)
 	})
-}
-
-func (a *App) footerText(c *ui.Context, t theme.Tokens, label, tip string, onClick func()) {
-	button := ui.ButtonBase(c).Height(22).Radius(5).Padding(0, 7).Justify(ui.Center).
-		AlignItems(ui.Center).Cursor(ui.CursorPointer).Tooltip(tip)
-	button.Children(func() {
-		ui.Text(c, label).FontSize(10.5).FontWeight(500).TextColor(t.MutedFg)
-	})
-	button.OnClick(onClick)
-}
-
-func (a *App) footerIcon(c *ui.Context, t theme.Tokens, icon *ui.SVG, tip string, onClick func()) {
-	button := ui.ButtonBase(c).Size(22, 22).Radius(5).Justify(ui.Center).AlignItems(ui.Center).
-		Cursor(ui.CursorPointer).Tooltip(tip)
-	button.Children(func() {
-		ui.Icon(c, icon).Size(12, 12).TextColor(t.MutedFg)
-	})
-	button.OnClick(onClick)
 }
 
 func (a *App) railList(c *ui.Context, t theme.Tokens) {
