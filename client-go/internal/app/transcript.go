@@ -91,11 +91,14 @@ func (a *App) userRow(c *ui.Context, t theme.Tokens, row threadRow) {
 // assistantRow is full width and has no bubble: the answer belongs to the page,
 // not to a card.
 func (a *App) assistantRow(c *ui.Context, t theme.Tokens, row threadRow) {
-	ui.Column(c).FillWidth().Padding(6, 0).Gap(6).Children(func() {
-		a.images(c, row.images, 240, 160)
-		if row.text != "" {
-			markdown.View(c, row.text, nil)
-		}
+	ui.Row(c).FillWidth().Padding(6, 0).Gap(9).AlignItems(ui.Start).Children(func() {
+		a.avatarView(c, 18)
+		ui.Column(c).Grow(1).MinWidth(0).Gap(6).Children(func() {
+			a.images(c, row.images, 240, 160)
+			if row.text != "" {
+				markdown.View(c, row.text, nil)
+			}
+		})
 	})
 }
 

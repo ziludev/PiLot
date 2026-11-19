@@ -24,6 +24,7 @@ func (a *App) railView(c *ui.Context, t theme.Tokens) {
 
 func (a *App) railBrand(c *ui.Context, t theme.Tokens) {
 	ui.Row(c).FillWidth().Height(26).Padding(0, 12).AlignItems(ui.Center).Gap(6).Children(func() {
+		a.avatarView(c, 18)
 		ui.Text(c, "PiLot").FontSize(12).FontWeight(600).TextColor(t.Foreground)
 		ui.Spacer(c)
 		if n := len(a.pending); n > 0 {
