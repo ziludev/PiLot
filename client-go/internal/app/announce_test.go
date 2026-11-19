@@ -173,6 +173,7 @@ func TestFinishedJobLeavesChatsAlone(t *testing.T) {
 func TestJobRowShowsHowLongItHasBeenGoing(t *testing.T) {
 	i18n.Set(i18n.EN)
 	a := railFixture(t)
+	a.prefs.SurfaceFilter = "tasks"
 	a.tasks = []protocol.Task{{ID: 7, Kind: "app.digest", ConversationID: 12, State: "running"}}
 	a.taskSince = map[int]time.Time{7: time.Now().Add(-4 * time.Minute)}
 	tt := railTest(t, a)

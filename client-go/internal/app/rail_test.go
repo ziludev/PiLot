@@ -155,9 +155,11 @@ func TestRailShowsTheDownSocket(t *testing.T) {
 }
 
 // TestRailListsTheOwnersTasks shows the tasks the owner started, and not the
-// bridge's own.
+// bridge's own. They live in their own view of the list rather than a strip at
+// the foot of the rail.
 func TestRailListsTheOwnersTasks(t *testing.T) {
 	a := railFixture(t)
+	a.prefs.SurfaceFilter = "tasks"
 	a.tasks = []protocol.Task{
 		{ID: 1, Kind: "app.feature", State: "running", Title: "Ship the rail"},
 		{ID: 2, Kind: "app.usage-sampler", State: "sleeping"},

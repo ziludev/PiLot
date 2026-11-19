@@ -84,6 +84,9 @@ func TestOriginDictionaryStillMatches(t *testing.T) {
 		// the line instead of killing the turn in front, so the toast has to say
 		// which of the two it did.
 		"stopQueued": true,
+		// Ours: the tasks view is where routines live now, so its heading, its
+		// empty-state hint and the "next fire" label are all new copy.
+		"tasks": true, "noTasksHint": true, "nextFire": true,
 	}
 	// Gone: the native client has no merge button. Merging into the main line is
 	// a reviewer's call made where the branch was pushed, so the words that only
