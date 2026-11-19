@@ -85,6 +85,16 @@ turns_in_flight() {
   sqlite3 "file:$db?mode=ro" "select count(*) from submissions where status in ('queued','placed')" 2>/dev/null || echo 0
 }
 
+# Which chat is holding the restart up. A count alone says the agent is busy, not that one conversation
+# has been mid-turn for half an hour, which is the case worth knowing about.
+busy_chats() {
+  local db; db="$(db_path)"
+  [ -f "$db" ] || return 0
+  sqlite3 "file:$db?mode=ro" \
+    "select group_concat(conversation_id, ',') from submissions where status in ('queued','placed')" \
+    2>/dev/null || true
+}
+
 # The agent comes back from a restart with no memory of it, so the switch leaves a note that the new
 # process reads on boot and sends to Alex. Without it the only trace was logs/restart-later.log.
 note_restart() {
@@ -107,11 +117,15 @@ note_restart() {
 }
 
 wait_idle() {
-  local timeout="${RESTART_IDLE_TIMEOUT:-180}" deadline=$((SECONDS + ${RESTART_IDLE_TIMEOUT:-180}))
+  # A single chat's turn can run for twenty minutes (a long diagnosis, a Pi-Hodor coding job), and
+  # the queue is shared by every chat: a 180s window lost the race five times in a row on 11-19 while
+  # another chat worked, and the code that had just been committed never loaded. Ten minutes per
+  # attempt, twelve attempts, covers a busy morning instead of a busy minute.
+  local timeout="${RESTART_IDLE_TIMEOUT:-600}" deadline=$((SECONDS + ${RESTART_IDLE_TIMEOUT:-600}))
   local count
   count="$(turns_in_flight)"
   [ "$count" = "0" ] && return 0
-  echo "agent has $count turn(s) in flight; waiting up to ${timeout}s for them to settle"
+  echo "agent has $count turn(s) in flight ($(busy_chats)); waiting up to ${timeout}s for them to settle"
   while [ "$(turns_in_flight)" != "0" ]; do
     if [ "$SECONDS" -ge "$deadline" ]; then
       echo "still mid-turn after ${timeout}s — not restarting." >&2
@@ -217,7 +231,7 @@ case "${1:-status}" in
     # version of this waited for nothing and restarted nothing.
     # One idle window often loses the race: other chats keep starting turns, so a single 180s wait
     # expires while the agent is doing real work. Keep knocking instead of asking again by hand.
-    attempts="${RESTART_ATTEMPTS:-6}"
+    attempts="${RESTART_ATTEMPTS:-12}"
     attempt=1
     until wait_idle; do
       if [ "$attempt" -ge "$attempts" ]; then
