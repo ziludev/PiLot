@@ -179,3 +179,34 @@ export async function answerBlocksInTx(
   }
   return answerBlocksOf(await entriesInTx(tx, conversationId, answerId, fromId));
 }
+
+/**
+ * The one line a notification can carry.
+ *
+ * A card patch raises no Feishu notification, so the ping is all that reaches a locked phone —
+ * and "✅ 答完了 · 62s" says something finished without saying what it said, which is the reason
+ * to look. Take the first line worth reading, drop the markup a plain text message would print
+ * literally, and cut it to what a lock screen shows.
+ */
+export function answerHead(answer: string, limit = 40): string {
+  let inFence = false;
+  for (const raw of answer.split("\n")) {
+    const line = raw.trim();
+    // A fence is a command or a log; either way it is not the answer. Skip to the closing fence.
+    if (line.startsWith("```")) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence || line === "" || /^[-=*|]+$/.test(line)) continue;
+    const plain = line
+      .replace(/^#{1,6}\s*/, "")
+      .replace(/^[-*+>]\s*/, "")
+      .replace(/\*\*|`|~~/g, "")
+      .replace(/\s*\|\s*/g, " · ")
+      .replace(/^[·\s]+|[·\s]+$/g, "")
+      .trim();
+    if (plain === "") continue;
+    return plain.length <= limit ? plain : `${plain.slice(0, limit)}…`;
+  }
+  return "";
+}
