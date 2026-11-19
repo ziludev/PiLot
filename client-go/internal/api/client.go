@@ -366,3 +366,63 @@ func (c *Client) CommitDiff(ctx context.Context, convID int, hash string) (strin
 	}
 	return out.Diff, nil
 }
+
+// TaskDetail is one task as GET /api/task describes it: what it is doing, what
+// it was asked, and what it spawned.
+type TaskDetail struct {
+	ID             int             `json:"id"`
+	Kind           string          `json:"kind"`
+	ConversationID int             `json:"conversationId"`
+	Owner          string          `json:"owner"`
+	Background     bool            `json:"background"`
+	AbortRequested bool            `json:"abortRequested"`
+	Status         string          `json:"status"`
+	Phase          string          `json:"phase"`
+	Until          int64           `json:"until"`
+	Title          string          `json:"title"`
+	Input          json.RawMessage `json:"input"`
+	Outcome        json.RawMessage `json:"outcome"`
+	SubAgents      []TaskSubAgent  `json:"subAgents"`
+	StartedAt      int64           `json:"startedAt"`
+}
+
+// TaskSubAgent is one child a task spawned, which is where a running task's
+// signs of life are.
+type TaskSubAgent struct {
+	ID    string `json:"id"`
+	Kind  string `json:"kind"`
+	Title string `json:"title"`
+	State string `json:"state"`
+}
+
+// Task reads one task in detail.
+func (c *Client) Task(ctx context.Context, id int) (TaskDetail, error) {
+	var task TaskDetail
+	err := c.get(ctx, "/api/task?id="+strconv.Itoa(id), &task)
+	return task, err
+}
+
+// CancelTask asks the bridge to stop a running or waiting task.
+func (c *Client) CancelTask(ctx context.Context, id int) error {
+	return c.post(ctx, "/api/task/cancel", struct {
+		ID int `json:"id"`
+	}{ID: id}, nil)
+}
+
+// UsageDay is one day of spend, oldest first in the calendar.
+type UsageDay struct {
+	Date   string  `json:"date"`
+	Cost   float64 `json:"cost"`
+	Tokens int64   `json:"tokens"`
+}
+
+// UsageCalendar is the daily spend over the last days, for the heat map.
+func (c *Client) UsageCalendar(ctx context.Context, days int) ([]UsageDay, error) {
+	var reply struct {
+		Days []UsageDay `json:"days"`
+	}
+	if err := c.get(ctx, "/api/usage-calendar?days="+strconv.Itoa(days), &reply); err != nil {
+		return nil, err
+	}
+	return reply.Days, nil
+}

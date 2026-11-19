@@ -113,7 +113,8 @@ func (a *App) railTaskRow(c *ui.Context, t theme.Tokens, row railRow) {
 	// The name over what kind of task it is: two lines, because a clipped name
 	// with its id on the same line is a task you cannot recognise.
 	item := ui.ButtonBase(c).FillWidth().Height(34).Radius(5).Padding(2, 7).
-		Gap(6).AlignItems(ui.Center)
+		Cursor(ui.CursorPointer).Gap(6).AlignItems(ui.Center).
+		OnClick(func() { a.openTaskDetail(row.task.ID) })
 	item.Children(func() {
 		name, kind := a.taskTitle(row.task), taskKindLabel(row.task.Kind)
 		ui.Column(c).Grow(1).Gap(1).Children(func() {

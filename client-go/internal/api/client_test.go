@@ -355,3 +355,82 @@ func TestCommitDiffSendsTheHashEscaped(t *testing.T) {
 		t.Fatalf("diff %q", diff)
 	}
 }
+
+func TestTaskReadsOneDetail(t *testing.T) {
+	var got capture
+	client := serve(t, `{"id":7,"kind":"agent.run","conversationId":2,"owner":"cli","background":true,`+
+		`"abortRequested":false,"status":"running","phase":"thinking","until":1794819765170,`+
+		`"title":"整理日志","input":{"text":"go"},"outcome":null,`+
+		`"subAgents":[{"id":"sub_1","kind":"agent.spawn","title":"读源码","state":"running"}],`+
+		`"startedAt":1794819200000,"somethingNew":true}`, &got)
+	task, err := client.Task(context.Background(), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.method != http.MethodGet || got.path != "/api/task?id=7" {
+		t.Fatalf("got %s %s", got.method, got.path)
+	}
+	if task.ID != 7 || task.Kind != "agent.run" || task.Status != "running" || task.Title != "整理日志" {
+		t.Fatalf("task %+v", task)
+	}
+	if task.Until != 1794819765170 {
+		t.Fatalf("until %d", task.Until)
+	}
+	if len(task.SubAgents) != 1 || task.SubAgents[0].Title != "读源码" || task.SubAgents[0].State != "running" {
+		t.Fatalf("subAgents %+v", task.SubAgents)
+	}
+}
+
+func TestCancelTaskPostsTheID(t *testing.T) {
+	var got capture
+	client := serve(t, `{}`, &got)
+	if err := client.CancelTask(context.Background(), 7); err != nil {
+		t.Fatal(err)
+	}
+	if got.method != http.MethodPost || got.path != "/api/task/cancel" {
+		t.Fatalf("got %s %s", got.method, got.path)
+	}
+	if id, _ := got.body["id"].(float64); id != 7 || len(got.body) != 1 {
+		t.Fatalf("body %v", got.body)
+	}
+}
+
+func TestUsageCalendarReadsTheDays(t *testing.T) {
+	var got capture
+	client := serve(t, `{"days":[{"date":"2026-11-17","cost":0.0117,"tokens":4200},`+
+		`{"date":"2026-11-18","cost":0.1177,"tokens":774732}]}`, &got)
+	days, err := client.UsageCalendar(context.Background(), 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.method != http.MethodGet || got.path != "/api/usage-calendar?days=30" {
+		t.Fatalf("got %s %s", got.method, got.path)
+	}
+	if len(days) != 2 {
+		t.Fatalf("days %+v", days)
+	}
+	if days[0].Date != "2026-11-17" || days[0].Cost != 0.0117 || days[0].Tokens != 4200 {
+		t.Fatalf("day 0 %+v", days[0])
+	}
+	if days[1].Date != "2026-11-18" || days[1].Cost != 0.1177 || days[1].Tokens != 774732 {
+		t.Fatalf("day 1 %+v", days[1])
+	}
+}
+
+func TestUsageCalendarReportsANon200(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "no", http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+	days, err := New(server.URL, "").UsageCalendar(context.Background(), 30)
+	if err == nil {
+		t.Fatalf("500 was read as a calendar: %+v", days)
+	}
+	var status *StatusError
+	if !errors.As(err, &status) {
+		t.Fatalf("err %v", err)
+	}
+	if status.Code != http.StatusInternalServerError || status.Path != "/api/usage-calendar?days=30" {
+		t.Fatalf("status %+v", status)
+	}
+}

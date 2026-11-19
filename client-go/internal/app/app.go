@@ -117,6 +117,10 @@ type App struct {
 	find findState
 	// changes is the changes drawer: the worktree patch and the branch.
 	changes changesPanel
+	// detail is the dialog a task row opens, and usage the calendar of what the
+	// last four months cost.
+	detail taskDetailPanel
+	usage  usagePanel
 }
 
 type viewModel struct {
@@ -245,6 +249,10 @@ const (
 	evChanges
 	evGit
 	evCommitDiff
+	// A task's detail, its stop, and the usage calendar's daily samples.
+	evTaskDetail
+	evTaskStop
+	evUsage
 )
 
 type event struct {
@@ -273,7 +281,12 @@ type event struct {
 	git      *protocol.Git
 	hash     string
 	diff     string
-	err      error
+	// taskID and task are the dialog's round trip: which task was asked about,
+	// and what came back.
+	taskID int
+	task   *api.TaskDetail
+	usage  []api.UsageDay
+	err    error
 }
 
 type snapshotResult struct {
@@ -600,6 +613,12 @@ func (a *App) apply(ev event) {
 		a.applyGit(ev.convID, ev.git, ev.err)
 	case evCommitDiff:
 		a.applyCommitDiff(ev.hash, ev.diff, ev.err)
+	case evTaskDetail:
+		a.applyTaskDetail(ev.taskID, ev.seq, ev.task, ev.err)
+	case evTaskStop:
+		a.applyTaskStop(ev.taskID, ev.seq, ev.err)
+	case evUsage:
+		a.applyUsage(ev.seq, ev.usage, ev.err)
 	}
 }
 
@@ -816,6 +835,8 @@ func (a *App) View(c *ui.Context) {
 	a.shell(c, t)
 	a.renameDialog(c, t)
 	a.settingsDialog(c, t)
+	a.taskDetailDialog(c, t)
+	a.usageDialog(c, t)
 }
 
 // fingerprint of an entry, for deciding whether a frame carried a new version.

@@ -15,7 +15,7 @@ func TestEveryIconParses(t *testing.T) {
 		{"ChevronDown", ChevronDown}, {"ChevronRight", ChevronRight},
 		{"Check", Check}, {"Plus", Plus}, {"Search", Search}, {"X", X},
 		{"MessagePlus", MessagePlus}, {"ShieldAlert", ShieldAlert},
-		{"AlertTriangle", AlertTriangle}, {"Clock", Clock},
+		{"AlertTriangle", AlertTriangle}, {"Clock", Clock}, {"Calendar", Calendar},
 		{"RefreshCw", RefreshCw}, {"PlugZap", PlugZap},
 	} {
 		if w, h := icon.svg.Size(); w != 24 || h != 24 {
