@@ -22,6 +22,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { ChatMemory, GlobalMemory, WorkMemory } from "./memory.ts";
 import { healthReport } from "./health.ts";
 import { topicTitle, type ThreadInfo } from "./threads.ts";
+import { TaskSpend } from "./spend.ts";
 
 /**
  * Local HTTP + WebSocket bridge so a desktop client is just another watcher.
@@ -588,8 +589,9 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         const conversationId = conversationIdOf(body);
         const conversation = await resolveConversation(conversationId);
         if (conversation === undefined) return send(res, 404, { error: "no such conversation" });
-        // A waiting message is what the stop is for; nothing waiting, the run gets it.
-        const outcome = await stopConversation(runtime, conversationId as number);
+        // A waiting message is what the stop is for; nothing waiting, the run gets it. `all` is
+        // the client's panic button: the run and the line behind it both go.
+        const outcome = await stopConversation(runtime, conversationId as number, { all: body["all"] === true });
         return send(res, 200, { ok: true, ...outcome });
       }
 
@@ -807,6 +809,7 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
 
       if (req.method === "GET" && path === "/api/tasks") {
         const inspection = await runtime.harness.inspect(context);
+        const spend = (await runtime.harness.snapshot(TaskSpend, context).catch(() => undefined))?.tasks ?? {};
         return send(res, 200, {
           tasks: inspection.tasks.map((task) => ({
             id: task.record.id,
@@ -816,6 +819,8 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
             state: (task.state as unknown as { kind?: string }).kind ?? "?",
             until: (task.state as unknown as { until?: number }).until,
             title: taskTitle(task.record.kind, task.record.input),
+            // What the task's last run cost, for the rows nobody watches go by.
+            spend: spend[String(task.record.id)] ?? null,
           })),
         });
       }

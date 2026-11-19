@@ -91,3 +91,9 @@ export function rememberSurface(conversationId: number, surfaceId: string): void
 export function surfaceForConversation(conversationId: number): string | undefined {
   return surfaces.get(conversationId);
 }
+
+/** The conversation a surface last ran in, for callers that hold a chat id and need its ledger. */
+export function conversationForSurface(surfaceId: string): number | undefined {
+  for (const [conversationId, surface] of surfaces) if (surface === surfaceId) return conversationId;
+  return undefined;
+}

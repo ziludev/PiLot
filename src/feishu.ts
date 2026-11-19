@@ -572,16 +572,20 @@ export function cancelQueuedTurns(conversationId: number): number {
 export async function stopConversation(
   runtime: AgentRuntime,
   conversationId: number,
+  options: { all?: boolean } = {},
 ): Promise<{ cancelled: number; aborted: boolean }> {
   const cancelled = cancelQueuedTurns(conversationId);
-  if (cancelled > 0) {
+  // One stop, two meanings, unless the caller asks for `all`: the desktop client's stop button is
+  // the panic button, and the messages queued behind a run are more of what is being stopped.
+  if (cancelled > 0 && options.all !== true) {
     log("feishu", "stop took queued turns out of the line", { conversationId, cancelled });
     return { cancelled, aborted: false };
   }
   const conversation = await runtime.harness.conversation(conversationId as never, context).catch(() => undefined);
-  if (conversation === undefined) return { cancelled: 0, aborted: false };
+  if (conversation === undefined) return { cancelled, aborted: false };
   await conversation.abort(context);
-  return { cancelled: 0, aborted: true };
+  if (cancelled > 0) log("feishu", "stop cleared the line and the run", { conversationId, cancelled });
+  return { cancelled, aborted: true };
 }
 
 /** The user's own line, one row, clipped: two cards side by side must be tellable apart. */
