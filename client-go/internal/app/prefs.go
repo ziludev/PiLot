@@ -15,6 +15,7 @@ import (
 type prefs struct {
 	Lang  string
 	Theme string // "dark", "light", or "" to follow macOS
+	Rail  int    // the rail's width in points; 0 for the default
 }
 
 // prefsPath is this window's own file. The earlier client's ~/.pitta/ui.json is
@@ -43,12 +44,13 @@ func readPrefs() prefs {
 	var p struct {
 		Lang  string `json:"lang"`
 		Theme string `json:"theme"`
+		Rail  int    `json:"rail"`
 	}
 	if err := json.Unmarshal(data, &p); err != nil {
 		log.Printf("prefs: parse %s: %v", path, err)
 		return prefs{}
 	}
-	return prefs{Lang: p.Lang, Theme: p.Theme}
+	return prefs{Lang: p.Lang, Theme: p.Theme, Rail: p.Rail}
 }
 
 // loadPrefs reads the two settings this window keeps.
@@ -64,6 +66,14 @@ func (p prefs) applyLang() {
 	case string(i18n.EN):
 		i18n.Set(i18n.EN)
 	}
+}
+
+// railWidth is the width to draw the rail at, the saved one if it is sane.
+func (p prefs) railWidth() float32 {
+	if p.Rail < railMin || p.Rail > railMax {
+		return railWidth
+	}
+	return float32(p.Rail)
 }
 
 // dark is whether to draw dark: the saved choice, else the system's.

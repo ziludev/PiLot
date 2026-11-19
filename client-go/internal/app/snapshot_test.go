@@ -227,6 +227,8 @@ func TestSnapshotRunning(t *testing.T) {
 	a.queued = map[int]int{9: 2, 11: 2}
 	a.tasks = append(a.tasks, protocol.Task{ID: 9001, State: "working", StartedAt: now.Add(-92 * time.Second).UnixMilli()})
 	a.thread(11).live.Run = json.RawMessage(`{"taskId":9001}`)
+	a.thread(11).live.Generation = json.RawMessage(`{"message":{"content":[{"type":"text","text":"Reading the build config first, then I will run the tests."}]}}`)
+	a.thread(11).live.Tools = []json.RawMessage{json.RawMessage(`{"callId":"c1","name":"bash","status":"running"}`)}
 	a.thread(11).inbox = []protocol.InboxItem{
 		{ID: 1, Mode: "followUp", Content: []byte(`"and what about sunsets on Mars?"`)},
 		{ID: 2, Mode: "steer", Content: []byte(`"check the build too"`)},
@@ -235,7 +237,15 @@ func TestSnapshotRunning(t *testing.T) {
 
 	tt := ui.NewTester(a.View, 1180, 820)
 	tt.Frame()
-	for _, text := range []string{"已经跑了 1m32s", "排队", "插话", "check the build too"} {
+	for _, text := range []string{
+		"已经跑了 1m32s",
+		"正在跑 bash",
+		"Reading the build config first",
+		"重试",
+		"排队",
+		"插话",
+		"check the build too",
+	} {
 		if !tt.HasText(text) {
 			t.Fatalf("missing %q; drew %v", text, tt.Texts())
 		}

@@ -14,9 +14,23 @@ func TestPrefsRoundTrip(t *testing.T) {
 	if got := loadPrefs(); got != (prefs{}) {
 		t.Fatalf("missing file read as %+v, want empty", got)
 	}
-	savePrefs(prefs{Lang: "en", Theme: "dark"})
-	if got := loadPrefs(); got.Lang != "en" || got.Theme != "dark" {
+	savePrefs(prefs{Lang: "en", Theme: "dark", Rail: 300})
+	if got := loadPrefs(); got.Lang != "en" || got.Theme != "dark" || got.Rail != 300 {
 		t.Fatalf("read back %+v", got)
+	}
+}
+
+// A width saved by an older window, or a hand-edited file, must not leave the
+// rail at zero or off the window.
+func TestPrefsRailWidth(t *testing.T) {
+	if got := (prefs{}).railWidth(); got != railWidth {
+		t.Fatalf("no saved width read as %v, want the default %v", got, railWidth)
+	}
+	if got := (prefs{Rail: 12}).railWidth(); got != railWidth {
+		t.Fatalf("nonsense width read as %v", got)
+	}
+	if got := (prefs{Rail: 300}).railWidth(); got != 300 {
+		t.Fatalf("saved width read as %v, want 300", got)
 	}
 }
 

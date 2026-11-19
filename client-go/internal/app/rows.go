@@ -119,6 +119,7 @@ const (
 	rowAssistant
 	rowSteps
 	rowError
+	rowLive
 )
 
 type step struct {
@@ -147,10 +148,13 @@ type threadRow struct {
 
 	// steps is the fold of one turn's thinking and tool calls; turn and the
 	// chat it belongs to address the disclosure state.
-	steps  []step
-	turn   int
-	span   time.Duration
-	noSpan bool
+	steps []step
+	turn  int
+
+	// liveStep is the tool the turn in flight is running now, for rowLive.
+	liveStep string
+	span     time.Duration
+	noSpan   bool
 }
 
 // foldKey addresses one turn's disclosure state.
@@ -252,6 +256,8 @@ func projectEntries(conversationID int, entries []protocol.Entry) ([]threadRow, 
 				kind: rowError,
 				id:   "e" + itoa(entry.ID),
 				text: view.errText,
+				// Which words to send again when the reader asks to retry.
+				turn: turn,
 			})
 		}
 	}

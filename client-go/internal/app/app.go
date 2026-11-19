@@ -12,6 +12,7 @@ import (
 	"hash/fnv"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -67,6 +68,10 @@ type App struct {
 	// dark is the theme the last frame drew with, so a toggle flips what is on
 	// screen rather than what macOS says.
 	dark bool
+	// railW is the rail's width now, which the saved preference seeds and the
+	// edge drags; dragging is true while the pointer holds it.
+	railW    float32
+	dragging bool
 
 	// watch is the live subscription for the active chat.
 	watchCancel context.CancelFunc
@@ -126,6 +131,7 @@ func New(cfg Config) *App {
 	// the frames a test draws by hand stay independent of the owner's settings.
 	a.prefs = loadPrefs()
 	a.prefs.applyLang()
+	a.railW = a.prefs.railWidth()
 	go a.reconcileLoop()
 	go a.elapsedLoop()
 	go a.tailLoop()
@@ -144,6 +150,7 @@ func newApp(cfg Config) *App {
 		threads:   map[int]*threadStore{},
 		busy:      map[string]bool{},
 		histIndex: -1,
+		railW:     railWidth,
 		vm: viewModel{
 			tails:      map[int]time.Time{},
 			unread:     map[int]bool{},
@@ -195,6 +202,7 @@ const (
 	evDecided
 	evSelect
 	evProbeTails
+	evDraft
 )
 
 type event struct {
@@ -205,6 +213,7 @@ type event struct {
 	frame    *frameResult
 	tail     *tailResult
 	notice   string
+	text     string
 	convID   int
 	callID   string
 	images   []imageRef
@@ -465,6 +474,16 @@ func (a *App) apply(ev event) {
 		a.notice = ev.notice
 	case evFiles:
 		a.addImages(ev.images)
+	case evDraft:
+		// Appended rather than replacing: a file dropped on a half-written
+		// message is one more thing to say, not a reason to lose the first.
+		switch {
+		case strings.TrimSpace(a.draft) == "":
+			a.draft = ev.text
+		default:
+			a.draft = a.draft + "\n\n" + ev.text
+		}
+		a.histIndex = len(a.history)
 	case evDecided:
 		delete(a.busy, ev.callID)
 	case evSelect:
