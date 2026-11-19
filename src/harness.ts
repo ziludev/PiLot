@@ -48,6 +48,7 @@ import { acquireStorageLock } from "./storage-lock.ts";
 import { startToolbox, codingToolsFromToolbox } from "./toolbox/index.ts";
 import type { Toolbox } from "./toolbox/client.ts";
 import { ensureRepo } from "./changes.ts";
+import { liveConversationIds } from "./conversations.ts";
 import { ensureWorktree, reclaimWorktrees, type ReclaimResult } from "./worktree.ts";
 import { gitBranchOf } from "./git-info.ts";
 import {
@@ -596,8 +597,11 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   async function reclaimOrphans(): Promise<ReclaimResult> {
     const empty: ReclaimResult = { removed: [], kept: [] };
     if (config.worktree === "off") return empty;
-    const mapping = await harness.snapshot(ChatsToken, context).catch(() => undefined);
-    const live = new Set(Object.values(mapping?.chats ?? {}).map((id) => Number(id)));
+    // Which conversations exist is a question for the store. The Feishu chat mapping is one view of
+    // it and the open surfaces are another — a conversation started from the desktop client is in
+    // neither, and asking a view would call live work deleted.
+    const live = liveConversationIds(config.dbPath);
+    if (live === undefined) return empty;
     const removed: ReclaimResult["removed"] = [];
     const kept: ReclaimResult["kept"] = [];
     for (const project of await listProjects(harness, context)) {
