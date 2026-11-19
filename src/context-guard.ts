@@ -26,8 +26,19 @@ const PREVIEW_CHARS = 200;
  * automatic compaction never fires. `turn.ts` reads this to compact on message count as well.
  */
 let lastCount = 0;
+let lastTokens = 0;
 export function lastRequestMessages(): number {
   return lastCount;
+}
+
+/**
+ * The estimated size of the last request, in tokens.
+ *
+ * Message count says nothing about cost on its own — the same 400 messages are 7k tokens in a chat of
+ * short replies and 94k in one full of tool output — so the compaction trigger reads this too.
+ */
+export function lastRequestTokens(): number {
+  return lastTokens;
 }
 
 /**
@@ -83,10 +94,10 @@ export const contextGuardExtension = defineExtension({
       beforeRequest: (request) => {
         lastCount = request.messages.length;
         const { messages, elided } = elideOldToolOutputs(request.messages);
+        lastTokens = messages.reduce((sum, message) => sum + estimateMessageTokens(message), 0);
         requests += 1;
         if (requests % LOG_EVERY === 0) {
-          const tokens = messages.reduce((sum, message) => sum + estimateMessageTokens(message), 0);
-          log("context", "request size", { messages: messages.length, tokens });
+          log("context", "request size", { messages: messages.length, tokens: lastTokens });
         }
         if (elided === 0) return undefined;
         log("context", "elided old tool output", { elided, messages: messages.length });
