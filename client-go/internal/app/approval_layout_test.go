@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -14,18 +15,30 @@ import (
 // column edge and Deny fell outside it entirely, on top of the panel. The ask
 // now has its own line and the buttons sit under it, so the buttons have to be
 // inside the chat column whatever the panel is doing.
+//
+// Every width is checked from a cold start, mainPane unset, because that is when
+// it broke: the bar was first laid out with the 760-point default, kept that
+// width across frames, and only then did the split settle on a narrower column.
 func TestApprovalButtonsStayInsideTheChat(t *testing.T) {
 	i18n.Set(i18n.EN)
+	for _, frameWidth := range []int{1180, 900, 700} {
+		t.Run(fmt.Sprintf("width %d", frameWidth), func(t *testing.T) {
+			approvalButtonsInside(t, frameWidth)
+		})
+	}
+}
+
+func approvalButtonsInside(t *testing.T, frameWidth int) {
+	t.Helper()
 	a := snapshotData(t)
 	a.sideOpen = true
 	a.prefs.SideWidth = 280
 
-	const frameWidth = 1180
 	tt := ui.NewTester(func(c *ui.Context) { a.pane(c) }, frameWidth, 820)
 	tt.Frame()
 	tt.Frame()
 
-	writePNG(t, "/tmp/pitta-approval-panel.png", tt.Image())
+	writePNG(t, fmt.Sprintf("/tmp/pitta-approval-panel-%d.png", frameWidth), tt.Image())
 	if len(a.approvals) != 1 {
 		t.Fatalf("fixture approvals = %d, want 1", len(a.approvals))
 	}
