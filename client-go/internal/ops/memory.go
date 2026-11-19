@@ -109,14 +109,21 @@ func memorySection(c *ui.Context, t theme.Tokens, index int, title string, notes
 	})
 }
 
+// memoryNote is one line of the memory: the age in a fixed gutter, the note
+// beside it. Boxed rows made fifteen notes look like fifteen cards, and the eye
+// had to cross a border to read the next one; a gutter reads as a log instead.
 func memoryNote(c *ui.Context, t theme.Tokens, note protocol.Note) {
-	ui.Column(c).FillWidth().Padding(5, 8).Gap(2).Radius(6).Background(t.Muted).Children(func() {
+	ui.Row(c).FillWidth().Gap(8).Padding(2, 0).AlignItems(ui.Start).Children(func() {
 		if note.At != "" {
-			ui.Text(c, noteClock(note.At)).FontSize(9).TextColor(t.MutedFg).MaxLines(1)
+			ui.Text(c, noteClock(note.At)).FontSize(9).TextColor(t.MutedFg).
+				MaxLines(1).Width(noteGutter)
 		}
-		ui.Text(c, clipNote(note.Text)).FontSize(11).TextColor(t.Foreground).Wrap()
+		ui.Text(c, clipNote(note.Text)).FontSize(11).TextColor(t.Foreground).Wrap().Grow(1)
 	})
 }
+
+// noteGutter is wide enough for "11-14 09:12" at the note's age size.
+const noteGutter = 64
 
 // memoryQuery is the search field and the Curate trigger, pinned under the list
 // because curation is what the reader comes back to after reading.
