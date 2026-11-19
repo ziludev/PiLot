@@ -18,7 +18,7 @@
 
 A personal assistant that runs on [Pi Durable](https://earendil.com/posts/pi-durable/): talk to it in Feishu, watch it work in a desktop app, use it from a terminal — and if the process dies, the conversation does not.
 
-![The desktop client, drawn by mygo/ui: rail with chats and their cost, a folded tool timeline over a real answer, the composer](assets/readme/client.png)
+![The desktop client, drawn by mygo/ui: a rail filed into chats by kind with their cost, a folded tool timeline over a real answer, the composer](assets/readme/client.png)
 
 ![The Feishu card going from Working to Done](assets/readme/card.gif)
 
@@ -42,7 +42,7 @@ Six steps, then it runs — [Install](#install) has the details and the two thin
 | | |
 |---|---|
 | Feishu | One conversation per chat. In groups it answers only when @-mentioned, in a topic, so the main timeline stays clean; a follow-up inside that topic forks its own conversation. |
-| Desktop | One rail of conversations, each showing what it has cost, and a Tasks page for runs, reminders and routines. Answers stream in; a turn's steps fold into one line you can open; a failed turn gets a Retry on its error line. Approvals land inline, every conversation keeps its own queue just above the composer, and stop clears that queue rather than killing the turn. Light and dark, 中文 and English. |
+| Desktop | One rail of conversations, filed by kind — 群聊, 话题, 私聊 — with everything that spoke in the last day drawn open on top, each chat showing what it has cost, and a Tasks page for runs, reminders and routines. Answers stream in; a turn's steps fold into one line you can open; a failed turn gets a Retry on its error line. Approvals land inline, every conversation keeps its own queue just above the composer, and stop clears that queue rather than killing the turn. Light and dark, 中文 and English. |
 | Model | `/model` opens a card to switch the conversation's model; `/model <id>`, `/model thinking high`, `/model default <id>` also work. Only the owner may use it. Each answered card names the model, thinking level, tokens and cost of that turn. |
 | Input | Text, images (Feishu image/post messages, pasted screenshots), voice (local whisper). |
 | Interrupt | `/stop` or the client's stop button. Background tasks keep running. |

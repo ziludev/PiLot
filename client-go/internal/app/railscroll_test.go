@@ -27,6 +27,9 @@ func TestRailListScrolls(t *testing.T) {
 			Title:          fmt.Sprintf("Chat %d", i+1),
 		}
 	}
+	// The section is the user's to open; without that the rail would draw one
+	// folded heading and nothing to scroll, which is the point of the next test.
+	a.prefs.Sections = map[string]bool{sectionDirect: true}
 	a.setSurfaces(surfaces)
 
 	tt := ui.NewTester(a.View, 1180, 820)
@@ -45,7 +48,7 @@ func TestRailListScrolls(t *testing.T) {
 	if first == 0 {
 		t.Fatal("rail did not move after scrolling to the end")
 	}
-	if last != len(surfaces)-1 {
-		t.Fatalf("rail ended at row %d of %d", last, len(surfaces)-1)
+	if want := len(a.railRows()) - 1; last != want {
+		t.Fatalf("rail ended at row %d of %d", last, want)
 	}
 }

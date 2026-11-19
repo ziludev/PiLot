@@ -46,6 +46,13 @@ type railRow struct {
 	// at is the chat's newest activity, drawn as a relative time when known.
 	at     time.Time
 	unread bool
+
+	// section, count and open belong to a chat section's header: section names
+	// the group it folds, count is how many chats are in it, open is whether
+	// they are drawn.
+	section string
+	count   int
+	open    bool
 }
 
 // sourceLabel names where a chat came from, in the rail's own words.
@@ -63,32 +70,73 @@ func sourceLabel(kind string) string {
 
 // railRows projects the rail's list: the filtered chats, or the tasks by group.
 func (a *App) railRows() []railRow {
-	rows := make([]railRow, 0, len(a.surfaces)+8)
 	if a.rail == railChats {
-		filter := lowerTrim(a.filter)
-		for _, s := range a.sortedSurfaces() {
-			if s.Archived {
-				continue
-			}
-			if filter != "" && !containsFold(s.Title, filter) {
-				continue
-			}
-			at := a.vm.tails[s.ConversationID]
-			rows = append(rows, railRow{
-				kind:   railChat,
-				conv:   s,
-				meta:   sourceLabel(s.Kind),
-				at:     at,
-				unread: a.vm.unread[s.ConversationID] && s.ConversationID != a.active,
-			})
+		return a.chatRows(lowerTrim(a.filter))
+	}
+	return a.taskRows(lowerTrim(a.filter))
+}
+
+// chatRows files every chat under one section. A chat that spoke since
+// yesterday is what its owner is working on, so it goes to 进行中 and is drawn
+// open; the rest wait folded under what the chat is — a group, a topic, a
+// single chat — until the user opens that section.
+func (a *App) chatRows(filter string) []railRow {
+	buckets := make(map[string][]railRow, len(chatSections))
+	// The section holding the chat on screen: it is drawn open whatever the
+	// user folded, since folding away the conversation being read is a bug.
+	showing := ""
+	for _, s := range a.sortedSurfaces() {
+		if s.Archived {
+			continue
 		}
-		if len(rows) == 0 {
-			rows = append(rows, railRow{kind: railHint, label: emptyChatsLabel(filter)})
+		if filter != "" && !containsFold(s.Title, filter) {
+			continue
 		}
-		return rows
+		at := a.vm.tails[s.ConversationID]
+		section := chatSectionOf(s, at, a.now, a.queued[s.ConversationID])
+		if s.ConversationID == a.active {
+			showing = section
+		}
+		buckets[section] = append(buckets[section], railRow{
+			kind:   railChat,
+			conv:   s,
+			meta:   sourceLabel(s.Kind),
+			at:     at,
+			unread: a.vm.unread[s.ConversationID] && s.ConversationID != a.active,
+		})
 	}
 
-	return a.taskRows(lowerTrim(a.filter))
+	// One section needs no heading: the list is the list. Two do, or the rail
+	// would draw two runs of chats with nothing saying what the second is. A
+	// lone folded section keeps its heading, since that is the only way back in.
+	heading := 0
+	for _, s := range chatSections {
+		if len(buckets[s.key]) > 0 {
+			heading++
+		}
+	}
+	drawHeadings := heading > 1 || (heading == 1 && len(buckets[sectionActive]) == 0)
+
+	rows := make([]railRow, 0, len(a.surfaces)+len(chatSections))
+	for _, s := range chatSections {
+		chats := buckets[s.key]
+		if len(chats) == 0 {
+			continue
+		}
+		// A filter opens everything it matched: a folded section would hide the
+		// very rows the user is looking for.
+		open := filter != "" || s.key == showing || !a.prefs.sectionClosed(s.key)
+		if drawHeadings {
+			rows = append(rows, railRow{kind: railGroup, label: i18n.T(s.label), section: s.key, count: len(chats), open: open})
+		}
+		if open {
+			rows = append(rows, chats...)
+		}
+	}
+	if heading == 0 {
+		rows = append(rows, railRow{kind: railHint, label: emptyChatsLabel(filter)})
+	}
+	return rows
 }
 
 // sortedSurfaces puts the chat that last spoke first, and falls back to the
@@ -110,6 +158,53 @@ func emptyChatsLabel(filter string) string {
 		return i18n.T("noMatches")
 	}
 	return i18n.T("noChats")
+}
+
+// The rail's chat sections, in the order they are drawn. active is not a kind of
+// chat but a way of using one; the rest file a chat by what it is.
+const (
+	sectionActive = "active"
+	sectionGroup  = "group"
+	sectionTopic  = "topic"
+	sectionDirect = "direct"
+	sectionOther  = "other"
+)
+
+var chatSections = []struct{ key, label string }{
+	{sectionActive, "sectionActive"},
+	{sectionGroup, "sectionGroup"},
+	{sectionTopic, "sectionTopic"},
+	{sectionDirect, "sectionDirect"},
+	{sectionOther, "sectionOther"},
+}
+
+// recentWindow is how long a chat stays in 进行中. A day is the width of a
+// working session: anything older is something the user has stopped doing, and
+// belongs folded under its own kind.
+const recentWindow = 24 * time.Hour
+
+// chatSectionOf files one chat, given when it last spoke and how much is queued
+// on it. Unknown chats go to 其他 rather than being guessed at.
+func chatSectionOf(s protocol.Surface, at, now time.Time, queued int) string {
+	if queued > 0 || (!at.IsZero() && now.Sub(at) < recentWindow) {
+		return sectionActive
+	}
+	// A fork of a topic group is one topic of it, whatever the parent chat is.
+	if s.ThreadParent != 0 || s.Topic {
+		return sectionTopic
+	}
+	switch s.ChatType {
+	case "p2p":
+		return sectionDirect
+	case "group":
+		return sectionGroup
+	}
+	// A chat started in this window is a conversation with the agent itself,
+	// which is as close to a single chat as the bridge has.
+	if s.Kind == "client" {
+		return sectionDirect
+	}
+	return sectionOther
 }
 
 type threadRowKind int

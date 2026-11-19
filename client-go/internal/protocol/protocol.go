@@ -27,7 +27,13 @@ type Surface struct {
 	ThreadParent   int     `json:"threadParent"`
 	Title          string  `json:"title"`
 	Archived       bool    `json:"archived"`
-	ProjectID      string  `json:"projectId"`
+	// ChatType is what Feishu calls the chat: "p2p" for a single chat, "group"
+	// for a group or a topic group. Empty when the bridge has never asked, which
+	// the rail files under 其他 rather than guessing.
+	ChatType string `json:"chatType"`
+	// Topic marks a 话题群, where every message is its own topic.
+	Topic     bool   `json:"topic"`
+	ProjectID string `json:"projectId"`
 	// LastStop is how the chat's newest assistant reply ended when that was an
 	// error or an abort. A finished answer leaves it empty, which is what tells a
 	// row that needs its owner apart from one that merely answered.

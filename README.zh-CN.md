@@ -18,7 +18,7 @@
 
 跑在 [Pi Durable](https://earendil.com/posts/pi-durable/) 上的个人助理：飞书里聊、桌面上看、终端里也能用，进程挂了不丢对话。
 
-![桌面客户端：左栏会话与花费，中间折叠的工具时间轴与回答，底部 composer](assets/readme/client.png)
+![桌面客户端：左栏按会话类型归档并标花费，中间折叠的工具时间轴与回答，底部 composer](assets/readme/client.png)
 
 ![飞书卡片从「处理中」到「答完了」](assets/readme/card.gif)
 
@@ -43,7 +43,7 @@
 | | |
 |---|---|
 | 飞书 | 群/单聊各自一个 conversation；群里 @ 才响应；**被 @ 就回在话题里**（群里不刷屏），话题里的追问 → 该话题独立 fork |
-| 客户端 | 自建会话（每个自动分配 git worktree）、流式渲染、步骤时间线（见下） |
+| 客户端 | 自建会话（每个自动分配 git worktree）、流式渲染、步骤时间线（见下）；左栏把会话分成「进行中 / 群聊 / 话题 / 私聊 / 其他」，进行中（一天内动过或有排队）展开，其余折叠 |
 | 模型 | 飞书里 `/model` 一张卡片换本会话模型（也可 `/model <id>`、`/model thinking high`、`/model default <id>`，只有主人能发）；卡片底部那行写明本轮用的模型、thinking 档、token 与花费 |
 | CLI | `durable ask "…"` / `durable chat`（REPL）、`durable sessions` |
 | 输入 | 文字、图片（飞书 image/post 消息；客户端粘贴截图）、语音（本地 whisper） |

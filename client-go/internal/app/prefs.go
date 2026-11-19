@@ -16,6 +16,9 @@ type prefs struct {
 	Lang  string
 	Theme string // "dark", "light", or "" to follow macOS
 	Rail  int    // the rail's width in points; 0 for the default
+	// Sections is which chat sections the user has opened, by key. Absent means
+	// the section's default, so a section added later gets a sane first run.
+	Sections map[string]bool `json:"sections"`
 }
 
 // prefsPath is this window's own file. The earlier client's ~/.pitta/ui.json is
@@ -42,15 +45,16 @@ func readPrefs() prefs {
 		return prefs{}
 	}
 	var p struct {
-		Lang  string `json:"lang"`
-		Theme string `json:"theme"`
-		Rail  int    `json:"rail"`
+		Lang     string          `json:"lang"`
+		Theme    string          `json:"theme"`
+		Rail     int             `json:"rail"`
+		Sections map[string]bool `json:"sections"`
 	}
 	if err := json.Unmarshal(data, &p); err != nil {
 		log.Printf("prefs: parse %s: %v", path, err)
 		return prefs{}
 	}
-	return prefs{Lang: p.Lang, Theme: p.Theme, Rail: p.Rail}
+	return prefs{Lang: p.Lang, Theme: p.Theme, Rail: p.Rail, Sections: p.Sections}
 }
 
 // loadPrefs reads the two settings this window keeps.
@@ -74,6 +78,16 @@ func (p prefs) railWidth() float32 {
 		return railWidth
 	}
 	return float32(p.Rail)
+}
+
+// sectionClosed is whether a chat section is drawn folded. 进行中 is the set the
+// user is working through, so it starts open and every other section starts
+// folded; an explicit choice in the file wins over both.
+func (p prefs) sectionClosed(key string) bool {
+	if open, ok := p.Sections[key]; ok {
+		return !open
+	}
+	return key != sectionActive
 }
 
 // dark is whether to draw dark: the saved choice, else the system's.

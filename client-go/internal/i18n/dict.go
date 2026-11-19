@@ -21,6 +21,12 @@ var zh = map[string]string{
 	"groupSleeping": "休眠",
 	"nextAt":        "下次 {time}",
 
+	"sectionActive": "进行中",
+	"sectionGroup":  "群聊",
+	"sectionTopic":  "话题",
+	"sectionDirect": "私聊",
+	"sectionOther":  "其他",
+
 	"justNow":    "刚刚",
 	"minutesAgo": "{n} 分钟前",
 	"hoursAgo":   "{n} 小时前",
@@ -84,6 +90,12 @@ var en = map[string]string{
 	"groupWaiting":  "Waiting",
 	"groupSleeping": "Sleeping",
 	"nextAt":        "Next {time}",
+
+	"sectionActive": "Active",
+	"sectionGroup":  "Groups",
+	"sectionTopic":  "Topics",
+	"sectionDirect": "Direct",
+	"sectionOther":  "Other",
 
 	"justNow":    "just now",
 	"minutesAgo": "{n}m ago",

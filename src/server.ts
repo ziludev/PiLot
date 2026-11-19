@@ -262,7 +262,10 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         const chats = (await runtime.harness.snapshot(ChatsToken, context).catch(() => undefined)) as
           | { chats: Record<string, number> }
           | undefined;
-        const meta: Record<string, { title?: string; archived?: boolean }> = await surfaceMeta(
+        const meta: Record<
+          string,
+          { title?: string; archived?: boolean; topic?: boolean; chatType?: "p2p" | "group" }
+        > = await surfaceMeta(
           runtime.harness,
           context,
         ).catch(() => ({}));
@@ -308,6 +311,10 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
               tokens: spend.tokens,
               title: own?.title ?? title,
               archived: own?.archived === true,
+              // What the rail files this chat under: 群聊, 话题, 私聊, or 其他 when the
+              // bridge has never heard from the chat and so never asked Feishu what it is.
+              chatType: own?.chatType,
+              topic: own?.topic === true,
               projectId: await runtime.projectOfConversation(conversationId as unknown as number).catch(() => undefined),
               lastStop: stops.get(conversationId as unknown as number),
             };
@@ -340,6 +347,8 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
             tokens: spend.tokens,
             title: title.length > 0 ? title : `话题 ${info.key.slice(-6)}`,
             archived: own?.archived === true,
+            chatType: own?.chatType,
+            topic: true,
             projectId: await runtime.projectOfConversation(conversationId).catch(() => undefined),
             lastStop: stops.get(conversationId),
           });
