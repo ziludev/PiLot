@@ -283,15 +283,26 @@ func TestRailRowsSections(t *testing.T) {
 		t.Fatalf("drawn = %v, want the active chat and both direct ones", drawn)
 	}
 
-	// The chat being read is never hidden behind a fold.
-	a.active = 2
+	// Opening a chat unfolds the section holding it, never the other way: the
+	// fold belongs to the user, so a closed section is not reopened by a frame.
 	a.prefs.Sections = map[string]bool{}
+	a.active = 2
+	if rows = a.railRows(); rows[2].open {
+		t.Fatalf("group heading = %+v, want it still folded until the chat is opened", rows[2])
+	}
+	a.revealChatSection(2)
 	rows = a.railRows()
 	if rows[2].section != sectionGroup || !rows[2].open {
-		t.Fatalf("group heading = %+v, want it open because chat 2 is on screen", rows[2])
+		t.Fatalf("group heading = %+v, want it open because chat 2 was just opened", rows[2])
 	}
 	if rows[3].conv.ConversationID != 2 {
 		t.Fatalf("row after the group heading = %+v, want chat 2", rows[3])
+	}
+
+	// And a fold made by hand afterwards sticks, chat on screen or not.
+	a.prefs.Sections[sectionGroup] = false
+	if rows = a.railRows(); rows[2].open {
+		t.Fatalf("group heading = %+v, want the hand fold to hold", rows[2])
 	}
 }
 
@@ -334,11 +345,19 @@ func TestRailArchivedShelf(t *testing.T) {
 		t.Fatalf("filtered rows = %+v, want the matching chats under an open shelf", rows)
 	}
 
-	// The chat on screen is never folded away either.
+	// Opening a chat that lives on the shelf unfolds the shelf.
 	a.filter = ""
 	a.active = 4
-	if rows := a.railRows(); !rows[1].open {
-		t.Fatalf("shelf = %+v, want it open over the chat on screen", rows[1])
+	a.revealChatSection(4)
+	rows = a.railRows()
+	found := false
+	for _, row := range rows[2:] {
+		if row.kind == railChat && row.conv.ConversationID == 4 {
+			found = true
+		}
+	}
+	if !rows[1].open || !found {
+		t.Fatalf("shelf = %+v, want it open over the chat just opened", rows[1:])
 	}
 }
 

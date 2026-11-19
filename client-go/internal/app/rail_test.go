@@ -81,3 +81,63 @@ func TestRailListScrollsToItsSections(t *testing.T) {
 		t.Fatalf("nothing came into view after opening 其他; drew %v", tall.Texts())
 	}
 }
+
+// Folding a section has to fold it, even when the chat on screen lives inside
+// it. The rows used to be forced open for the active chat, so clicking 「其他」
+// with one of its chats on screen turned the chevron and changed nothing: the
+// section the user most wants to tidy up was the one that could not be folded.
+func TestRailFoldSticksForActiveChat(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	tuckedPrefs(t)
+	a := newApp(Config{})
+	now := time.Now()
+	a.now, a.online = now, true
+	var ss []protocol.Surface
+	for i := 0; i < 3; i++ {
+		id := 200 + i
+		ss = append(ss, protocol.Surface{SurfaceID: "s:" + itoa(id), ConversationID: id,
+			Kind: "client", Title: "live " + itoa(i), ProjectID: "workspace"})
+		a.vm.tails[id] = now.Add(-time.Duration(i+1) * time.Minute)
+	}
+	// A day old and not from this window: the rail files these under 其他.
+	for i := 0; i < 5; i++ {
+		id := 300 + i
+		ss = append(ss, protocol.Surface{SurfaceID: "s:" + itoa(id), ConversationID: id,
+			Kind: "feishu", Title: "saved " + itoa(i), ProjectID: "workspace"})
+		a.vm.tails[id] = now.Add(-48 * time.Hour)
+	}
+	a.setSurfaces(ss)
+	a.prefs.Sections = map[string]bool{sectionOther: true}
+	a.active = 302
+	a.stamp++
+	if got := countChats(a.railRows()); got != 8 {
+		t.Fatalf("open 其他 = %d chats, want all 8", got)
+	}
+
+	a.toggleSection(sectionOther)
+	if got := countChats(a.railRows()); got != 3 {
+		t.Fatalf("folded 其他 = %d chats, want only the 3 live ones", got)
+	}
+	// And a frame does not undo it: the reveal belongs to opening a chat.
+	a.stamp++
+	if got := countChats(a.railRows()); got != 3 {
+		t.Fatalf("after a frame = %d chats, want the fold to hold", got)
+	}
+
+	// Opening a chat inside the folded section unfolds it again.
+	a.selectConversation(303)
+	if got := countChats(a.railRows()); got != 8 {
+		t.Fatalf("after opening 303 = %d chats, want 其他 unfolded", got)
+	}
+}
+
+// countChats is how many chat rows the rail drew.
+func countChats(rows []railRow) int {
+	n := 0
+	for _, r := range rows {
+		if r.kind == railChat {
+			n++
+		}
+	}
+	return n
+}

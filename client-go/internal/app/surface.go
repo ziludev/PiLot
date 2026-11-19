@@ -159,6 +159,13 @@ func (a *App) setArchived(convID int, archived bool) {
 		return
 	}
 	undo := a.patchSurface(convID, func(s *protocol.Surface) { s.Archived = archived })
+	if archived && convID == a.active {
+		// Filing away the chat on screen would hide it under a closed shelf:
+		// open the shelf, so the move is something the user sees.
+		a.revealChatSection(convID)
+		a.stamp++
+		a.invalidate()
+	}
 	patch := api.SurfaceMeta{ConversationID: convID, Archived: &archived}
 	a.writeSurface(patch, undo)
 }

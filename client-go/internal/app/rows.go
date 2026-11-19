@@ -106,6 +106,36 @@ func (a *App) searchRows() []railRow {
 	return rows
 }
 
+// chatSection is the section the rail files this chat under, 已归档 included.
+func (a *App) chatSection(convID int) string {
+	for _, s := range a.surfaceSnapshot() {
+		if s.ConversationID != convID {
+			continue
+		}
+		at := a.vm.tails[convID]
+		if a.autoArchived(s, at) {
+			return sectionArchived
+		}
+		return chatSectionOf(s, at, a.now, a.queued[convID])
+	}
+	return ""
+}
+
+// revealChatSection unfolds the section holding the chat just opened. Folding
+// away the conversation being read hides where the user is, so opening a chat
+// unfolds its section once; a fold made afterwards is theirs and sticks.
+func (a *App) revealChatSection(convID int) {
+	section := a.chatSection(convID)
+	if section == "" || !a.prefs.sectionClosed(section) {
+		return
+	}
+	if a.prefs.Sections == nil {
+		a.prefs.Sections = map[string]bool{}
+	}
+	a.prefs.Sections[section] = true
+	savePrefs(a.prefs)
+}
+
 // chatTitle names the chat a hit belongs to. The hits carry no title, so the
 // rail's own snapshot supplies it; a chat the snapshot has not caught up with
 // yet keeps its number rather than borrowing another chat's name.
@@ -147,9 +177,6 @@ func (a *App) autoArchived(s protocol.Surface, at time.Time) bool {
 // single chat — until the user opens that section.
 func (a *App) chatRows(filter string) []railRow {
 	buckets := make(map[string][]railRow, len(chatSections))
-	// The section holding the chat on screen: it is drawn open whatever the
-	// user folded, since folding away the conversation being read is a bug.
-	showing := ""
 	// Archived chats are out of the sections but not out of reach: they hang at
 	// the end of the rail, folded, and their menu is the way back.
 	var archived []railRow
@@ -159,9 +186,6 @@ func (a *App) chatRows(filter string) []railRow {
 		}
 		at := a.vm.tails[s.ConversationID]
 		if a.autoArchived(s, at) {
-			if s.ConversationID == a.active {
-				showing = sectionArchived
-			}
 			archived = append(archived, railRow{
 				kind: railChat,
 				conv: s,
@@ -171,9 +195,6 @@ func (a *App) chatRows(filter string) []railRow {
 			continue
 		}
 		section := chatSectionOf(s, at, a.now, a.queued[s.ConversationID])
-		if s.ConversationID == a.active {
-			showing = section
-		}
 		buckets[section] = append(buckets[section], railRow{
 			kind:   railChat,
 			conv:   s,
@@ -201,8 +222,10 @@ func (a *App) chatRows(filter string) []railRow {
 			continue
 		}
 		// A filter opens everything it matched: a folded section would hide the
-		// very rows the user is looking for.
-		open := filter != "" || s.key == showing || !a.prefs.sectionClosed(s.key)
+		// very rows the user is looking for. Otherwise the fold is the user's:
+		// opening a chat unfolds its section (revealChatSection), but a fold
+		// made by hand afterwards sticks, even around the chat on screen.
+		open := filter != "" || !a.prefs.sectionClosed(s.key)
 		if drawHeadings {
 			rows = append(rows, railRow{kind: railGroup, label: i18n.T(s.label), section: s.key, count: len(chats), open: open})
 		}
@@ -211,7 +234,7 @@ func (a *App) chatRows(filter string) []railRow {
 		}
 	}
 	if len(archived) > 0 {
-		open := filter != "" || showing == sectionArchived || !a.prefs.sectionClosed(sectionArchived)
+		open := filter != "" || !a.prefs.sectionClosed(sectionArchived)
 		rows = append(rows, railRow{kind: railGroup, label: i18n.T("sectionArchived"), section: sectionArchived, count: len(archived), open: open})
 		if open {
 			rows = append(rows, archived...)
