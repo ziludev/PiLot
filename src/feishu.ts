@@ -8,7 +8,7 @@ import { config, requireFeishuCredentials, requireFeishuOwner } from "./config.t
 import { gatewayClient, gatewayEndpoint, type FeishuIm, type ImResponse } from "./feishu-gw.ts";
 import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
 import { runInFlight, watchLive, type LiveSnapshot } from "./live.ts";
-import { advance, renderSteps, stepCount, type Trail } from "./steps.ts";
+import { advance, renderSteps, stepCount, toolIcon, withIcons, type Trail } from "./steps.ts";
 import { answerHead, composeAnswer, type AnswerBlock } from "./answer.ts";
 import { setApprovalDecider, setNotifier, setTurnStarter, type ApprovalRequest } from "./channel.ts";
 import { log, logError } from "./log.ts";
@@ -463,7 +463,7 @@ export function approvalCard(request: ApprovalRequest): Record<string, unknown> 
     },
     body: {
       elements: [
-        { tag: "markdown", content: `**${request.tool}** — ${request.reason}` },
+        { tag: "markdown", content: `${toolIcon(request.tool)} **${request.tool}** — ${request.reason}` },
         { tag: "markdown", content: "```\n" + request.summary.slice(0, 1200) + "\n```" },
         {
           tag: "markdown",
@@ -629,7 +629,7 @@ export function renderLive(live: LiveSnapshot, trace?: CardTrace, trail?: Trail,
   // A pipeline's stage is the biggest thing happening, so it goes above the tool rounds.
   if (stages !== undefined && stages.length > 0) parts.push(stages.join("\n"));
   if (steps.length > 0) parts.push(steps);
-  else if (body.length === 0 && thought.length === 0 && live.tools.length > 0) parts.push(`⚙️ ${live.tools.join(" · ")}`);
+  else if (body.length === 0 && thought.length === 0 && live.tools.length > 0) parts.push(withIcons(live.tools.join(" · ")));
   if (activity.length > 0) parts.push(activity);
   // Thought sits directly above the answer: the order the model produced them in.
   if (thought.length > 0) parts.push(thought);

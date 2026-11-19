@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { advance, renderSteps, stepCount, type Trail } from "../src/steps.ts";
+import { advance, renderSteps, stepCount, toolIcon, withIcons, type Trail } from "../src/steps.ts";
 
 /** A running card has to answer "what did it do so far", not just "something is happening". */
 
@@ -29,7 +29,7 @@ test("the running round keeps its last output line, so a hang is visible", () =>
   trail = advance(trail, live(["bash"], ["a"], "waiting for ci"), 0);
   trail = advance(trail, live(["bash"], ["a"]), 5_000);
   const text = renderSteps(trail, 65_000);
-  assert.equal(text, "▸ bash · 1m05s");
+  assert.equal(text, "▸ ⌨️ bash · 1m05s");
   assert.equal(trail.tail, "waiting for ci", "the tail survives a snapshot without activity");
 });
 
@@ -42,7 +42,7 @@ test("a long trail shows the newest steps and counts the rest", () => {
   const lines = renderSteps(trail, 12_000).split("\n");
   assert.equal(lines[0], "⋯ 前面还有 4 步");
   assert.equal(lines.length, 7, "4 hidden, 5 shown, 1 running");
-  assert.match(lines.at(-1) ?? "", /^▸ bash · 3s$/);
+  assert.match(lines.at(-1) ?? "", /^▸ ⌨️ bash · 3s$/);
   assert.equal(stepCount(trail).done, 9);
 });
 
@@ -54,4 +54,22 @@ test("a round is named by the tool the model called, not by a retelling of it", 
   // less: what the card must show is the call, so the name is the name.
   assert.equal(trail.rounds[0].label, "bash");
   assert.equal(trail.label, "read");
+});
+
+test("every tool on the card carries one icon, and an unknown one says nothing it cannot back", () => {
+  assert.equal(withIcons("bash · read"), "⌨️ bash · 📄 read");
+  assert.equal(withIcons("grep"), "🔍 grep");
+  assert.equal(withIcons("feishu_doc_read"), "💬 feishu_doc_read");
+  assert.equal(toolIcon("some_new_tool"), "⚙️", "unknown stays neutral");
+  assert.equal(toolIcon("bash"), "⌨️", "same icon however the card is drawn");
+});
+
+test("a finished round and the running one wear the same icon for the same tool", () => {
+  let trail: Trail = { rounds: [], since: 0 };
+  trail = advance(trail, { text: "", tools: ["bash"], callIds: ["a"], busy: true }, 0);
+  trail = advance(trail, { text: "", tools: ["grep"], callIds: ["b"], busy: true }, 2_000);
+  const lines = renderSteps(trail, 5_000).split("\n");
+  assert.equal(lines[0], "✓ ⌨️ bash · 2s");
+  assert.equal(lines[1], "▸ 🔍 grep · 3s");
+  assert.equal(trail.rounds[0].label, "bash", "the record stays the bare name");
 });

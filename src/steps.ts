@@ -58,6 +58,70 @@ export function advance(trail: Trail, live: LiveSnapshot, now: number): Trail {
   return next;
 }
 
+/**
+ * The tool's icon, for the card's eye only.
+ *
+ * The trail keeps `label` as the bare name — that record is what a test asserts and what an audit
+ * reads — and the icon is added where the line is drawn. Its job is the one emoji does well on a
+ * five-line list: a category the eye catches before it reads any word. One per tool, never two, and
+ * an unknown tool gets the neutral gear rather than a guess.
+ */
+const TOOL_ICONS: Record<string, string> = {
+  bash: "⌨️",
+  shell: "⌨️",
+  exec: "⌨️",
+  read: "📄",
+  cat: "📄",
+  view: "📄",
+  write: "✍️",
+  edit: "✍️",
+  patch: "✍️",
+  apply_patch: "✍️",
+  grep: "🔍",
+  glob: "🔍",
+  find: "🔍",
+  search: "🔍",
+  project_search: "🔍",
+  tool_search: "🔍",
+  logs_query: "📊",
+  db_query: "🗄️",
+  web_search: "🌐",
+  web_fetch: "🌐",
+  curl: "🌐",
+  skill: "🧩",
+  recall: "🧠",
+  remember: "🧠",
+  forget: "🧠",
+  delegate: "🤖",
+  delegate_parallel: "🤖",
+  build_feature: "🤖",
+  task_status: "🤖",
+  cancel_task: "🤖",
+  report_done: "🏁",
+  remind: "⏰",
+  routine: "⏰",
+  routines: "⏰",
+  open_project: "📂",
+};
+
+export function toolIcon(name: string): string {
+  const key = name.toLowerCase();
+  const icon = TOOL_ICONS[key];
+  if (icon !== undefined) return icon;
+  // The owner's tools speak Feishu and talk to MCP servers: chat, whatever the integration.
+  if (key.startsWith("feishu_") || key.startsWith("lark_") || key.startsWith("mcp_")) return "💬";
+  return "⚙️";
+}
+
+/** `bash · read` → `⌨️ bash · 📄 read`: the same names, with a category in front of each. */
+export function withIcons(label: string): string {
+  return label
+    .split(" · ")
+    .filter((name) => name.length > 0)
+    .map((name) => `${toolIcon(name)} ${name}`)
+    .join(" · ");
+}
+
 function seconds(ms: number): string {
   const value = Math.max(0, Math.round(ms / 1000));
   if (value < 60) return `${value}s`;
@@ -71,10 +135,10 @@ export function renderSteps(trail: Trail, now: number, options: { limit?: number
   const hidden = Math.max(0, trail.rounds.length - limit);
   if (hidden > 0) lines.push(`⋯ 前面还有 ${hidden} 步`);
   for (const round of trail.rounds.slice(hidden)) {
-    lines.push(`✓ ${round.label} · ${seconds(round.ms)}${round.tail === undefined ? "" : ` · ${round.tail}`}`);
+    lines.push(`✓ ${withIcons(round.label)} · ${seconds(round.ms)}${round.tail === undefined ? "" : ` · ${round.tail}`}`);
   }
   if (trail.key !== undefined && trail.key.length > 0 && (trail.label ?? "").length > 0) {
-    lines.push(`▸ ${trail.label} · ${seconds(now - trail.since)}`);
+    lines.push(`▸ ${withIcons(trail.label ?? "")} · ${seconds(now - trail.since)}`);
   }
   return lines.join("\n");
 }
