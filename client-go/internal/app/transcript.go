@@ -86,7 +86,7 @@ func (a *App) threadRow(c *ui.Context, t theme.Tokens, row threadRow) {
 // userRow is the right-aligned bubble: the user's own words, tinted so they are
 // not mistaken for the agent's.
 func (a *App) userRow(c *ui.Context, t theme.Tokens, row threadRow) {
-	ui.Row(c).FillWidth().Justify(ui.End).Padding(6, 0).Children(func() {
+	ui.Row(c).FillWidth().Justify(ui.End).Padding(6, 0).Gap(9).AlignItems(ui.Start).Children(func() {
 		bubble := ui.Column(c).MaxWidth(560).Padding(8, 12).Radius(12).
 			Background(t.Secondary).Gap(6)
 		bubble.Children(func() {
@@ -95,6 +95,7 @@ func (a *App) userRow(c *ui.Context, t theme.Tokens, row threadRow) {
 				ui.Text(c, row.text).FontSize(12.5).TextColor(t.SecondFg)
 			}
 		})
+		a.userAvatarView(c, t, avatarSize)
 	})
 }
 
@@ -102,7 +103,7 @@ func (a *App) userRow(c *ui.Context, t theme.Tokens, row threadRow) {
 // not to a card.
 func (a *App) assistantRow(c *ui.Context, t theme.Tokens, row threadRow) {
 	ui.Row(c).FillWidth().Padding(6, 0).Gap(9).AlignItems(ui.Start).Children(func() {
-		a.avatarView(c, 18)
+		a.avatarView(c, avatarSize)
 		ui.Column(c).Grow(1).MinWidth(0).Gap(6).Children(func() {
 			a.images(c, row.images, 240, 160)
 			if row.text != "" {
@@ -184,7 +185,7 @@ func (a *App) errorRow(c *ui.Context, t theme.Tokens, row threadRow) {
 // it is written. Without it a turn that thinks for a minute looks stalled.
 func (a *App) liveRowView(c *ui.Context, t theme.Tokens, row threadRow) {
 	ui.Row(c).FillWidth().Padding(6, 0).Gap(9).AlignItems(ui.Start).Children(func() {
-		a.avatarView(c, 18)
+		a.avatarView(c, avatarSize)
 		ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
 			if row.liveStep != "" {
 				ui.Text(c, i18n.TF("runningStep", map[string]any{"name": row.liveStep})).
