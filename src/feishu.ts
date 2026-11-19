@@ -87,6 +87,31 @@ type CardAction = {
 };
 
 export const MAX_CARD_CHARS = 9_000;
+
+/**
+ * Patches to one message run one at a time, in the order they were asked for.
+ *
+ * The live card repaints on a timer and on every step, and the finished answer is a patch of its
+ * own. Those are independent fetches, so they can reach Feishu out of order — and then a card that
+ * finished keeps the working header and a half-written body, while the log says "final card
+ * patched" because the answer's patch was accepted too, just earlier. Serialising per message makes
+ * "the last patch wins" true rather than likely: the answer is queued behind any paint already in
+ * flight, and nothing new is queued once the run has settled.
+ */
+const patchQueues = new Map<string, Promise<unknown>>();
+
+export function serializePatch<T>(key: string, task: () => Promise<T>): Promise<T> {
+  const previous = patchQueues.get(key) ?? Promise.resolve();
+  // `then(task, task)`: one failed patch must not hold back the patch behind it.
+  const next = previous.then(task, task);
+  patchQueues.set(key, next);
+  const release = (): void => {
+    if (patchQueues.get(key) === next) patchQueues.delete(key);
+  };
+  next.then(release, release);
+  return next;
+}
+
 const HELP = [
   "**命令**",
   "- `/new` 换新上下文（历史不删，记忆保留）",
@@ -1077,10 +1102,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     header?: CardHeader,
     details?: Omit<TurnDetails, "at">,
   ): Promise<void> {
-    const response = await im.message.patch({
-      path: { message_id: messageId },
-      data: { content: JSON.stringify(card(markdown, meta, buttons, header, details)) },
-    });
+    const content = JSON.stringify(card(markdown, meta, buttons, header, details));
+    const response = await serializePatch(messageId, () =>
+      im.message.patch({ path: { message_id: messageId }, data: { content } }),
+    );
     if (response?.code !== 0) {
       throw new Error(`patch failed: ${response?.code} ${response?.msg ?? ""}`);
     }
