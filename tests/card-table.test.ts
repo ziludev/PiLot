@@ -66,8 +66,13 @@ test("a table keeps its neighbours' order in a card body", () => {
   const elements = bodyElements(TABLE);
   assert.deepEqual(
     elements.map((element) => (element as { tag: string }).tag),
-    ["markdown", "table", "markdown"],
+    ["markdown", "markdown", "markdown"],
   );
+});
+
+test("a table is lines, not a table element: this client cannot draw one", () => {
+  const [, table] = bodyElements(TABLE) as Array<{ tag: string; content?: string }>;
+  assert.equal(table.content, "**接口** · **通过** · **窗口** · **合计**\n24002 `/paymentApi/submitCashOut` · 2173 · 1142 · 3315\n4908 · 149 · 14 · 163");
 });
 
 test("truncating a clipped answer closes the code fence it cut open", () => {

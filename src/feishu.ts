@@ -133,11 +133,14 @@ function standaloneHeader(reason: string | undefined): CardHeader {
 }
 
 /**
- * The steps of a turn as a folded panel in the answer card itself. It used to be a 「查看详情」
- * button — only in 1:1 chats, and it answered with a second card, so a group never saw the work
- * at all and every answer looked like a form to fill in.
+ * The steps of a turn, written into the answer card itself. It used to be a 「查看详情」button —
+ * only in 1:1 chats, and it answered with a second card, so a group never saw the work at all and
+ * every answer looked like a form to fill in.
+ *
+ * It sits behind a rule rather than in a folded panel: `collapsible_panel` exists only in card 2.0,
+ * and this tenant's cards are 1.0 (see `card`), where the panel renders as 「请升级至最新版本客户端」.
  */
-export function detailPanel(details: Omit<TurnDetails, "at">): Record<string, unknown> {
+export function detailPanel(details: Omit<TurnDetails, "at">): Array<Record<string, unknown>> {
   const lines = details.steps.map((step, index) => {
     const mark = step.ok ? "✅" : "⚠️";
     // A tool's output is whatever the tool printed: aligned columns and pipes included, which the
@@ -150,21 +153,11 @@ export function detailPanel(details: Omit<TurnDetails, "at">): Record<string, un
   const summary = `${details.steps.length} 步 · ${details.seconds}s${
     details.costUsd > 0.00005 ? ` · $${details.costUsd.toFixed(4)}` : ""
   }${decisionLines.length > 0 ? ` · ${decisionLines.length} 次决策` : ""}`;
-  return {
-    tag: "collapsible_panel",
-    expanded: false,
-    header: {
-      title: { tag: "markdown", content: `**本轮执行详情** · ${summary}` },
-      vertical_align: "center",
-      icon: { tag: "standard_icon", token: "down-small-ccm_outlined", size: "16px 16px" },
-      icon_position: "right",
-      icon_expanded_angle: -180,
-    },
-    border: { color: "grey", corner_radius: "5px" },
-    vertical_spacing: "8px",
-    padding: "8px 8px 8px 8px",
-    elements: bodyElements(body.join("\n\n")),
-  };
+  return [
+    { tag: "hr" },
+    { tag: "markdown", content: `**本轮执行详情** · ${summary}` },
+    ...bodyElements(body.join("\n\n")),
+  ];
 }
 
 /** A markdown table, as a card needs it: Feishu's markdown has no table syntax, so a table in an
@@ -231,21 +224,15 @@ export function stripInlineCode(markdown: string): string {
     .join("\n");
 }
 
-function tableElement(block: TableBlock): Record<string, unknown> {
-  return {
-    tag: "table",
-    page_size: 10,
-    row_height: "low",
-    header_style: { text_align: "left", text_size: "normal", background_style: "grey", bold: true, lines: 1 },
-    columns: block.columns.map((name, index) => ({
-      name: `col_${index}`,
-      display_name: name.length > 0 ? name : " ",
-      data_type: "text",
-      width: "auto",
-      horizontal_align: "left",
-    })),
-    rows: block.rows.map((row) => Object.fromEntries(block.columns.map((_, index) => [`col_${index}`, row[index] ?? ""]))),
-  };
+/**
+ * A table as lines. The 1.0 card's `table` element is out — this tenant's client answers it with
+ * 「请将客户端升级至最新版本，以查看表格内容」 — and 1.0 markdown has no table syntax, so the header
+ * goes bold and every row keeps its own line with `·` between cells.
+ */
+function tableBlocks(block: TableBlock): Record<string, unknown> {
+  const line = (cells: string[]): string => cells.map((cell) => (cell.length > 0 ? cell : "—")).join(" · ");
+  const lines = [line(block.columns.map((name) => `**${name.length > 0 ? name : "—"}**`)), ...block.rows.map(line)];
+  return { tag: "markdown", content: lines.join("\n") };
 }
 
 // `---`, `***` and `___` on their own line: the card markdown has no rule either, so the line
@@ -283,19 +270,19 @@ export function bodyElements(markdown: string): Array<Record<string, unknown>> {
     if (typeof part === "string") {
       elements.push(...textBlockElements(part));
     } else {
-      elements.push(tableElement(part));
+      elements.push(tableBlocks(part));
     }
   }
   return elements.length > 0 ? elements : [{ tag: "markdown", content: markdown }];
 }
 
 /**
- * Card JSON **2.0**, and every card goes through here.
+ * Card JSON **1.0**, and every card goes through here.
  *
- * The detail block is a `collapsible_panel`, which only exists in 2.0 — in a 1.0 card the client
- * prints 「请升级至最新版本客户端，以查看内容」 in its place, so the steps of a turn were invisible
- * on every answer card. 2.0 also *forbids* `note` and `action` (the API answers 200861), so the
- * meta line is a notation-size markdown and the buttons sit in a `column_set`.
+ * 2.0 was tried and it does not survive this tenant: a card with nothing but a `markdown` element
+ * comes back from `im.message.get` as 「请升级至最新版本客户端，以查看内容」 — the server downgrades
+ * the whole body and keeps only the header, so every answer arrived as an empty card. 1.0 also rules
+ * out `collapsible_panel` and `text_size`; the meta line is a `note` and the buttons an `action`.
  */
 function card(
   markdown: string,
@@ -306,37 +293,33 @@ function card(
 ): Record<string, unknown> {
   const elements: Array<Record<string, unknown>> = bodyElements(stripInlineCode(markdown));
   if (details !== undefined && details.steps.length > 0) {
-    elements.push(detailPanel(details));
+    elements.push(...detailPanel(details));
   }
   if (meta !== undefined) {
-    elements.push({ tag: "markdown", content: meta, text_size: "notation" });
+    elements.push({ tag: "note", elements: [{ tag: "plain_text", content: meta }] });
   }
   if (buttons !== undefined && buttons.length > 0) {
-    elements.push({
-      tag: "column_set",
-      flex_mode: "flow",
-      horizontal_spacing: "8px",
-      columns: buttons.map((button) => ({
-        tag: "column",
-        width: "auto",
-        elements: [
-          {
-            tag: "button",
-            text: { tag: "plain_text", content: button.label },
-            type: button.type ?? "default",
-            value: button.value,
-          },
-        ],
-      })),
-    });
+    elements.push(actionRow(buttons));
   }
   return {
-    schema: "2.0",
-    config: { update_multi: true, width_mode: "fill" },
+    config: { update_multi: true, wide_screen_mode: true },
     ...(header === undefined
       ? {}
       : { header: { template: header.template, title: { tag: "plain_text", content: header.title } } }),
-    body: { elements },
+    elements,
+  };
+}
+
+/** Buttons in one row. 1.0's `action` is the tag every client draws; 2.0 wanted a `column_set`. */
+function actionRow(buttons: CardButton[]): Record<string, unknown> {
+  return {
+    tag: "action",
+    actions: buttons.map((button) => ({
+      tag: "button",
+      text: { tag: "plain_text", content: button.label },
+      type: button.type ?? "default",
+      value: button.value,
+    })),
   };
 }
 
@@ -381,29 +364,22 @@ export function approvalCard(request: ApprovalRequest): Record<string, unknown> 
     },
   ];
   return {
-    schema: "2.0",
-    config: { update_multi: true, width_mode: "fill" },
+    config: { update_multi: true, wide_screen_mode: true },
     header: {
       template: "orange",
       title: { tag: "plain_text", content: "⚠️ 需要你确认" },
     },
-    body: {
-      elements: [
-        { tag: "markdown", content: `**${request.tool}** — ${request.reason}` },
-        { tag: "markdown", content: "```\n" + request.summary.slice(0, 1200) + "\n```" },
-        {
-          tag: "markdown",
-          content: `${Math.round(request.timeoutMs / 1000)}s 内不选则视为拒绝`,
-          text_size: "notation",
-        },
-        {
-          tag: "column_set",
-          flex_mode: "flow",
-          horizontal_spacing: "8px",
-          columns: buttons.map((button) => ({ tag: "column", width: "auto", elements: [button] })),
-        },
-      ],
-    },
+    elements: [
+      { tag: "markdown", content: `**${request.tool}** — ${request.reason}` },
+      { tag: "markdown", content: "```\n" + request.summary.slice(0, 1200) + "\n```" },
+      {
+        tag: "note",
+        elements: [
+          { tag: "plain_text", content: `${Math.round(request.timeoutMs / 1000)}s 内不选则视为拒绝` },
+        ],
+      },
+      { tag: "action", actions: buttons },
+    ],
   };
 }
 
