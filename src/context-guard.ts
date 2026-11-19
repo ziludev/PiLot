@@ -39,6 +39,7 @@ export function lastRequestMessages(): number {
  */
 const LOG_EVERY = 8;
 let requests = 0;
+let providerRequests = 0;
 
 const PLACEHOLDER = (name: string, chars: number) =>
   `[较早的工具输出已省略：${name}，原文约 ${Math.round(chars / 100) / 10}k 字符。需要时重新运行这个工具]`;
@@ -90,6 +91,21 @@ export const contextGuardExtension = defineExtension({
         if (elided === 0) return undefined;
         log("context", "elided old tool output", { elided, messages: messages.length });
         return { messages };
+      },
+      // The messages are only part of what a round costs: the tools and the system prompt are sent
+      // with every request too, and they are the part a compaction can never touch. Measure the
+      // built body instead of guessing which half to trim.
+      beforeProviderRequest: (request) => {
+        providerRequests += 1;
+        if (providerRequests % LOG_EVERY !== 0) return undefined;
+        const body = request.payload as { messages?: unknown; input?: unknown; tools?: unknown };
+        const chars = (value: unknown): number => (value === undefined ? 0 : JSON.stringify(value).length);
+        log("context", "request bytes", {
+          total: chars(request.payload),
+          messages: chars(body.messages ?? body.input),
+          tools: chars(body.tools),
+        });
+        return undefined;
       },
     }),
   ],
