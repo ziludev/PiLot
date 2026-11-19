@@ -48,7 +48,9 @@ func (a *App) submit() {
 	}()
 }
 
-// abort stops the active chat's run, or takes back a message still in line.
+// abort stops the active chat's run and clears whatever is queued behind it:
+// pressing stop and then watching three more turns go by is the same stop
+// failing, just slower.
 func (a *App) abort() {
 	convID := a.active
 	if convID == 0 {
@@ -57,8 +59,13 @@ func (a *App) abort() {
 	go func() {
 		ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 		defer cancel()
-		if _, err := a.api.Abort(ctx, convID); err != nil {
+		outcome, err := a.api.Abort(ctx, convID, true)
+		if err != nil {
 			a.post(event{kind: evNotice, notice: i18n.T("stopFailed") + " · " + err.Error()})
+			return
+		}
+		if outcome.Cancelled > 0 {
+			a.post(event{kind: evNotice, notice: i18n.TF("stopCleared", map[string]any{"n": outcome.Cancelled})})
 		}
 	}()
 }

@@ -39,6 +39,8 @@ type railRow struct {
 	// label is a group's title or a hint line; when is a task's next fire.
 	label string
 	when  string
+	// cost is what the task's last run cost, drawn under its next fire.
+	cost string
 	// meta is the chat's source, empty for chats that have none worth naming.
 	meta string
 	// at is the chat's newest activity, drawn as a relative time when known.

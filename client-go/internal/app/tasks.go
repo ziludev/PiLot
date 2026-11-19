@@ -35,7 +35,12 @@ func (a *App) taskRows(filter string) []railRow {
 			if filter != "" && !containsFold(title, filter) {
 				continue
 			}
-			tasks = append(tasks, railRow{kind: railTask, task: task, when: clockTime(unixTime(task.Until))})
+			tasks = append(tasks, railRow{
+				kind: railTask,
+				task: task,
+				when: clockTime(unixTime(task.Until)),
+				cost: money(task.Spend),
+			})
 		}
 		if len(tasks) == 0 {
 			continue
@@ -81,9 +86,16 @@ func (a *App) railTaskRow(c *ui.Context, t theme.Tokens, row railRow) {
 	item.Children(func() {
 		ui.Text(c, "#"+itoa(row.task.ID)+" · "+taskTitle(row.task)).Grow(1).
 			FontSize(11).TextColor(t.Foreground).MaxLines(2)
-		if row.when != "" {
-			ui.Text(c, i18n.TF("nextAt", map[string]any{"time": row.when})).
-				FontSize(9).TextColor(t.MutedFg)
+		if row.when != "" || row.cost != "" {
+			ui.Column(c).Gap(1).AlignItems(ui.End).Children(func() {
+				if row.when != "" {
+					ui.Text(c, i18n.TF("nextAt", map[string]any{"time": row.when})).
+						FontSize(9).TextColor(t.MutedFg)
+				}
+				if row.cost != "" {
+					ui.Text(c, row.cost).FontSize(9).TextColor(t.MutedFg)
+				}
+			})
 		}
 	})
 }

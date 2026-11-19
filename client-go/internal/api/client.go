@@ -180,12 +180,14 @@ type AbortOutcome struct {
 }
 
 // Abort stops the run in flight, or takes a message still waiting in line out
-// of it.
-func (c *Client) Abort(ctx context.Context, conversationID int) (AbortOutcome, error) {
+// of it. all asks for both: the desktop's stop button clears the line behind
+// the run rather than leaving it to start the next turn.
+func (c *Client) Abort(ctx context.Context, conversationID int, all bool) (AbortOutcome, error) {
 	var outcome AbortOutcome
 	body := struct {
-		ConversationID int `json:"conversationId"`
-	}{ConversationID: conversationID}
+		ConversationID int  `json:"conversationId"`
+		All            bool `json:"all,omitempty"`
+	}{ConversationID: conversationID, All: all}
 	err := c.post(ctx, "/api/abort", body, &outcome)
 	return outcome, err
 }

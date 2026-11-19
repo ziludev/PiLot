@@ -56,6 +56,14 @@ type Task struct {
 	State          string `json:"state"`
 	Until          int64  `json:"until"`
 	Title          string `json:"title"`
+	// Spend is what the task's last run cost, for tasks that run unattended.
+	Spend *TaskSpend `json:"spend"`
+}
+
+// TaskSpend is one run's price, as the bridge measured it around the turn.
+type TaskSpend struct {
+	Cost   float64 `json:"cost"`
+	Tokens int     `json:"tokens"`
 }
 
 // ProjectOpen is what POST /api/projects answered: whether the path was added,

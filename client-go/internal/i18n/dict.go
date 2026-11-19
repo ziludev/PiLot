@@ -40,6 +40,7 @@ var zh = map[string]string{
 	"attachImage":         "添加图片",
 	"removeImage":         "移除图片",
 	"queueCount":          "{n} 条排队",
+	"stopCleared":         "已停止，清空了 {n} 条排队",
 	"sendFailed":          "发送失败",
 	"stopFailed":          "停止失败",
 
@@ -93,6 +94,7 @@ var en = map[string]string{
 	"attachImage":         "Attach image",
 	"removeImage":         "Remove image",
 	"queueCount":          "{n} queued",
+	"stopCleared":         "Stopped; cleared {n} queued",
 	"sendFailed":          "Couldn't send",
 	"stopFailed":          "Couldn't stop",
 
