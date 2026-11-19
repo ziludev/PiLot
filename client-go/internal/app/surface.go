@@ -149,9 +149,29 @@ func (a *App) commitRename() {
 // setArchived files a chat away, or brings it back: the same patched-then-post
 // order as a rename, since an archived row must leave the sections at once.
 func (a *App) setArchived(convID int, archived bool) {
+	if !archived && !a.archivedOnBridge(convID) {
+		// The rail filed this chat away by itself, so the bridge never heard of
+		// it: bringing it back is a note in this window's file, not a write.
+		a.prefs.keepChat(convID)
+		savePrefs(a.prefs)
+		a.stamp++
+		a.invalidate()
+		return
+	}
 	undo := a.patchSurface(convID, func(s *protocol.Surface) { s.Archived = archived })
 	patch := api.SurfaceMeta{ConversationID: convID, Archived: &archived}
 	a.writeSurface(patch, undo)
+}
+
+// archivedOnBridge is whether the bridge itself has this chat archived, as
+// opposed to the rail having filed it away for being a week old.
+func (a *App) archivedOnBridge(convID int) bool {
+	for _, s := range a.surfaceSnapshot() {
+		if s.ConversationID == convID {
+			return s.Archived
+		}
+	}
+	return false
 }
 
 // patchSurface rewrites one chat in the mirror and asks for a frame. It returns

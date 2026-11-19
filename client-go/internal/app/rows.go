@@ -118,6 +118,29 @@ func (a *App) chatTitle(convID int) string {
 	return "#" + itoa(convID)
 }
 
+// autoArchiveAfter is how long a chat may sit untouched before the rail files it
+// away by itself. A week is long enough that anything still in play stays in
+// reach, and short enough that a rail of a hundred chats stops being an archive
+// of everything ever said. Nothing is written to the bridge: 已归档 is where this
+// window puts it, and taking it back out is a note in this window's own file.
+const autoArchiveAfter = 7 * 24 * time.Hour
+
+// autoArchived is whether a chat belongs on the 已归档 shelf: archived by hand,
+// or left alone for a week. The chat on screen and one with an unread reply are
+// never filed away — those are the ones still asking for something.
+func (a *App) autoArchived(s protocol.Surface, at time.Time) bool {
+	if s.Archived {
+		return true
+	}
+	if s.ConversationID == a.active || a.vm.unread[s.ConversationID] || a.prefs.keptChat(s.ConversationID) {
+		return false
+	}
+	if at.IsZero() || a.now.IsZero() {
+		return false
+	}
+	return a.now.Sub(at) > autoArchiveAfter
+}
+
 // chatRows files every chat under one section. A chat that spoke since
 // yesterday is what its owner is working on, so it goes to 进行中 and is drawn
 // open; the rest wait folded under what the chat is — a group, a topic, a
@@ -135,7 +158,7 @@ func (a *App) chatRows(filter string) []railRow {
 			continue
 		}
 		at := a.vm.tails[s.ConversationID]
-		if s.Archived {
+		if a.autoArchived(s, at) {
 			if s.ConversationID == a.active {
 				showing = sectionArchived
 			}

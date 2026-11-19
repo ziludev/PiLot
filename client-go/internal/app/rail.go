@@ -1,6 +1,8 @@
 package app
 
 import (
+	"time"
+
 	"github.com/egoist/mygo/ui"
 
 	"pitta/internal/i18n"
@@ -150,9 +152,10 @@ func (a *App) railList(c *ui.Context, t theme.Tokens) {
 	// The list's width is spelled out: its items are laid out at the viewport's
 	// width, and a row that measured itself against the window would push its
 	// time column under the transcript.
-	// FillHeight matters: without it the column sizes to its content, the list
-	// draws everything and gets clipped, and the wheel has nothing to scroll.
-	ui.Column(c).FillWidth().FillHeight().Padding(0, 8, 10, 8).Children(func() {
+	// Grow, not FillHeight: 100% of the rail's height would put the list's bottom
+	// below the window (the footer's already spent 30 of it), so the list would
+	// think all its rows were on screen and refuse to scroll.
+	ui.Column(c).FillWidth().Grow(1).Padding(0, 8, 10, 8).Children(func() {
 		ui.List(c, &a.vm.railList, len(rows), func(row int) {
 			a.railRow(c, t, rows[row])
 		}).Grow(1).Width(a.railW - 16)
@@ -239,6 +242,17 @@ func (a *App) toggleSection(section string) {
 	// without touching what the bridge said, so the cache has to be retired by
 	// hand or the chevron turns and the list stays as it was.
 	a.stamp++
+	// The rows under a heading land below it, and a heading near the bottom of
+	// the rail would put them under the window edge: opening it scrolls the
+	// heading to the top so what was asked for is what shows up.
+	if !a.prefs.Sections[section] {
+		for i, row := range a.railRowsCached() {
+			if row.kind == railGroup && row.section == section {
+				a.vm.railList.ScrollTo(i, ui.Start)
+				break
+			}
+		}
+	}
 	a.invalidate()
 }
 
@@ -280,7 +294,7 @@ func (a *App) railChatRow(c *ui.Context, t theme.Tokens, row railRow) {
 		}
 		ui.Box(c).Size(14, 14).Children(func() {
 			if menuShown {
-				a.railChatMenu(c, t, row.conv)
+				a.railChatMenu(c, t, row.conv, row.at)
 			}
 		})
 	})
@@ -290,13 +304,13 @@ func (a *App) railChatRow(c *ui.Context, t theme.Tokens, row railRow) {
 // railChatMenu is the row's ⋯: the two things the rail can write on a chat.
 // The menu is built by the window, so the items take the theme's type and
 // colors; both choices only queue an event, since a menu build must not write.
-func (a *App) railChatMenu(c *ui.Context, t theme.Tokens, conv protocol.Surface) {
+func (a *App) railChatMenu(c *ui.Context, t theme.Tokens, conv protocol.Surface, at time.Time) {
 	button := ui.ButtonBase(c).Size(14, 14).Radius(3).Justify(ui.Center).
 		AlignItems(ui.Center).Cursor(ui.CursorPointer).Tooltip(i18n.T("chatMenu"))
 	button.Children(func() {
 		ui.Text(c, "⋯").FontSize(11).FontWeight(600).TextColor(t.MutedFg)
 	})
-	archived := conv.Archived
+	archived := a.autoArchived(conv, at)
 	button.Menu(func(m *ui.Menu) {
 		if m.Item(i18n.T("rename")).Chosen() {
 			a.post(event{kind: evRenameChat, convID: conv.ConversationID})
