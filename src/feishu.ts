@@ -15,16 +15,19 @@ import { collectKetchup, elapsed, formatKetchup } from "./ketchup.ts";
 import { collectDigest } from "./digest.ts";
 import { recordVerdict } from "./verdicts.ts";
 import { note } from "./notes.ts";
-import { lastRequestMessages } from "./context-guard.ts";
+import { lastRequestMessages, lastRequestTokens } from "./context-guard.ts";
 
 /**
- * Above this many request messages, compact — but only once the count exceeds what a compaction
- * *leaves behind*, or every turn compacts again for nothing. A compaction keeps `keepRecentTokens`
- * (10k, set in harness.ts) of recent history, which at the ~18 tokens a short message costs here is
- * some 500 messages; 400 sat below that, so the trigger fired on every turn and, worse, the view was
- * usually still under the keep budget, so `selectCut` found nothing and the compaction was a no-op.
+ * Compact after the answer when the next request would carry more than this.
+ *
+ * Message count alone is a bad proxy: a chat with short messages reaches ~18 tokens each (1600
+ * messages in 30k tokens), a chat full of tool output and quoted cards reaches ~235. The same 400
+ * means 7k tokens in one and 94k in the other, so both limits stand — whichever trips first.
  */
-const COMPACT_AFTER_MESSAGES = 900;
+const COMPACT_ABOVE_TOKENS = 30_000;
+
+/** ...and the message count, for the chat whose messages are cheap. Long context is slow per step. */
+const COMPACT_AFTER_MESSAGES = 400;
 import { agentName } from "./identity.ts";
 import { SurfaceMetaDoc, updateSurfaceMeta } from "./surface-meta.ts";
 import { transcribeAudio } from "./asr.ts";
@@ -2358,8 +2361,9 @@ const continuing = new Set<string>();
         // window, so threshold compaction never fires. Compact on message count instead, after the
         // answer is out, so the user is not left waiting for the next turn to be slow.
         const carried = lastRequestMessages();
-        if (carried > COMPACT_AFTER_MESSAGES) {
-          log("feishu", "conversation too long, compacting", { chatId, messages: carried });
+        const carriedTokens = lastRequestTokens();
+        if (carriedTokens > COMPACT_ABOVE_TOKENS || carried > COMPACT_AFTER_MESSAGES) {
+          log("feishu", "conversation too long, compacting", { chatId, messages: carried, tokens: carriedTokens });
           await conversation.compact(undefined, context).catch((error: unknown) =>
             logError("feishu", "could not compact a long conversation", error),
           );
