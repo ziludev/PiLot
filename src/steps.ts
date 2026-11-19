@@ -8,6 +8,7 @@
  */
 
 import type { LiveSnapshot } from "./live.ts";
+import { describeCall } from "./progress.ts";
 
 export type Round = { label: string; ms: number; tail?: string };
 
@@ -32,10 +33,17 @@ function identity(live: LiveSnapshot): string {
   return live.tools.join(" · ");
 }
 
+/** The round's name on the card: `跑 npm test`, not `bash`. */
+function labelOf(live: LiveSnapshot): string {
+  return live.tools
+    .map((name, index) => describeCall(name, live.args?.[live.callIds?.[index] ?? ""]))
+    .join(" · ");
+}
+
 /** Folds one snapshot into the trail: a changed identity ends the previous round. */
 export function advance(trail: Trail, live: LiveSnapshot, now: number): Trail {
   const key = identity(live);
-  const next: Trail = { ...trail, key, label: live.tools.join(" · "), turn: live.turns ?? trail.turn };
+  const next: Trail = { ...trail, key, label: labelOf(live), turn: live.turns ?? trail.turn };
   if (key !== trail.key) {
     const finished = trail.key !== undefined && trail.key.length > 0 && trail.label !== undefined;
     if (finished) {

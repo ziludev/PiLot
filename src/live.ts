@@ -10,6 +10,8 @@ export type LiveSnapshot = {
   activity?: string;
   /** Identities of the calls in this round: two `bash` rounds in a row differ here, not by name. */
   callIds?: string[];
+  /** Arguments each call was made with, by call id: the trail names a round by what it did. */
+  args?: Record<string, Json>;
   /** Tool rounds the run has taken so far, as the engine counts them. */
   turns?: number;
   busy: boolean;
@@ -31,6 +33,35 @@ function textOfMessage(message: unknown): string {
     if (item?.["type"] === "text" && typeof item["text"] === "string") text += item["text"];
   }
   return text;
+}
+
+/**
+ * Arguments of every call in the view's window, by call id.
+ *
+ * `pi.live` carries a call's name and id but not its arguments; the assistant message that issued
+ * it does, and the window holds the newest fifty entries — every round the trail can still show.
+ */
+function readCallArgs(entries: unknown): Record<string, Json> {
+  const args: Record<string, Json> = {};
+  if (!Array.isArray(entries)) return args;
+  for (const entry of entries) {
+    const model = asRecord(entry)?.["model"];
+    if (!Array.isArray(model)) continue;
+    for (const message of model) {
+      const record = asRecord(message);
+      if (record?.["role"] !== "assistant") continue;
+      const content = record["content"];
+      if (!Array.isArray(content)) continue;
+      for (const part of content) {
+        const item = asRecord(part);
+        if (item?.["type"] !== "toolCall") continue;
+        const id = item["id"];
+        const callArgs = asRecord(item["arguments"]);
+        if (typeof id === "string" && callArgs !== undefined) args[id] = callArgs;
+      }
+    }
+  }
+  return args;
 }
 
 /** Reads `pi.live` out of a conversation view. */
@@ -68,10 +99,12 @@ function readLive(view: unknown): LiveSnapshot {
 
   const run = asRecord(live["run"]);
   const turns = run?.["turns"];
+  const args = readCallArgs(asRecord(view)?.["entries"]);
   return {
     text,
     tools,
     callIds,
+    ...(Object.keys(args).length === 0 ? {} : { args }),
     ...(typeof turns === "number" ? { turns } : {}),
     activity,
     busy: run !== undefined,
