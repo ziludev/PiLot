@@ -193,6 +193,78 @@ func (c *Client) Abort(ctx context.Context, conversationID int, all bool) (Abort
 	return outcome, err
 }
 
+// doAny decodes the reply whatever the status code says: the projects
+// endpoints refuse with the reason in the body ("not a repo", "missing"), and a
+// window that shows "400 Bad Request" instead of the reason is a window that
+// made the person guess.
+func (c *Client) doAny(ctx context.Context, method, path string, body, out any) error {
+	var payload io.Reader
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		payload = bytes.NewReader(encoded)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, payload)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("content-type", "application/json")
+	if c.token != "" {
+		req.Header.Set("authorization", "Bearer "+c.token)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if out != nil {
+		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+			if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
+				return err
+			}
+			return &StatusError{Method: method, Path: path, Code: resp.StatusCode, Status: statusText(resp)}
+		}
+		return nil
+	}
+	_, err = io.Copy(io.Discard, resp.Body)
+	return err
+}
+
+// Projects lists the repositories the bridge knows, the built-in sandbox first.
+func (c *Client) Projects(ctx context.Context) ([]protocol.Project, error) {
+	var out struct {
+		Projects []protocol.Project `json:"projects"`
+	}
+	if err := c.get(ctx, "/api/projects", &out); err != nil {
+		return nil, err
+	}
+	return out.Projects, nil
+}
+
+// AddProject registers a repository by path. It is never initialised: a folder
+// that is not a repo is refused, and the refusal is the answer.
+func (c *Client) AddProject(ctx context.Context, path string) (protocol.ProjectOpen, error) {
+	var out protocol.ProjectOpen
+	err := c.doAny(ctx, http.MethodPost, "/api/projects",
+		struct {
+			Path string `json:"path"`
+		}{Path: path}, &out)
+	return out, err
+}
+
+// RemoveProject forgets a project. Its chats move to the built-in sandbox; the
+// repository on disk is never touched.
+func (c *Client) RemoveProject(ctx context.Context, id string) (protocol.ProjectRemoved, error) {
+	var out protocol.ProjectRemoved
+	err := c.doAny(ctx, http.MethodPost, "/api/projects/remove",
+		struct {
+			ID string `json:"id"`
+		}{ID: id}, &out)
+	return out, err
+}
+
 // NewConversation starts a chat in projectID (empty uses the built-in workspace).
 func (c *Client) NewConversation(ctx context.Context, projectID string) (conversationID int, surfaceID string, err error) {
 	var reply struct {

@@ -86,7 +86,9 @@ type changesPanel struct {
 func (a *App) toggleChanges() {
 	a.changes.open = !a.changes.open
 	if a.changes.open {
+		// One right edge, one drawer.
 		a.mem.open = false
+		a.projects.open = false
 		a.refreshChanges()
 	}
 	a.invalidate()

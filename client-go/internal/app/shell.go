@@ -32,9 +32,15 @@ func (a *App) shell(c *ui.Context, t theme.Tokens) {
 			ui.Box(c).Width(1).FillHeight().Background(t.SidebarBorder)
 			a.memoryView(c, t)
 		}
-		if a.changes.open {
+		// One right edge, one drawer: two columns of detail do not fit, and a
+		// stale flag must not be able to draw one over the other.
+		if a.changes.open && !a.projects.open {
 			ui.Box(c).Width(1).FillHeight().Background(t.SidebarBorder)
 			a.changesView(c, t)
+		}
+		if a.projects.open && !a.mem.open {
+			ui.Box(c).Width(1).FillHeight().Background(t.SidebarBorder)
+			a.projectsView(c, t)
 		}
 	})
 }

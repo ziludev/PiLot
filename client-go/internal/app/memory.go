@@ -65,6 +65,7 @@ func (a *App) toggleMemory() {
 	if a.mem.open {
 		// One right edge, one drawer.
 		a.changes.open = false
+		a.projects.open = false
 		a.mem.saved = ""
 		a.loadMemory()
 	}

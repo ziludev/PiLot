@@ -7,7 +7,9 @@ import (
 
 // P0 keeps the window's strings in one small table; a key nobody draws costs a
 // reader a row and a translator a translation, so the ceiling is enforced here.
-// 178 keys: the changes drawer can commit, push and merge, and each verb says
+// 194 keys: the projects drawer names the repositories, what adding one can
+// answer (not a repo, missing, already there) and what forgetting one does to
+// its chats; 178 keys: the changes drawer can commit, push and merge, and each verb says
 // what it would act on and what came back — a conflict, a dirty side, a refusal;
 // 154 keys: the changes drawer can read a file whole, so it names the switch,
 // an empty file and a cut-short one;
@@ -18,7 +20,7 @@ import (
 // rail footer's switches, the find bar counts its hits, and the changes drawer
 // names a patch, a branch and a way back. The point of the ceiling is that it
 // only moves with a reason.
-const maxKeys = 177
+const maxKeys = 194
 
 func TestDictionariesMatch(t *testing.T) {
 	keys := Keys()

@@ -124,6 +124,8 @@ type App struct {
 	// write is the commit / push / merge the drawer offers and what the last
 	// one answered.
 	write writePanel
+	// projects is the drawer of repositories a chat can live in.
+	projects projectsPanel
 }
 
 type viewModel struct {
@@ -260,6 +262,10 @@ const (
 	evFile
 	// A write on the worktree: its commit, its push, its merge.
 	evWrite
+	// The projects drawer: the list, a path added, a project forgotten.
+	evProjects
+	evProjectAdd
+	evProjectRemove
 )
 
 type event struct {
@@ -299,8 +305,11 @@ type event struct {
 	// A write's answer: which one, whether it went well, and what to read.
 	writeKind writeKind
 	writeBad  bool
-	usage     []api.UsageDay
-	err       error
+	// projects is the drawer's catalogue; the path that asked to join it rides
+	// in path, above.
+	projects []protocol.Project
+	usage    []api.UsageDay
+	err      error
 }
 
 type snapshotResult struct {
@@ -637,6 +646,12 @@ func (a *App) apply(ev event) {
 		a.applyFileText(ev.convID, ev.path, ev.fileText, ev.truncated, ev.err)
 	case evWrite:
 		a.applyWrite(ev.convID, ev.writeKind, ev.text, ev.writeBad)
+	case evProjects:
+		a.applyProjects(ev.seq, ev.projects, ev.err)
+	case evProjectAdd:
+		a.applyProjectAdd(ev.path, ev.text, ev.writeBad)
+	case evProjectRemove:
+		a.applyProjectRemove(ev.text, ev.writeBad)
 	}
 }
 
