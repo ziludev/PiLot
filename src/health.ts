@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Context } from "@earendil-works/chord/context";
+import { getFeishuStatus } from "./feishu.ts";
 import { ChatsToken, type AgentRuntime } from "./harness.ts";
 
 /**
@@ -24,6 +25,12 @@ export type Health = {
   queueDepth: number;
   runningTurns: number;
   conversations: number;
+  /**
+   * Whether the bot can still hear and speak on Feishu, and how long it has been deaf. It lives in
+   * the gateway now, so this is the bridge's read of that process, refreshed every 30s — the one
+   * field that tells a silent bot apart from a quiet chat.
+   */
+  feishu: ReturnType<typeof getFeishuStatus>;
 };
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -63,5 +70,6 @@ export async function healthReport(
     // One surface can be counted twice only if two chats share a conversation,
     // which is how a thread and its parent look: count the conversations.
     conversations: new Set(Object.values(chats?.chats ?? {})).size,
+    feishu: getFeishuStatus(),
   };
 }
