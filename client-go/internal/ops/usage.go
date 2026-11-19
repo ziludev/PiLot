@@ -1,7 +1,6 @@
 package ops
 
 import (
-	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -32,6 +31,13 @@ func UsageCalendar(c *ui.Context, p UsageProps) {
 		days = days[len(days)-usageDays:]
 	}
 	totalCost, totalTokens, peakCost, peakDate := usageTotals(days)
+	span := ""
+	if len(days) > 0 {
+		first, last := days[0].Date, days[len(days)-1].Date
+		if len(first) >= 10 && len(last) >= 10 {
+			span = first[5:10] + " → " + last[5:10]
+		}
+	}
 
 	ui.Column(c).FillWidth().Grow(1).Children(func() {
 		heading(c, t, icons.Clock, i18n.T("usage"), "", nil)
@@ -49,7 +55,7 @@ func UsageCalendar(c *ui.Context, p UsageProps) {
 						}
 					})
 				})
-				usageLegend(c, t)
+				usageLegend(c, t, span)
 			})
 		})
 	})
@@ -88,11 +94,6 @@ func usageCell(c *ui.Context, t theme.Tokens, day protocol.UsageDay, peakCost fl
 		cell.Border(1, t.Border)
 	}
 	cell.Tooltip(day.Date + " · " + moneyFine(day.Cost) + " · " + tokenCount(day.Tokens) + " " + tokensLabel)
-	if firstOfMonth(day.Date) {
-		cell.Children(func() {
-			ui.Text(c, day.Date[5:]).FontSize(8).TextColor(usageText(t, level)).MaxLines(1)
-		})
-	}
 }
 
 // usageLevel buckets a day against the window's peak, so the grid keeps its
@@ -128,8 +129,13 @@ func usageText(t theme.Tokens, level int) ui.Color {
 	return t.MutedFg
 }
 
-func usageLegend(c *ui.Context, t theme.Tokens) {
-	ui.Row(c).FillWidth().Gap(4).AlignItems(ui.Center).Justify(ui.End).Children(func() {
+// usageLegend is the foot of the grid: the window it covers on the left, the
+// ramp on the right. Dates used to sit inside the cells of the 1st of each
+// month, where they overflowed a 22px cell and covered the day behind them.
+func usageLegend(c *ui.Context, t theme.Tokens, span string) {
+	ui.Row(c).FillWidth().Gap(4).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, span).FontSize(9).TextColor(t.MutedFg)
+		ui.Spacer(c)
 		ui.Text(c, i18n.T("less")).FontSize(9).TextColor(t.MutedFg)
 		for level := 0; level <= usageColors; level++ {
 			swatch := ui.Box(c).Size(10, 10).Radius(2).Background(usageColor(t, level))
@@ -141,11 +147,3 @@ func usageLegend(c *ui.Context, t theme.Tokens) {
 	})
 }
 
-// firstOfMonth reports whether an ISO date is the 1st.
-func firstOfMonth(date string) bool {
-	parsed, err := time.Parse("2006-01-02", date)
-	if err != nil {
-		return false
-	}
-	return parsed.Day() == 1
-}

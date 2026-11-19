@@ -108,7 +108,12 @@ func usageFixture() UsageProps {
 	start := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
 	days := make([]protocol.UsageDay, 0, usageDays)
 	for i := 0; i < usageDays; i++ {
+		// Three bands, so the snapshot shows the shades the ramp actually has
+		// rather than two: quiet days, ordinary ones, and the peak.
 		cost := 0.10
+		if i%3 == 0 {
+			cost = 0.55
+		}
 		if i%5 == 0 {
 			cost = 1.00
 		}
@@ -296,7 +301,7 @@ func TestUsageCalendarTotals(t *testing.T) {
 	for _, want := range []string{
 		"Usage",
 		"COST",
-		"$33.60",
+		"$48.00",
 		"TOKENS",
 		"PEAK 07-20",
 		"$1.00",
