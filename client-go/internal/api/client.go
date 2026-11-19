@@ -282,9 +282,19 @@ func (c *Client) Submit(ctx context.Context, req SubmitRequest) error {
 	return c.post(ctx, "/api/submit", req, nil)
 }
 
-// Abort stops the run in flight.
-func (c *Client) Abort(ctx context.Context, conversationID int) error {
-	return c.post(ctx, "/api/abort", conversationIDBody(conversationID), nil)
+// AbortOutcome is what POST /api/abort did: the bridge decides whether a stop
+// means "that message I just sent, not yet started" or "the work in flight".
+type AbortOutcome struct {
+	Cancelled int  `json:"cancelled"`
+	Aborted   bool `json:"aborted"`
+}
+
+// Abort stops the run in flight, or takes a message still waiting in line out
+// of it. The outcome says which, so the window can say it too.
+func (c *Client) Abort(ctx context.Context, conversationID int) (AbortOutcome, error) {
+	var outcome AbortOutcome
+	err := c.post(ctx, "/api/abort", conversationIDBody(conversationID), &outcome)
+	return outcome, err
 }
 
 // Reset clears the chat's context.

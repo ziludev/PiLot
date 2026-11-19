@@ -960,16 +960,30 @@ func (a *App) sendText(text string) {
 	}()
 }
 
-// abort stops the run in flight.
+// abort stops the run in flight. When a message is still waiting in line the
+// bridge takes that one out instead, and the toast says so: a stop that lands on
+// the wrong message looks like the stop button is broken.
 func (a *App) abort() {
 	conversationID := a.currentValue()
 	if conversationID == 0 {
 		return
 	}
 	go func() {
-		if err := a.api.Abort(context.Background(), conversationID); err != nil {
+		outcome, err := a.api.Abort(context.Background(), conversationID)
+		if err != nil {
 			a.fail("abort: %v", err)
+			return
 		}
+		if outcome.Cancelled == 0 {
+			return
+		}
+		a.apply(func() {
+			a.toast(ui.Toast{
+				Title:   i18n.TF("stopQueued", map[string]any{"count": outcome.Cancelled}),
+				Timeout: motion.ToastLife,
+			})
+			a.invalidate()
+		})
 	}()
 }
 

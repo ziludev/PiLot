@@ -504,21 +504,84 @@ export function clip(text: string): string {
  * the same files blind. Each turn waits for its predecessor; the card says it is waiting, because
  * silence looks like a lost message.
  */
-const turnQueues = new Map<number, Promise<void>>();
+type QueueWaiter = { cancelled: boolean };
+const turnQueues = new Map<number, { tail: Promise<void>; waiting: QueueWaiter[] }>();
 
-export function enqueueTurn(conversationId: number): { queued: boolean; wait: Promise<void>; done: () => void } {
-  const previous = turnQueues.get(conversationId);
+export type TurnSlot = {
+  queued: boolean;
+  wait: Promise<void>;
+  done: () => void;
+  /** True once the owner took this turn back out of the line before it started. */
+  cancelled: () => boolean;
+};
+
+export function enqueueTurn(conversationId: number): TurnSlot {
+  const queue = turnQueues.get(conversationId);
+  const previous = queue?.tail;
   let release!: () => void;
   const current = new Promise<void>((resolve) => {
     release = resolve;
   });
   const tail = (previous ?? Promise.resolve()).then(() => current);
-  turnQueues.set(conversationId, tail);
+  const own: QueueWaiter = { cancelled: false };
+  const waiting = queue?.waiting ?? [];
+  if (queue === undefined) turnQueues.set(conversationId, { tail, waiting });
+  else queue.tail = tail;
+  // Only a turn that sits behind someone can be taken out of the line; the running one is stopped
+  // the other way (the conversation's abort).
+  if (previous !== undefined) waiting.push(own);
   void tail.then(() => {
-    if (turnQueues.get(conversationId) === tail) turnQueues.delete(conversationId);
+    const index = waiting.indexOf(own);
+    if (index >= 0) waiting.splice(index, 1);
+    const live = turnQueues.get(conversationId);
+    if (live !== undefined && live.tail === tail) turnQueues.delete(conversationId);
   });
   // `done` must run even when the turn throws, or every later message in this chat waits forever.
-  return { queued: previous !== undefined, wait: previous ?? Promise.resolve(), done: release };
+  return {
+    queued: previous !== undefined,
+    wait: previous ?? Promise.resolve(),
+    done: release,
+    cancelled: () => own.cancelled,
+  };
+}
+
+/**
+ * Takes every turn still waiting in this conversation out of the line, and leaves the running one
+ * alone: a stop pressed while a message waits means "not this one", not "not the work". Aborting
+ * the whole conversation instead killed the turn in front and then let the waiting one start — the
+ * owner's stop landed on the wrong message.
+ */
+export function cancelQueuedTurns(conversationId: number): number {
+  const queue = turnQueues.get(conversationId);
+  if (queue === undefined) return 0;
+  let cancelled = 0;
+  for (const waiter of queue.waiting) {
+    if (waiter.cancelled) continue;
+    waiter.cancelled = true;
+    cancelled += 1;
+  }
+  return cancelled;
+}
+
+/**
+ * One stop button, two meanings, decided by what is actually in the line: a message still waiting is
+ * what the owner wants gone, because that is the one they just sent and thought better of. Only
+ * with nothing queued does the stop reach the running turn. Returns what happened, so the caller
+ * says it instead of guessing.
+ */
+export async function stopConversation(
+  runtime: AgentRuntime,
+  conversationId: number,
+): Promise<{ cancelled: number; aborted: boolean }> {
+  const cancelled = cancelQueuedTurns(conversationId);
+  if (cancelled > 0) {
+    log("feishu", "stop took queued turns out of the line", { conversationId, cancelled });
+    return { cancelled, aborted: false };
+  }
+  const conversation = await runtime.harness.conversation(conversationId as never, context).catch(() => undefined);
+  if (conversation === undefined) return { cancelled: 0, aborted: false };
+  await conversation.abort(context);
+  return { cancelled: 0, aborted: true };
 }
 
 /** The user's own line, one row, clipped: two cards side by side must be tellable apart. */
@@ -1412,6 +1475,20 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     if (slot.queued) {
       card.setStatus("⏸️ 排队中 · 上一条还在跑");
       await slot.wait;
+      if (slot.cancelled()) {
+        // Dropped on purpose: a routine has a next period, so skipping this fire loses nothing.
+        slot.done();
+        await card.finish();
+        await deliverAnswer(
+          chatId,
+          cardId,
+          "这一轮定时任务在排队时被撤掉了，下个周期照常。",
+          "🗑️ 撤销",
+          undefined,
+          { template: "grey", title: "🗑️ 已撤销" },
+        ).catch(() => undefined);
+        return false;
+      }
       card.clearStatus();
     }
 
@@ -1843,10 +1920,22 @@ const continuing = new Set<string>();
       const stopped = await runtime.harness.conversation(target as never, context).catch(() => undefined);
       if (stopped === undefined) return { toast: { type: "error", content: "会话不在了" } };
       // Abort is a request, not an outcome: the run unwinds on its own clock and the settle path
-      // repaints the card as 已中断. Answer the tap now so the button feels pressed.
-      void stopped.abort(context).catch((error: unknown) => logError("feishu", "card stop failed", error));
-      log("feishu", "stop pressed on a card", { conversationId: target });
-      return { toast: { type: "success", content: "已按停止，正在收尾" } };
+      // repaints the card as 已中断. A message still in line is taken out instead — see
+      // stopConversation for why the stop lands on the waiting one.
+      const outcome = await stopConversation(runtime, target).catch((error: unknown) => {
+        logError("feishu", "card stop failed", error);
+        return { cancelled: 0, aborted: false };
+      });
+      log("feishu", "stop pressed on a card", { conversationId: target, ...outcome });
+      return {
+        toast: {
+          type: "success",
+          content:
+            outcome.cancelled > 0
+              ? `已撤销排队的 ${outcome.cancelled} 条，前面那轮继续跑`
+              : "已按停止，正在收尾",
+        },
+      };
     }
 
     if (value["kind"] === "continue") {
@@ -2231,8 +2320,12 @@ const continuing = new Set<string>();
       return;
     }
     if (/^\/(stop|abort|停止|中断)$/i.test(command)) {
-      await conversation.abort(context);
-      await say("已中断当前任务。");
+      const outcome = await stopConversation(runtime, conversation.id as unknown as number);
+      await say(
+        outcome.cancelled > 0
+          ? `已撤销排队的 ${outcome.cancelled} 条消息，前面那轮继续跑。`
+          : "已中断当前任务。",
+      );
       return;
     }
     const modelAsk = /^\/(?:model|模型)(?:\s+([\s\S]*))?$/i.exec(command);
@@ -2547,6 +2640,25 @@ const continuing = new Set<string>();
       // when its own turn starts.
       card.setStatus(`⏸️ 排队中 · 上一条还在跑`);
       await slot.wait;
+      if (slot.cancelled()) {
+        // Stopped lands on the message it was pressed for. This one never ran, so there is nothing
+        // to recover: the card says so and the turn does not touch the conversation.
+        log("feishu", "queued turn cancelled", { chatId, requestId });
+        // Released before painting: the card patch can fail, and a lost patch must not leave every
+        // later message in this chat waiting forever.
+        slot.done();
+        await card.finish();
+        await clearCardPending(runtime.harness, context, requestId).catch(() => {});
+        await deliverAnswer(
+          chatId,
+          cardId,
+          "这条排队时被撤掉了，前面那轮继续跑。要它的话，再发一次。",
+          "🗑️ 撤销",
+          undefined,
+          { template: "grey", title: "🗑️ 已撤销" },
+        );
+        return;
+      }
       card.clearStatus();
     }
 

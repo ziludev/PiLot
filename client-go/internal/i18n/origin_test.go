@@ -80,6 +80,10 @@ func TestOriginDictionaryStillMatches(t *testing.T) {
 		// Ours: archiving a chat is undoable from the toast that says it
 		// happened, and a turn that ended on an error says so on the row.
 		"undo": true, "turnFailed": true, "finished": true,
+		// Ours: a stop pressed while a message waits takes that message out of
+		// the line instead of killing the turn in front, so the toast has to say
+		// which of the two it did.
+		"stopQueued": true,
 	}
 	// Gone: the native client has no merge button. Merging into the main line is
 	// a reviewer's call made where the branch was pushed, so the words that only

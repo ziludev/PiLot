@@ -3,7 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
 import { UsageDoc, type Conversation, type EntryId } from "@earendil-works/pi-durable";
 import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
-import { getFeishuStatus, handleGatewayEvent } from "./feishu.ts";
+import { getFeishuStatus, handleGatewayEvent, stopConversation } from "./feishu.ts";
 import { startTurn } from "./channel.ts";
 import { log, logError } from "./log.ts";
 import { config } from "./config.ts";
@@ -564,10 +564,12 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
 
       if (req.method === "POST" && path === "/api/abort") {
         const body = await readJson(req);
-        const conversation = await resolveConversation(conversationIdOf(body));
+        const conversationId = conversationIdOf(body);
+        const conversation = await resolveConversation(conversationId);
         if (conversation === undefined) return send(res, 404, { error: "no such conversation" });
-        await conversation.abort(context);
-        return send(res, 200, { ok: true });
+        // A waiting message is what the stop is for; nothing waiting, the run gets it.
+        const outcome = await stopConversation(runtime, conversationId as number);
+        return send(res, 200, { ok: true, ...outcome });
       }
 
       if (req.method === "POST" && path === "/api/reset") {

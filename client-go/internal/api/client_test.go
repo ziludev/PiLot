@@ -313,8 +313,15 @@ func TestClientPOST(t *testing.T) {
 			},
 		},
 		{
-			name: "abort", path: "/api/abort", body: `{"conversationId":2}`, reply: `{"ok":true}`,
-			call: func(c *Client) error { return c.Abort(ctx, 2) },
+			name: "abort", path: "/api/abort", body: `{"conversationId":2}`,
+			reply: `{"ok":true,"cancelled":1,"aborted":false}`,
+			call: func(c *Client) error {
+				outcome, err := c.Abort(ctx, 2)
+				if err == nil && outcome.Cancelled != 1 {
+					t.Errorf("cancelled = %d", outcome.Cancelled)
+				}
+				return err
+			},
 		},
 		{
 			name: "reset", path: "/api/reset", body: `{"conversationId":2}`, reply: `{"ok":true}`,
