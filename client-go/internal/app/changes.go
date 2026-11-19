@@ -340,6 +340,14 @@ func (a *App) changesHeader(c *ui.Context, t theme.Tokens) {
 			ui.Icon(c, icons.Clock).Size(11, 11).TextColor(t.MutedFg)
 		})
 		refresh.OnClick(func() { a.refreshChanges() })
+		// The way out of the diff: the files themselves, in the editor the user
+		// already has open for everything else.
+		editor := ui.ButtonBase(c).Size(20, 20).Radius(4).Justify(ui.Center).AlignItems(ui.Center).
+			Cursor(ui.CursorPointer).Tooltip(i18n.T("openInEditor"))
+		editor.Children(func() {
+			ui.Icon(c, icons.Code).Size(11, 11).TextColor(t.MutedFg)
+		})
+		editor.OnClick(func() { a.OpenInEditor() })
 		close := ui.ButtonBase(c).Size(20, 20).Radius(4).Justify(ui.Center).AlignItems(ui.Center).
 			Cursor(ui.CursorPointer)
 		close.Children(func() {

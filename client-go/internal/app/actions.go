@@ -265,6 +265,17 @@ func (a *App) setTheme(mode string) {
 	a.invalidate()
 }
 
+// setSilent switches the banners off or on. Off means no banner at all — the
+// rail's unread dot stays, so nothing is lost, just quieter.
+func (a *App) setSilent(silent bool) {
+	if a.prefs.Silent == silent {
+		return
+	}
+	a.prefs.Silent = silent
+	go savePrefs(a.prefs)
+	a.invalidate()
+}
+
 // retryTurn sends the words that started the failed turn again: the error row
 // is the only place the reader learns a turn never answered, so it should be
 // the place that sends it once more.

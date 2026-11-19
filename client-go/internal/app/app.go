@@ -65,6 +65,13 @@ type App struct {
 	// prefs is what the window keeps between launches: language and theme, which
 	// have no dialog of their own.
 	prefs prefs
+	// notes is what the last snapshot said about the chats nobody is looking at.
+	// It only exists to tell a finished turn from one that finished long ago.
+	notes notifier
+	// banner is where an alert goes. The window hands it to the system; tests
+	// keep it, because whether a banner is right is a question about snapshots,
+	// not about Notification Center.
+	banner func(alert)
 	// dark is the theme the last frame drew with, so a toggle flips what is on
 	// screen rather than what macOS says.
 	dark bool
@@ -174,7 +181,7 @@ func New(cfg Config) *App {
 // newApp is New without the goroutines, for the frames a test draws by hand.
 func newApp(cfg Config) *App {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &App{
+	a := &App{
 		cfg:       cfg,
 		api:       api.New(cfg.BaseURL, cfg.Token),
 		ctx:       ctx,
@@ -191,6 +198,8 @@ func newApp(cfg Config) *App {
 			projection: map[int]projectionCache{},
 		},
 	}
+	a.banner = a.showBanner
+	return a
 }
 
 // Attach gives the app its window, so background work can ask for a repaint.
@@ -674,6 +683,13 @@ func (a *App) applySnapshot(result *snapshotResult) {
 	if result.queued != nil {
 		a.queued = result.queued
 		a.stamp++
+	}
+
+	// Banners read the whole snapshot, so they come after every part of it is
+	// in: a chat whose turn ended is only knowable against both the task list
+	// and the surfaces that name it.
+	for _, al := range a.notes.observe(a.surfaceSnapshot(), a.tasks, a.pending, a.watchingChat) {
+		a.banner(al)
 	}
 
 	if result.ok {

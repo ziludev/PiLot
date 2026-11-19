@@ -41,6 +41,9 @@ func main() {
 		})
 		installMenu(a)
 		a.Attach(win)
+		// A click on a banner lands here, after the window exists: the ID it
+		// carries is the only thing that survives a restart.
+		mygo.App.OnNotificationClick(a.NotificationClicked)
 	})
 
 	if err := mygo.App.Run(); err != nil {

@@ -22,7 +22,10 @@ import (
 // names a patch, a branch and a way back. The point of the ceiling is that it
 // only moves with a reason. 196 keys: the base picker went away, and with it the
 // five strings that asked which branch to measure from — the chip only names it.
-const maxKeys = 196
+// 205 keys: the banners say how a turn ended and what a write wants, and the
+// settings panel grew the switch that silences them, and the changes drawer
+// learned how to hand the checkout to Finder or the editor.
+const maxKeys = 207
 
 func TestDictionariesMatch(t *testing.T) {
 	keys := Keys()
