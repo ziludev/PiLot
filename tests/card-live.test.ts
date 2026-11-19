@@ -31,5 +31,5 @@ test("a card with no thinking says so instead of showing an empty thought", asyn
   // Providers that withhold reasoning send redacted thinking: no words, and no claim either.
   const out = renderLive({ text: "", tools: ["bash"], busy: true } as never);
   assert.equal(out.includes("💭"), false);
-  assert.match(out, /⚙️ bash/);
+  assert.match(out, /⌨️ bash/);
 });
