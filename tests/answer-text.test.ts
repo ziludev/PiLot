@@ -163,10 +163,19 @@ test("the notification line is the first thing worth reading, not the markup", (
   assert.equal(answerHead("- **已修**：审批条"), "已修：审批条");
 });
 
-test("a long first line is cut where a lock screen ends, without losing the marker", () => {
-  const head = answerHead("一".repeat(60));
-  assert.equal(head.length, 41);
-  assert.ok(head.endsWith("…"));
+test("a long first line keeps a whole sentence, and only an endless one gets cut", () => {
+  // Forty characters ended the ping a word into the conclusion, so every report read as truncated.
+  const sentence = "重启后那些蓝着的「处理中」卡片，查了代码发现早就实现了恢复循环，所以这一项不用做。";
+  assert.equal(answerHead(sentence), sentence);
+  // Two sentences fit; three do not, and the cut lands on the sentence end rather than mid-clause.
+  assert.equal(answerHead(sentence + sentence), sentence + sentence);
+  assert.equal(answerHead(sentence.repeat(3)), sentence.repeat(2));
+  // No sentence end and no clause to land on: cut, but say so.
+  const endless = answerHead("一".repeat(200));
+  assert.equal(endless.length, 120);
+  assert.ok(endless.endsWith("…"));
+  // A clause boundary beats an arbitrary character.
+  assert.equal(answerHead(`${"甲".repeat(60)}，${"乙".repeat(120)}`), `${"甲".repeat(60)}…`);
   assert.equal(answerHead(""), "");
   assert.equal(answerHead("---"), "");
 });
