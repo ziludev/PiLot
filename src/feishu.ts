@@ -42,7 +42,7 @@ import {
   moveCard,
   noteCardAttempt,
 } from "./cards.ts";
-import { lookupMessage } from "./threads.ts";
+import { lookupMessage, topicTitle } from "./threads.ts";
 import { readTurnDetails, saveTurnDetails, type TurnDetails } from "./details.ts";
 import { formatDecision, noteDecision, takeDecisions } from "./decisions.ts";
 import { shortRole, spanText, stageLine, subAgentStagesSince } from "./activity.ts";
@@ -2223,10 +2223,16 @@ const continuing = new Set<string>();
         ? message.thread_id
         : undefined;
     const parentMessageId = message.parent_id ?? message.root_id;
+    // The message that opens a topic names it, so the rail reads like the question.
+    const title = topicTitle(text);
     const conversation =
       threadKey === undefined
         ? await runtime.conversationFor(chatId)
-        : await runtime.conversationForThread(chatId, { threadKey, parentMessageId });
+        : await runtime.conversationForThread(chatId, {
+            threadKey,
+            parentMessageId,
+            title: title.length === 0 ? undefined : title,
+          });
     if (isGuestChat) {
       // Memory stays off for the whole conversation (a group is shared), but the write rule is
       // per turn: the owner asking in his own group is still the owner. This also replaces the

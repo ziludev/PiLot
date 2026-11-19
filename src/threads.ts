@@ -19,7 +19,7 @@ const MessageIndex = defineDoc<{
 const ThreadMap = defineDoc<{
   threads: Record<
     string,
-    { conversationId: number; parentConversationId?: number; surfaceId?: string; at: number }
+    { conversationId: number; parentConversationId?: number; surfaceId?: string; title?: string; at: number }
   >;
 }>({
   kind: "app.threads",
@@ -65,10 +65,19 @@ export async function recordThread(
   conversationId: number,
   parentConversationId?: number,
   surfaceId?: string,
+  title?: string,
 ): Promise<void> {
   await harness.commit(async (tx) => {
     const doc = await tx.doc(ThreadMap);
-    doc.threads[threadKey] = { conversationId, parentConversationId, surfaceId, at: Date.now() };
+    // A fork's opening message is the topic's name; later turns must not rename it.
+    const previous = doc.threads[threadKey];
+    doc.threads[threadKey] = {
+      conversationId,
+      parentConversationId: parentConversationId ?? previous?.parentConversationId,
+      surfaceId: surfaceId ?? previous?.surfaceId,
+      title: title ?? previous?.title,
+      at: Date.now(),
+    };
     const keys = Object.keys(doc.threads);
     if (keys.length > MAX_ENTRIES) {
       for (const key of keys.slice(0, keys.length - MAX_ENTRIES)) delete doc.threads[key];
@@ -77,7 +86,7 @@ export async function recordThread(
 }
 
 /** conversationId -> the thread it belongs to, for grouping topics under their chat. */
-export type ThreadInfo = { key: string; parent?: number; surfaceId?: string };
+export type ThreadInfo = { key: string; parent?: number; surfaceId?: string; title?: string };
 
 export async function threadIndex(harness: Harness, context: Context): Promise<Record<string, ThreadInfo>> {
   const doc = await harness.snapshot(ThreadMap, context);
@@ -87,18 +96,29 @@ export async function threadIndex(harness: Harness, context: Context): Promise<R
       key,
       parent: value.parentConversationId,
       surfaceId: value.surfaceId,
+      title: value.title,
     };
   }
   return index;
 }
 
+/** The fork behind a thread key, and the name it was given when it forked (if any). */
 export async function lookupThread(
   harness: Harness,
   context: Context,
   threadKey: string,
-): Promise<number | undefined> {
+): Promise<{ conversationId: number; title?: string } | undefined> {
   const doc = await harness.snapshot(ThreadMap, context);
-  return doc?.threads[threadKey]?.conversationId;
+  const found = doc?.threads[threadKey];
+  return found === undefined ? undefined : { conversationId: found.conversationId, title: found.title };
+}
+
+/**
+ * A topic is named by the message that opened it, so a rail row reads like the
+ * question rather than like `话题 8f1a4d`. One line, no mention, cut short.
+ */
+export function topicTitle(text: string): string {
+  return text.replace(/\s+/g, " ").replace(/^@\s*/, "").trim().slice(0, 32);
 }
 
 /**
