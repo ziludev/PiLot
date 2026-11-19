@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Renders the README lockup: the fox tile the app ships, next to the wordmark the
+# brand came with. The mark is the fox, but the name is still this lettering — so
+# the lockup is one fox + one wordmark, assembled here rather than drawn by hand.
+#
+#   assets/readme/logo.png       navy wordmark, for a light page
+#   assets/readme/logo-dark.png  white wordmark, for a dark page
+#
+# Both 2x and transparent; the README picks between them with <picture>.
+#
+# Inputs: client-go/resources/icon.png (cut from assets/brand/PiLot_fox.jpg by
+# client-go/scripts/render-icon.sh) and the wordmark out of the vector kit.
+# Needs Google Chrome (SVG → PNG) and python3 with Pillow.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+root=$PWD
+CHROME=${CHROME:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}
+[ -x "$CHROME" ] || { echo "no Chrome at $CHROME (set CHROME=)" >&2; exit 1; }
+
+# The wordmark sits at x 409..1081, y 46..241 inside the 1120x288 lockup; a couple
+# of units of slack so the antialiased edges are not clipped.
+BOX="406 43 678 201"
+
+sh client-go/scripts/render-icon.sh >/dev/null
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+# $1 source svg, $2 group to hide (the old five-module symbol), $3 output png
+wordmark() {
+  local src="assets/brand/$1" out="$tmp/$3.png"
+  /usr/bin/python3 - "$src" "$2" "$BOX" "$tmp/$3.svg" <<'PY'
+import re, sys
+src, hide, box, out = sys.argv[1:]
+s = open(src).read()
+s = s.replace('<g id="%s"' % hide, '<g id="%s" display="none"' % hide, 1)
+s = re.sub(r'viewBox="[^"]+"', 'viewBox="%s"' % box, s, 1)
+s = s.replace('width="1120"', '').replace('height="288"', '')
+open(out, 'w').write(s)
+PY
+  "$CHROME" --headless=new --disable-gpu --hide-scrollbars \
+    --force-device-scale-factor=2 --default-background-color=00000000 \
+    --window-size=678,201 --screenshot="$out" "$tmp/$3.svg" >/dev/null 2>&1
+}
+
+wordmark PiLot_brand_master.svg PiLot-symbol wm-color
+wordmark PiLot_monochrome_white.svg PiLot-symbol-shapes wm-white
+
+/usr/bin/python3 - "$tmp" <<'PY'
+import sys
+from PIL import Image
+tmp = sys.argv[1]
+SIZE = 384  # 3.8x the width the README shows it at
+tile = Image.open('client-go/resources/icon.png').convert('RGBA').resize((SIZE, SIZE), Image.LANCZOS)
+gap = round(SIZE * 0.2)      # the spacing the old lockup used
+height = round(SIZE * 0.68)  # and its wordmark height, both as ratios of the symbol
+
+def compose(src, out):
+    wm = Image.open(src).convert('RGBA')
+    wm = wm.crop(wm.split()[-1].getbbox())
+    wm = wm.resize((round(wm.width * height / wm.height), height), Image.LANCZOS)
+    canvas = Image.new('RGBA', (SIZE + gap + wm.width, SIZE), (0, 0, 0, 0))
+    canvas.alpha_composite(tile, (0, 0))
+    canvas.alpha_composite(wm, (SIZE + gap, (SIZE - height) // 2))
+    canvas.save(out, optimize=True)
+    print(out, canvas.size)
+
+compose(f'{tmp}/wm-color.png', 'assets/readme/logo.png')
+compose(f'{tmp}/wm-white.png', 'assets/readme/logo-dark.png')
+PY

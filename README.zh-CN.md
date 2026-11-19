@@ -1,13 +1,20 @@
-# PiLot
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/readme/logo-dark.png">
+    <img alt="PiLot" src="assets/readme/logo.png" width="330">
+  </picture>
+</p>
 
-[English](README.md) · **中文**
+<p align="center"><a href="README.md">English</a> · <strong>中文</strong></p>
 
-*PiLot：一个 Pi，无限可能。*
+<p align="center"><em>PiLot：一个 Pi，无限可能。</em></p>
 
-![Node 22.6+](https://img.shields.io/badge/node-%E2%89%A522.6-informational)
-![平台：macOS](https://img.shields.io/badge/platform-macOS-lightgrey)
-![License: MIT](https://img.shields.io/badge/license-MIT-green)
-![Durable execution](https://img.shields.io/badge/%E6%AF%8F%E8%BD%AE%E4%BB%BB%E5%8A%A1-durable-blueviolet)
+<p align="center">
+  <img alt="Node 22.6+" src="https://img.shields.io/badge/node-%E2%89%A522.6-informational">
+  <img alt="平台：macOS" src="https://img.shields.io/badge/platform-macOS-lightgrey">
+  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green">
+  <img alt="Durable execution" src="https://img.shields.io/badge/%E6%AF%8F%E8%BD%AE%E4%BB%BB%E5%8A%A1-durable-blueviolet">
+</p>
 
 跑在 [Pi Durable](https://earendil.com/posts/pi-durable/) 上的个人助理：飞书里聊、桌面上看、终端里也能用，进程挂了不丢对话。
 
@@ -19,11 +26,11 @@
 - **模型**：`@earendil-works/pi-ai`。默认走本机 magpie 代理（OpenAI 兼容），可换任意内置 provider；模型/思考级别可**逐会话**切换。
 - **存储**：SQLite（`.data/agent.sqlite`），单进程独占，重启原样恢复。
 - **三个入口**：
-  - 飞书自建应用（长连接，不需要公网 IP / 域名 / 证书）
+  - 飞书自建应用（长连接由 `feishu-gw/` 这个独立进程持有，不需要公网 IP / 域名 / 证书）
   - `client-go/`：原生 macOS 桌面 app（Go + mygo/ui，Metal 直绘，无 webview）
   - `durable`：CLI
 
-![三个入口，一个进程，一份 SQLite](assets/readme/architecture.png)
+![三个入口，两个进程，一份 SQLite](assets/readme/architecture.png)
 
 ![一轮的生死：消息落成一个 durable task，工具调用要么直接出答案、要么等审批，循环到卡片收尾；kill -9 之后从最后一个 checkpoint 续跑](assets/readme/turn.png)
 
@@ -50,25 +57,20 @@
 | 目标达成 / 未达成 | 色条上用哪个词由模型自己声明：干了活的一轮在回答前调 `report_done({ met, why })`，`why` 写怎么验证的（跑了什么、看到什么）或卡在哪。没声明就还是普通「答完了」——不声明不等于失败。这份声明卡片读一次、`app.turn-verdicts` 存一次，决策轨迹和早报里都能看到 |
 | 执行详情 | 步骤时间线默认折叠在卡片里（`本轮执行详情 · 5 步 · 62s · $0.0031`），不再单发一条「查看详情」消息；同一面板先列出**决策轨迹**：问了你什么、等了多久、你允许还是拒绝、为什么结束 |
 
-### 运行时间线（参考 Detent UI / ThinkRail 的表达）
+### 运行时间线
 
-一轮回复被拆成可读的步骤，而不是一坨日志：
+一轮回复被拆成可读的步骤，而不是一坨日志。transcript 里一轮只占一行 `⋯ 4 步 · 12s`，点开是每一步是什么：
 
 ```
-▸ 4 个步骤 · 思考 ×1 · 3 次工具调用
-  ▸ ● bash · cd ~/work/example-cli && timeout 90 node dist   ▬▬▬▬───   8.50s
-  ▸ ● bash · python3 - <<'EOF' import json,re …                  ▬──────   2.07s
-  ▸ ● 思考                                                          ─────     —
-
-──── ▬▬▬▬▬▬▬▬  ⚙ 3 次工具调用  # 185.7k  💰 $0.0281  🕐 171s ────
-        ↑ 阶段占比：等你确认（琥珀）/ 思考（蓝）/ 工具（灰）/ 失败（红）
+⋯ 4 步 · 12s
+  bash     cd ~/work/example-cli && timeout 90 node dist
+  bash     python3 - <<'EOF' import json,re …
+  思考
 ```
 
-- 每步 = `工具 · 第一个有意义的参数`，右侧是该步在整轮里的**迷你甘特条**（位置=起始时间，长度=耗时）
-- 轮末是阶段占比条 + 工具数 + token + 花费 + 总时长
-- 「等你确认」的审批等待也会计入（数据来自 `app/approval-waits`），所以"这轮为什么 171 秒"能一眼归因
-- **跑着的时候窗口不会自己看起来停了**：客户端只有一个 `turnState()`（`idle / thinking / tool / streaming / settled`），判定一次、渲染各处读它。工具调用之间没工具在跑、也还没出字，就是 `thinking` 并带着秒数往上走；轮末那条统计条在跑的时候显示 spinner +「运行中」，不是总结
-- **连接状态也是一个显式联合**（`connecting / open / down{reason:error|closed}`），每个 socket 带代数，切会话时旧 socket 迟到的 `onclose` 不会再给新会话盖上"已断开"
+飞书卡片把同一轮折成 `Turn details · 5 步 · 62s · $0.0031`，两个入口数的是同一笔账。等审批的那段算在这个跨度里，所以「12 秒的一轮」其实大半在等你。
+
+跑着的时候窗口不会自己看起来停了：live 行写着当前在跑哪个工具（`正在执行 bash`），答案就在下面流式长出来。这一轮失败的话，错误行上有「重试」，同一段话不用重打。
 
 ### 会话与项目
 
@@ -79,13 +81,7 @@
 
 ### 代码
 
-| | |
-|---|---|
-| 改动面板 | 工作区 diff，逐文件折叠、+/− 着色、一键提交、`--no-ff` 合并回基线 |
-| 提交面板 | 本会话分支相对基线的 commit 列表，展开看 patch，推送后给出 PR/MR 链接（GitHub compare / GitLab MR） |
-| 文件视图 | 点文件名 → 带行号的只读视图 |
-| 评审回路 | 点 diff 行留意见 → 收集 → 一次性发给 agent |
-| 工具输出 | 按形状渲染：JSON 高亮、日志按级别着色、TSV/表格成表、diff 走 diff 视图 |
+每个会话有自己的 worktree（`<project>/.worktrees/conv-<id>`，分支 `agent/conv-<id>`），桥能对工作区做 diff、提交、`--no-ff` 合回基线——`/api/changes`、`/api/git` 就是上一版客户端那两个面板的底座。Go 客户端现在不画这些面板：要 diff 就问一句，或者你自己在终端里看。transcript 里的工具输出就是文本，工具怎么打就怎么显示。
 
 `workspace/` 及每个 project 的 `.worktrees/` 都写进仓库自己的 `.git/info/exclude`，不污染 `git status`，也不动用户的 `.gitignore`。
 
@@ -101,16 +97,16 @@
 
 - 工具：`remember(scope)` / `forget` / `recall`
 - **群专属记忆**（飞书命令，owner 可改，群里所有人受益）：`/memo` 看、`/memo add 本群代号是金刚狼` 加、`/memo del 2` 删第 2 条、`/memo clear` 清空。写的就是该会话的 `chat_memory`，每次回答自动注入；guest 群也能用（只影响本群，不碰全局记忆）
-- **手动整理**：右栏「记忆 → 整理 24h」读最近会话，只产出**建议**（带 scope + 理由），你勾选后才写入；`global` 每次最多 3 条
+- **手动整理**：读最近会话，只产出**建议**（带 scope + 理由），接受后才写入；`global` 每次最多 3 条。接口是 `POST /api/memory/curate`，Go 客户端还没有这个按钮
 - 删除过的记忆进 `app/memory-tombstones`，不会被模型"复活"；去重用字符 bigram 相似度（换说法也能识别）
 
 ### 安全与成本
 
 - **群里也能用 `/allow`**：飞书把 @ 渲染成 `@_user_1` 记号，之前替换成 `@` 后 `/allow` 变成 `@ /allow`，所有斜杠命令在群里都失效（单聊没 @ 所以看不出来）。现在先取到 bot 自己的 open_id，@ 它时整段去掉；找不到身份时命令匹配也会剥掉开头的 @ 前缀
 - **本会话内全部允许**：卡片和客户端都有这个按钮。它按**风险类**（`rm` / `force-push` / `write-outside` / `chmod-777`…）在**当前会话**内记住，存在 `app.session-grants`，重启后仍有效；别的会话、别的风险类照样会问。风险类 key 有单测钉住，"同一个炸点不会被反复问，也不会一次放行所有危险操作"
-- **有审计**：拒绝（guest 越界用工具）、级别变更、审批结果、两个只读查询各记一条，存在 `app.audit`（环形 300 条），`durable audit` 直接看；`durable doctor` 会打印每个会话的级别，桌面端侧栏「权限」页查看同一份数据
+- **有审计**：拒绝（guest 越界用工具）、级别变更、审批结果、两个只读查询各记一条，存在 `app.audit`（环形 300 条），`durable audit` 直接看；`durable doctor` 会打印每个会话的级别
 - **审批**：`guard` hook 拦危险调用（`rm -rf`、`git push --force`、`sudo`、写工作区外…），**卡片发到你的私聊**（不再发在群里，群里只会看到“等主人确认”）；decision 存 durable memo，重启不重问。只有 `FEISHU_ALLOWED_SENDER_IDS` 里的 open_id 能点。**10 分钟没人点按拒绝处理**，和手点拒绝走同一条回调，卡片上写清是超时
-- **同一份待审批**同时出现在飞书卡片和客户端（底部琥珀条），任一处都可决定；**fail closed**（没有审批通道时默认拒绝）
+- **同一份待审批**同时出现在飞书卡片和客户端（审批条替换掉输入框），任一处都可决定；**fail closed**（没有审批通道时默认拒绝）
 - **审批等待**会记录时长并计入该轮时间线
 - **额度**：`pi.usage` 汇总 → 每日上限（`AGENT_DAILY_BUDGET_USD`），超了拒绝新请求，跨天重置
 - **一个群一个级别**：`app.chat-access` 里只有三档——`closed`（不对任何人）/ `owner`（只对你）/ `group`（所有人，guest 待遇）。`.env` 里列的 chat 是 `owner`（只在没存过级别时生效）、`/allow` 和卡片打开的是 `group`。校验、guest 策略、工具面、`/allow` 全读这一个值（以前是 `.env` + `app.allowed-chats` + `app.guest-chats` 三套加一条派生规则）
@@ -159,6 +155,7 @@
 | 键 | 作用 |
 |---|---|
 | `FEISHU_APP_ID`、`FEISHU_APP_SECRET` | 飞书自建应用；缺了飞书桥不启动 |
+| `FEISHU_GW_URL`、`FEISHU_GW_TOKEN` | 桥怎么找到 feishu-gw（默认 `http://127.0.0.1:8788`）以及它认的 token |
 | `FEISHU_ALLOWED_SENDER_IDS` | 谁是主人 —— 必填，也只有这些人能点审批 |
 | `FEISHU_ALLOWED_CHAT_IDS` | 固定成 `owner` 级别的会话（留空则每个会话都从 `closed` 开始） |
 | `AGENT_OWNER_NAME` | 提示词里怎么称呼主人；只影响措辞，不影响权限 |
@@ -218,8 +215,7 @@ go tool mygo build -skip-dmg     # 产出 build/darwin-arm64/PiLot.app
 rsync -a --delete build/darwin-arm64/PiLot.app ~/Applications/   # 然后 open ~/Applications/PiLot.app
 ```
 
-窗口由 mygo/ui 在 Metal 上直绘：没有 webview，也没有前端构建步骤。功能对照、快捷键与旧
-webview 客户端（本次删除）的差异记录见 `client-go/README.md` 与 `client-go/docs`。
+窗口由 mygo/ui 在 Metal 上直绘：没有 webview，没有前端构建步骤，也没有要一起打包的运行时。它对着桥开一条 websocket，飞书那边起的一轮会自己出现在窗口里；窗口里有三块——rail（会话 / 任务）、transcript、composer，审批条来时替换掉输入框。详见 `client-go/README.md`。
 
 ---
 
@@ -251,6 +247,8 @@ durable audit [n]       # 最近 n 条权限决定：谁、哪个会话、什么
 
 ```bash
 ./scripts/agentctl install          # 渲染 plist 并装载（开机自启 + 崩溃重启）
+./scripts/agentctl install-gateway  # 飞书长连接，单独一个进程 :8788
+./scripts/agentctl logs-gateway [n]
 ./scripts/agentctl install-backup   # 每天 04:10 的 sqlite 热备份
 ./scripts/agentctl start|stop|restart|status
 ./scripts/agentctl logs [n]
@@ -261,6 +259,7 @@ durable audit [n]       # 最近 n 条权限决定：谁、哪个会话、什么
 ```
 
 - plist 是模板（`launchd/*.plist.tmpl`），`install` 时渲染实路径，换机器不用手改
+- **两个 launchd job，一份会话状态**：`com.pitta.agent` 跑桥，`com.pitta.agent.feishu-gw` 跑飞书长连接（`logs/feishu-gw.log`，`KeepAlive`，10 秒节流），互相重启不到对方。gateway 挂掉没有任何症状——群里就是不回话，`agentctl status` 是唯一会说出来的地方（`feishu: ok (gateway connected)`）
 - `agentctl` 现在是 Go 程序（`agentctl/`，构建到 `bin/agentctl`），`./scripts/agentctl` 只是转发、并在源码更新时自动重建的 shim：命令和 launchd label 一个没变，只是控制逻辑不再是那个会被引号绊倒的 357 行 shell
 - 备份：`sqlite3 .backup` 热备 → `journal_mode=DELETE` 收成单文件 → 完整性校验 → 保留 14 份；恢复会先停进程、等它真正退出
 - **一份 storage 只能一个进程写**：`openRuntime()` 用 `wx` 独占创建 `.data/agent.owner`（pid），第二个进程直接报错而不是把运行中的会话搞坏。**pid 被系统复用不会挡住启动**：除了 `kill(pid,0)`，还要 `ps -p <pid> -o command=` 里确实是 `node … main.ts` 才认（硬杀或重启后，那个号可能已经归别人；以前这种情况 launchd 会一直重启失败，看起来就是"开机后进程没起来"）
@@ -277,7 +276,8 @@ src/
   main.ts          进程入口（bridge + 飞书 + 优雅退出；harness 失败即退出让 launchd 重启）
   server.ts        本机 HTTP/WS 桥：客户端和 CLI 的唯一入口
   harness.ts       Harness.open、扩展装配、chat↔conversation 映射、project/base 解析
-  feishu.ts        长连接、卡片流式、审批按钮、图片/语音、命令、额度闸门
+  feishu.ts        卡片流式、审批按钮、图片/语音、命令、额度闸门（长连接在 feishu-gw/）
+  feishu-gw.ts     一个走 gateway 的飞书 IM 客户端：发送、回复、改写、取发送人、附件
   cli/main.ts      `durable` 子命令；cli/feishu-check.ts 是飞书侧体检
   personal.ts      人设 / 时间 / 工作区 section
   roles.ts         子 agent 角色：指令 + 工具白名单 + 轮次上限
@@ -313,11 +313,15 @@ src/
 evals/             离线评测台：guard（审批判定）+ contract（config↔.env.example↔README），`npm run eval`
 docs/            只有一页需要细读的：飞书控制台按菜单列，以及每行配错会出现的报错
 
-client-go/        桌面 app（Go + mygo/ui，无 webview）
-  main.go         窗口、菜单、快捷键与系统集成（通知、托盘、深链）
-  internal/app    窗口与视图：会话栏、transcript、composer、模型选择、命令面板、多窗口
-  internal/side   改动 / 文件 / 提交面板      internal/ops  记忆 / 访问 / 用量
-  internal/turns  一轮渲染成什么（idle/thinking/tool/streaming/settled），窗口没有第二套判断
+client-go/        桌面 app（Go + mygo/ui on Metal，无 webview）
+  main.go         窗口、菜单、启动
+  internal/app    rail / transcript / composer / 审批 / 任务页 / 偏好 / 快照
+  internal/api    桥的 HTTP 客户端、WS 订阅（自愈重连）、/api/health
+  internal/bridge 地址、token、agentctl
+  internal/protocol / theme / i18n / icons
+feishu-gw/        飞书长连接单独一个 Go 进程：ack、转发、上传下载
+agentctl/         install / start / stop / logs / doctor / backup 的 Go 实现（bin/agentctl）
+toolbox-go/       编码工具做成 unix socket 上的 Go 服务：bash / read / write / edit
 ```
 
 ---
@@ -355,6 +359,7 @@ npm run eval -- --json        # 一个 envelope，给脚本读
 
 ## 已知限制
 
+- Go 客户端这一版只有 rail / transcript / composer / 审批。上一版客户端里的改动、提交、文件、记忆整理面板都还没有搬回来——桥上的接口还在，少的只是按钮
 - 测试覆盖的是纯逻辑 + 契约（记忆去重、审批注册表、diff 采集、远端链接、危险命令判定、文档与配置对齐），不是端到端；`npm test` 和 `npm run eval` 都是秒级
 - 一轮最多 80 步工具调用（`AGENT_MAX_TURNS`）。到上限不是出错：卡片会写「跑到 N 步上限」并提示回「继续」，transcript 都在，接着说就行。以前默认 40 步，两个真排查任务（SLS/DMS 日志、lark-cli 拉人）都死在这条线上
 - Pi Durable 是 **experimental**，1.x 之间 API 会变；升级前先 `npm run typecheck`。注意 pi-durable 会连带锁死 chord 版本：1.5.1 起 chord v2 成为包根，`Context` 只在 `@earendil-works/chord/context`，从包根 import 会编译失败
