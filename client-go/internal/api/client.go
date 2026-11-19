@@ -290,3 +290,44 @@ func (c *Client) SetModel(ctx context.Context, convID int, ref protocol.ModelRef
 func (c *Client) PatchSurface(ctx context.Context, meta SurfaceMeta) error {
 	return c.post(ctx, "/api/surface-meta", meta, nil)
 }
+
+// Memory is GET /api/memory: the three note lists the memory panel shows. The
+// chat list belongs to one conversation, so the panel asks again when the open
+// chat changes.
+func (c *Client) Memory(ctx context.Context, convID int) (*protocol.Memory, error) {
+	path := "/api/memory"
+	if convID > 0 {
+		path += "?chat=" + strconv.Itoa(convID)
+	}
+	var out protocol.Memory
+	if err := c.get(ctx, path, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// CurateMemory asks the bridge to read the last hours of transcripts and
+// propose memory lines. It is a model call: slow, and the reply says so with
+// its own Error when the pass failed.
+func (c *Client) CurateMemory(ctx context.Context, hours int) (*protocol.Curation, error) {
+	body := struct {
+		Hours int `json:"hours"`
+	}{hours}
+	var out protocol.Curation
+	if err := c.post(ctx, "/api/memory/curate", body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ApplyMemory writes the lines the user kept.
+func (c *Client) ApplyMemory(ctx context.Context, lines []protocol.MemorySuggestion) (*protocol.MemoryApplied, error) {
+	body := struct {
+		Suggestions []protocol.MemorySuggestion `json:"suggestions"`
+	}{lines}
+	var out protocol.MemoryApplied
+	if err := c.post(ctx, "/api/memory/apply", body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

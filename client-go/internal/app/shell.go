@@ -28,6 +28,10 @@ func (a *App) shell(c *ui.Context, t theme.Tokens) {
 		a.railView(c, t)
 		ui.Box(c).Width(1).FillHeight().Background(t.SidebarBorder)
 		a.paneView(c, t)
+		if a.mem.open {
+			ui.Box(c).Width(1).FillHeight().Background(t.SidebarBorder)
+			a.memoryView(c, t)
+		}
 	})
 }
 
@@ -48,6 +52,7 @@ func (a *App) paneHeader(c *ui.Context, t theme.Tokens) {
 			ui.Text(c, surface.Title).FontSize(13).FontWeight(600).TextColor(t.Foreground).MaxLines(1)
 		}
 		ui.Spacer(c)
+		a.memoryToggle(c, t)
 		if !a.online {
 			ui.Icon(c, icons.AlertTriangle).Size(11, 11).TextColor(t.Destructive)
 			ui.Text(c, i18n.T("loadFailed")).FontSize(11).TextColor(t.MutedFg).MaxLines(1)
@@ -58,6 +63,23 @@ func (a *App) paneHeader(c *ui.Context, t theme.Tokens) {
 			retry.OnClick(a.requestRefresh)
 		}
 	})
+}
+
+// memoryToggle is the header's way into the drawer. It sits before the offline
+// warning because a warning pushes it aside when it matters.
+func (a *App) memoryToggle(c *ui.Context, t theme.Tokens) {
+	color := t.MutedFg
+	if a.mem.open {
+		color = t.Foreground
+	}
+	btn := ui.ButtonBase(c).Height(22).Radius(5).Padding(0, 8).Cursor(ui.CursorPointer)
+	if a.mem.open {
+		btn.Background(t.Secondary)
+	}
+	btn.Children(func() {
+		ui.Text(c, i18n.T("memory")).FontSize(11).TextColor(color).MaxLines(1)
+	})
+	btn.OnClick(a.toggleMemory)
 }
 
 // queueRows is how many waiting messages the strip spells out; past that it

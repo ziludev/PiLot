@@ -10,12 +10,10 @@
 
 | 缺的 | 第一版怎么做的 | 接口 | mygo 原语 |
 | --- | --- | --- | --- |
-| 会话菜单：重命名 / 归档 / 清理 worktree | `ChatMenu.tsx`（未合并的分支拒绝并提示） | `POST /api/surface-meta`、`POST /api/worktree/remove` | `ui.Popover` + `ui.MenuBase` + `ui.Modal` |
-| 跨会话搜索 | `SearchBox.tsx` 提交走 `/api/search`，列命中、点进会话 | `GET /api/search` | 列表 + 防抖 |
+| 会话菜单里的「清理 worktree」 | `ChatMenu.tsx`（未合并的分支拒绝并提示） | `POST /api/worktree/remove` | 现在重命名 / 归档直接进 `button.Menu`，加一项即可 |
 | 改动 / 文件 / 提交 / 合并 / 项目栏 | `SidePanel.tsx` + `side/*.go` | `/api/changes`、`/api/git/diff`、`/api/file`、`/api/git`、`/api/commit`、`/api/git/push`、`/api/merge`、`/api/git/base`、`/api/projects` | `ui.Split` 右栏 + `ui.Tabs` + 折叠卡片 |
 | 任务详情对话框 + 用量日历 | `TaskDialog.tsx`、`UsageCalendar.tsx` | `GET /api/tasks`、`POST /api/task/cancel`、`GET /api/usage-calendar` | `ui.Modal`、`ui.Table` |
 | 权限页 | `AccessPanel.tsx` | `GET /api/access`、`/api/audit` | `ui.Segmented` 过滤 + 表格 |
-| 记忆整理 | `SidePanel.tsx` 的 memory 标签 | `GET /api/memory`、`POST /api/memory/curate`、`POST /api/memory/apply` | `ui.Tabs` + 勾选行 |
 | 会话内查找 ⌘F | `ConvSearch.tsx`（上一个/下一个命中） | 无（本地） | `ui.FindBar` |
 | 消息级操作：复制 / 编辑重发 / 复制整段 | `Transcript.tsx` 的 hover 动作条 | 无 | 行尾小图标 |
 | 拖拽排序 / 置顶 | `Rail.tsx` + `prefs.Order/Pinned` | 无（本地） | `ui.List` 的 `Reorder` |
@@ -31,5 +29,8 @@
   输出时不要改折叠结构，只在展开后的内容里分派。
 - **rail 的分区是 `rows.go` 的 `chatSections` + `prefs.Sections`**。新的分区（比如「已归档」）照抄这套，
   默认折叠、点分区头开合、选过的状态进 `~/.pitta/window.json`。
-- **中文界面默认**，文案都走 `internal/i18n/dict.go`，zh 与 en 两套一起加；`i18n` 测试钉着键数上限，
-  加键前先看还有多少余量。
+- **中文界面默认**，文案都走 `internal/i18n/dict.go`，zh 与 en 两套一起加；`i18n` 测试钉着键数上限
+  （现在 95 = 上限），加键就抬上限并在 `maxKeys` 上写清是哪一块加的。
+- **记忆抽屉是右栏，不是 rail 的分区**（`internal/app/memory.go`）：记忆是句子，260 点的 rail 会把它们
+  折成一团。它跟着打开的会话走（`selectConversation` 里重读 chat 那一档），整理是一轮模型调用，所以
+  按钮上写着在跑、失败也照实说。

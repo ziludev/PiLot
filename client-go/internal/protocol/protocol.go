@@ -401,6 +401,23 @@ type MemorySuggestion struct {
 	Reason string `json:"reason"`
 }
 
+// Curation is the reply of /api/memory/curate: what the model read and what it
+// proposes. Error carries a failed pass in a 200, because a curation that finds
+// nothing is not an error.
+type Curation struct {
+	Suggestions []MemorySuggestion `json:"suggestions"`
+	Scanned     int                `json:"scanned"`
+	Tokens      int                `json:"tokens"`
+	Error       string             `json:"error"`
+}
+
+// MemoryApplied is the reply of /api/memory/apply: how many lines landed and
+// how many the bridge already had.
+type MemoryApplied struct {
+	Added   int `json:"added"`
+	Skipped int `json:"skipped"`
+}
+
 // UsageDay is one cell of the usage calendar.
 type UsageDay struct {
 	Date   string  `json:"date"`
