@@ -38,7 +38,7 @@ func fixtureApp(t *testing.T, pending bool) *App {
 	a.vm.unread[12] = true
 
 	a.tasks = []protocol.Task{
-		{ID: 1084, Title: "Follow up on the review thread", State: "working", Until: now.Add(20 * time.Minute).UnixMilli()},
+		{ID: 1084, Title: "Follow up on the review thread", State: "working", Until: now.Add(20 * time.Minute).UnixMilli(), Spend: &protocol.TaskSpend{Cost: 0.031, Tokens: 12043}},
 		{ID: 1091, Title: "Wait for the nightly build", State: "waiting", Until: now.Add(4 * time.Hour).UnixMilli()},
 		{ID: 1102, Title: "Digest the deploy notes", State: "sleeping", Until: now.Add(26 * time.Hour).UnixMilli()},
 	}
