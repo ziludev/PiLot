@@ -22,7 +22,7 @@ import { chooseName } from "./identity.ts";
 import { titleExtension } from "./title.ts";
 import { contextGuardExtension } from "./context-guard.ts";
 import { ChatMemory, GlobalMemory, memoryExtension, type Note } from "./memory.ts";
-import type { ToolStep } from "./details.ts";
+import { stepHint, type ToolStep } from "./details.ts";
 import { answerBlocksInTx, answerTextInTx, type AnswerBlock } from "./answer.ts";
 import { reminderExtension } from "./reminders.ts";
 import { routineExtension } from "./routines.ts";
@@ -544,7 +544,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
       undefined,
       context,
     );
-    const calls = new Map<string, string>();
+    const calls = new Map<string, { name: string; hint: string }>();
     const steps: ToolStep[] = [];
     for (const entry of page.items) {
       const messages = (entry.model ?? []) as unknown as Array<Record<string, unknown>>;
@@ -554,7 +554,8 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
         if (role === "assistant" && Array.isArray(content)) {
           for (const part of content as Array<Record<string, unknown>>) {
             if (part["type"] === "toolCall" && typeof part["id"] === "string" && typeof part["name"] === "string") {
-              calls.set(part["id"], part["name"]);
+              const args = part["arguments"] ?? part["input"];
+              calls.set(part["id"], { name: part["name"], hint: stepHint(part["name"], args) });
             }
           }
         } else if (role === "toolResult") {
@@ -567,9 +568,12 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
             .join("")
             .replace(/\s+/g, " ")
             .trim();
+          const called = calls.get(callId);
+          const name = typeof message["toolName"] === "string" ? message["toolName"] : (called?.name ?? "tool");
           steps.push({
-            name: typeof message["toolName"] === "string" ? message["toolName"] : calls.get(callId) ?? "tool",
+            name,
             ok: message["isError"] !== true,
+            hint: called === undefined ? stepHint(name, undefined) : called.hint,
             preview: text.slice(0, 240),
           });
         }
