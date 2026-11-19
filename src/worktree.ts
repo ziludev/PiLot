@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -87,6 +87,85 @@ export async function removeWorktree(
     logError("worktree", `could not remove worktree ${conversationId}`, error);
     return { status: "error", message: (error as Error).message };
   }
+}
+
+export type ReclaimResult = {
+  removed: { conversationId: number; branch: string }[];
+  kept: { conversationId: number; branch: string; reason: "unmerged" | "dirty" | "unknown"; detail?: string }[];
+  /** Why nothing was looked at, when the repo itself was the problem. */
+  skipped?: "no-base";
+};
+
+/**
+ * Drops the checkouts of conversations that no longer exist. Nothing deletes them on
+ * purpose — the storage can be reset, migrated, or lose rows while `.worktrees` stays
+ * on disk — so a boot is the only place that can notice.
+ *
+ * It only ever removes work that is already in the base branch and clean: an orphan
+ * with unmerged commits or uncommitted files is someone's work, and a sweep is not
+ * allowed to be the thing that loses it. Those are kept and logged instead.
+ */
+export async function reclaimWorktrees(
+  repoRoot: string,
+  live: Set<number>,
+  options: { base?: string } = {},
+): Promise<ReclaimResult> {
+  const root = join(repoRoot, ".worktrees");
+  if (!existsSync(root)) return { removed: [], kept: [] };
+  const base = (options.base ?? (await git(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "")).trim());
+  // Detached HEAD has no name to compare against, and `HEAD..branch` is not a range.
+  if (base === "" || base === "HEAD") return { removed: [], kept: [], skipped: "no-base" };
+
+  const removed: ReclaimResult["removed"] = [];
+  const kept: ReclaimResult["kept"] = [];
+  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const match = /^conv-(\d+)$/.exec(entry.name);
+    if (match === null) continue;
+    const conversationId = Number(match[1]);
+    if (live.has(conversationId)) continue;
+
+    const target = worktreePaths(repoRoot, conversationId);
+    const ahead = await git(repoRoot, ["rev-list", "--count", `${base}..${target.branch}`])
+      .then((out) => Number(out.trim()))
+      .catch(() => undefined);
+    if (ahead === undefined || !Number.isFinite(ahead)) {
+      kept.push({ conversationId, branch: target.branch, reason: "unknown", detail: `no branch ${target.branch}` });
+      continue;
+    }
+    if (ahead > 0) {
+      kept.push({ conversationId, branch: target.branch, reason: "unmerged", detail: `${ahead} commit(s)` });
+      continue;
+    }
+    const dirty = await git(target.dir, ["status", "--porcelain"]).catch(() => undefined);
+    if (dirty === undefined || dirty.trim().length > 0) {
+      kept.push({
+        conversationId,
+        branch: target.branch,
+        reason: "dirty",
+        detail: dirty === undefined ? "could not read status" : `${dirty.trim().split("\n").length} file(s)`,
+      });
+      continue;
+    }
+    try {
+      // No --force: the two checks above say it is safe, and if git disagrees it should say so.
+      await git(repoRoot, ["worktree", "remove", target.dir]);
+      await git(repoRoot, ["branch", "-D", target.branch]).catch(() => "");
+      removed.push({ conversationId, branch: target.branch });
+    } catch (error) {
+      kept.push({ conversationId, branch: target.branch, reason: "unknown", detail: (error as Error).message });
+    }
+  }
+  await git(repoRoot, ["worktree", "prune"]).catch(() => "");
+  if (removed.length > 0 || kept.length > 0) {
+    log("worktree", "reclaimed orphaned checkouts", {
+      repoRoot,
+      removed: removed.map((item) => item.conversationId),
+      kept: kept.map((item) => `${item.conversationId}:${item.reason}`),
+    });
+  }
+  return { removed, kept };
 }
 
 type MergeResult =
