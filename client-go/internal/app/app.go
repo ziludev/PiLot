@@ -121,6 +121,9 @@ type App struct {
 	// last four months cost.
 	detail taskDetailPanel
 	usage  usagePanel
+	// write is the commit / push / merge the drawer offers and what the last
+	// one answered.
+	write writePanel
 }
 
 type viewModel struct {
@@ -255,6 +258,8 @@ const (
 	evUsage
 	// A file's text, for the preview beside a patch.
 	evFile
+	// A write on the worktree: its commit, its push, its merge.
+	evWrite
 )
 
 type event struct {
@@ -291,6 +296,9 @@ type event struct {
 	path      string
 	fileText  string
 	truncated bool
+	// A write's answer: which one, whether it went well, and what to read.
+	writeKind writeKind
+	writeBad  bool
 	usage     []api.UsageDay
 	err       error
 }
@@ -627,6 +635,8 @@ func (a *App) apply(ev event) {
 		a.applyUsage(ev.seq, ev.usage, ev.err)
 	case evFile:
 		a.applyFileText(ev.convID, ev.path, ev.fileText, ev.truncated, ev.err)
+	case evWrite:
+		a.applyWrite(ev.convID, ev.writeKind, ev.text, ev.writeBad)
 	}
 }
 
@@ -845,6 +855,7 @@ func (a *App) View(c *ui.Context) {
 	a.settingsDialog(c, t)
 	a.taskDetailDialog(c, t)
 	a.usageDialog(c, t)
+	a.writeDialog(c, t)
 }
 
 // fingerprint of an entry, for deciding whether a frame carried a new version.

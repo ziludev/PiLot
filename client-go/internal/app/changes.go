@@ -46,11 +46,15 @@ type changesPanel struct {
 	busy   bool
 	failed string
 
-	branch    string
-	workspace string
-	files     []protocol.FileChange
-	patch     string
-	truncated bool
+	branch string
+	// base and remote are what the write verbs would act on: where a merge
+	// lands, and whether there is anything to push to.
+	base       string
+	remoteKind string
+	workspace  string
+	files      []protocol.FileChange
+	patch      string
+	truncated  bool
 
 	// openFile is the file whose patch fills the drawer, "" for the list.
 	openFile string
@@ -170,6 +174,8 @@ func (a *App) applyGit(convID int, git *protocol.Git, err error) {
 	if git.Branch != "" {
 		a.changes.branch = git.Branch
 	}
+	a.changes.base = git.Base
+	a.changes.remoteKind = git.Remote.Kind
 }
 
 // openChangeFile shows one file's patch.
@@ -284,8 +290,10 @@ func (a *App) changesView(c *ui.Context, t theme.Tokens) {
 			a.diffView(c, t)
 		case a.changes.tab == 1:
 			a.commitsBody(c, t)
+			a.writeFooter(c, t)
 		default:
 			a.changesBody(c, t)
+			a.writeFooter(c, t)
 		}
 	})
 }
