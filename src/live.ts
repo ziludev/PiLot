@@ -78,6 +78,19 @@ function readLive(view: unknown): LiveSnapshot {
   };
 }
 
+/**
+ * Whether a run is in flight right now — one read, no subscription.
+ *
+ * The difference between "this message joins what is running" and "this message starts something"
+ * is the whole point of steering, and it has to be decided before submitting, not after.
+ */
+export async function runInFlight(conversation: Conversation): Promise<boolean> {
+  const watch = await conversation.watch(context);
+  const busy = readLive(watch.value).busy;
+  await watch.stop();
+  return busy;
+}
+
 type LiveWatcher = { stop(): Promise<void> };
 
 /**
