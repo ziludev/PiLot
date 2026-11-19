@@ -1,5 +1,6 @@
-import { readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { spawn } from "node:child_process";
+import { readdir, readFile, rm } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import * as Lark from "@larksuiteoapi/node-sdk";
 import { UsageDoc } from "@earendil-works/pi-durable";
@@ -104,6 +105,29 @@ export function writtenByApp(
   if (sender?.sender_type !== "app") return false;
   if (appId.length > 0 && sender.id === appId) return true;
   return botOpenId !== undefined && sender.open_bot_id === botOpenId;
+}
+
+/**
+ * What the gateway poll should do next. Pure, because the interesting behaviour only shows up
+ * after ten misses at thirty seconds each — five minutes of a silent bot — and a test should not
+ * take five minutes.
+ *
+ * `alert` fires once on the way down and again every half hour; `recovered` fires exactly once,
+ * on the first healthy answer after an alert.
+ */
+export function gatewayWatchStep(
+  state: { misses: number; alertedAt: number },
+  healthy: boolean,
+  now: number,
+  limits = { missesBeforeAlert: 10, alertAgainMs: 30 * 60_000 },
+): { state: { misses: number; alertedAt: number }; act: "none" | "alert" | "recovered" } {
+  if (healthy) {
+    return { state: { misses: 0, alertedAt: 0 }, act: state.alertedAt !== 0 ? "recovered" : "none" };
+  }
+  const misses = state.misses + 1;
+  const quiet = state.alertedAt !== 0 && now - state.alertedAt < limits.alertAgainMs;
+  if (misses < limits.missesBeforeAlert || quiet) return { state: { misses, alertedAt: state.alertedAt }, act: "none" };
+  return { state: { misses, alertedAt: now }, act: "alert" };
 }
 
 /**
@@ -2815,28 +2839,91 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
     // token in every screenshot of the log.
     const endpoint = gatewayEndpoint();
     log("feishu", "transport go: events arrive from feishu-gw", { url: endpoint.url });
-    // Ready is the gateway's word, not ours: a connection can be open while Feishu routes nothing
-    // to it, which is why the gateway reports `connected` and `ready` separately.
-    setInterval(() => {
-      void fetch(`${endpoint.url}/healthz`, { signal: AbortSignal.timeout(5_000) })
-        .then(async (response) => (await response.json()) as { ready?: boolean; dropped?: number })
-        .then((health) => {
-          const ready = health.ready === true;
-          if (!ready && feishuStatus.ready) {
-            feishuStatus.flaps += 1;
-            feishuStatus.since = Date.now();
-          }
-          if (ready && !feishuStatus.ready) feishuStatus.since = Date.now();
-          feishuStatus.ready = ready;
-          if ((health.dropped ?? 0) > 0) {
-            feishuStatus.lastError = `feishu-gw dropped ${health.dropped} event(s)`;
-          }
-        })
-        .catch((error: unknown) => {
-          feishuStatus.ready = false;
-          feishuStatus.lastError = (error as Error)?.message ?? String(error);
+
+    /**
+     * A message that reaches the owner even when the gateway cannot: the SDK's HTTP client is a
+     * different path to the same app, so it keeps working while the gateway is the broken thing.
+     */
+    const tellOwnerDirect = async (text: string): Promise<void> => {
+      const chat = await ownerChatId(runtime.harness, context).catch(() => undefined);
+      if (chat === undefined) return;
+      const response = await larkClient().im.message.create({
+        params: { receive_id_type: "chat_id" },
+        data: { receive_id: chat, msg_type: "text", content: JSON.stringify({ text }) },
+      });
+      if ((response?.code ?? 0) !== 0) throw new Error(response?.msg ?? "direct send refused");
+    };
+
+    /**
+     * Restart the gateway process without knowing its label: the plist in LaunchAgents is the
+     * record of what it was installed as. A gateway can hold a connection Feishu routes nothing
+     * to (seen while bringing this up), and only a fresh process re-subscribes.
+     */
+    const kickGateway = async (): Promise<string> => {
+      const dir = join(homedir(), "Library", "LaunchAgents");
+      const plist = (await readdir(dir).catch(() => [] as string[])).find((name) => name.endsWith("feishu-gw.plist"));
+      if (plist === undefined) return "no launchd job found";
+      const label = plist.replace(/\.plist$/, "");
+      return await new Promise<string>((resolve) => {
+        const child = spawn("launchctl", ["kickstart", "-k", `gui/${process.getuid?.() ?? 501}/${label}`], {
+          stdio: "ignore",
         });
-    }, 30_000).unref();
+        child.on("error", (error) => resolve(`kickstart failed: ${error.message}`));
+        child.on("exit", (code) => resolve(code === 0 ? `kickstart ${label}` : `kickstart exited ${code}`));
+      });
+    };
+
+    let watch = { misses: 0, alertedAt: 0 };
+    /**
+     * The watchdog watches the *connection*, not the traffic. A gateway that is connected and quiet
+     * is what a normal evening looks like — and after every restart it is quiet until the next
+     * message arrives, which is exactly when an alert would be wrong. `ready` (connected *and* has
+     * received something) still drives status; silence beyond that is reported, never alerted on.
+     */
+    const pollGateway = async (): Promise<void> => {
+      let healthy = false;
+      let why = "";
+      try {
+        const response = await fetch(`${endpoint.url}/healthz`, { signal: AbortSignal.timeout(5_000) });
+        const health = (await response.json()) as { connected?: boolean; ready?: boolean; dropped?: number };
+        healthy = health.connected === true;
+        why = "网关在跑，但连不上飞书";
+        const ready = health.ready === true;
+        if (ready && !feishuStatus.ready) feishuStatus.since = Date.now();
+        if (!ready && feishuStatus.ready) {
+          feishuStatus.flaps += 1;
+          feishuStatus.since = Date.now();
+        }
+        feishuStatus.ready = ready;
+        if (!healthy) feishuStatus.lastError = "feishu-gw is up but not connected to Feishu";
+        else if (!ready) feishuStatus.lastError = "feishu-gw connected, nothing received yet";
+        if ((health.dropped ?? 0) > 0) {
+          feishuStatus.lastError = `feishu-gw dropped ${health.dropped} event(s)`;
+        }
+      } catch (error) {
+        why = `网关进程没应答（${endpoint.url}）`;
+        if (feishuStatus.ready) feishuStatus.since = Date.now();
+        feishuStatus.ready = false;
+        feishuStatus.lastError = (error as Error)?.message ?? String(error);
+      }
+      const step = gatewayWatchStep(watch, healthy, Date.now());
+      watch = step.state;
+      if (step.act === "alert") {
+        const minutes = Math.max(1, Math.round((Date.now() - feishuStatus.since) / 60_000));
+        logError("feishu", `feishu-gw not ready for ${minutes}min (${why})`, undefined);
+        const outcome = await kickGateway().catch((error: unknown) => `kickstart failed: ${String(error)}`);
+        log("feishu", `gateway restart attempted: ${outcome}`);
+        await tellOwnerDirect(
+          `⚠️ 飞书网关失联约 ${minutes} 分钟\n` +
+            `收不到新消息，也发不出去（${why}）。\n` +
+            `已尝试重启网关：${outcome}。若这条之后仍无动静，手动跑 ./scripts/agentctl status。`,
+        ).catch((error: unknown) => logError("feishu", "could not report gateway outage", error));
+      } else if (step.act === "recovered") {
+        log("feishu", "feishu-gw is ready again");
+        await tellOwnerDirect("✅ 飞书网关恢复了，消息收发正常。").catch(() => {});
+      }
+    };
+    setInterval(() => void pollGateway(), 30_000).unref();
   } else {
     const loggerLevel =
       (process.env.FEISHU_LOG_LEVEL ?? "info") === "debug" ? Lark.LoggerLevel.debug : Lark.LoggerLevel.info;
