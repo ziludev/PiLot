@@ -203,6 +203,10 @@ func head(hash string) string {
 func (a *App) writeFooter(c *ui.Context, t theme.Tokens) {
 	ui.Box(c).FillWidth().Height(1).Background(t.Border)
 	ui.Column(c).FillWidth().Padding(8, 12).Gap(6).Children(func() {
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
+			a.baseChip(c, t)
+			ui.Spacer(c)
+		})
 		ui.Row(c).FillWidth().Gap(6).Children(func() {
 			a.writeButton(c, t, writeCommit, i18n.T("commitAction"), true)
 			a.writeButton(c, t, writePush, i18n.T("pushAction"), false)
