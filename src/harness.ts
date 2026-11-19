@@ -48,7 +48,7 @@ import { acquireStorageLock } from "./storage-lock.ts";
 import { startToolbox, codingToolsFromToolbox } from "./toolbox/index.ts";
 import type { Toolbox } from "./toolbox/client.ts";
 import { ensureRepo } from "./changes.ts";
-import { ensureWorktree } from "./worktree.ts";
+import { ensureWorktree, reclaimWorktrees, type ReclaimResult } from "./worktree.ts";
 import { gitBranchOf } from "./git-info.ts";
 import {
   addProject,
@@ -115,6 +115,8 @@ export type AgentRuntime = {
   conversationFor(surfaceId: string): Promise<Conversation>;
   /** Maps a conversation back to its surface, so approvals and reminders can route. */
   attachSurface(conversationId: number): Promise<void>;
+  /** Drops checkouts whose conversation is gone, keeping anything not already merged. */
+  reclaimOrphans(): Promise<ReclaimResult>;
   /** Creates a fresh conversation for a surface (client "new chat"). */
   newConversation(surfaceId: string, projectId?: string, base?: string): Promise<Conversation>;
   /** Compare/merge base for a conversation, defaulting to the project's HEAD. */
@@ -585,11 +587,33 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
 
   log("agent", `mcp: ${mcp.serverCount} servers, ${mcp.toolCount} tools`);
 
+  /**
+   * A conversation that is gone leaves its checkout behind: no code path deletes one, so
+   * a reset or migrated storage quietly strands `.worktrees/conv-N`. The boot sweep is
+   * the only thing that can tell the difference between "still in use" and "nobody will
+   * ever open this again", and it may only drop what the base branch already has.
+   */
+  async function reclaimOrphans(): Promise<ReclaimResult> {
+    const empty: ReclaimResult = { removed: [], kept: [] };
+    if (config.worktree === "off") return empty;
+    const mapping = await harness.snapshot(ChatsToken, context).catch(() => undefined);
+    const live = new Set(Object.values(mapping?.chats ?? {}).map((id) => Number(id)));
+    const removed: ReclaimResult["removed"] = [];
+    const kept: ReclaimResult["kept"] = [];
+    for (const project of await listProjects(harness, context)) {
+      const result = await reclaimWorktrees(project.path, live).catch(() => empty);
+      removed.push(...result.removed);
+      kept.push(...result.kept);
+    }
+    return { removed, kept };
+  }
+
   const runtime: AgentRuntime = {
     toolbox,
     harness,
     conversationFor,
     attachSurface,
+    reclaimOrphans,
     newConversation,
     baseBranchOf,
     originBranchOf,

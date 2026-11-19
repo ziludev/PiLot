@@ -16,6 +16,23 @@ console.log(
   `[agent] model=${config.model.provider}/${config.model.modelId} workspace=${config.workspace} db=${config.dbPath}`,
 );
 
+// Checkouts of conversations that no longer exist: nothing removes them on purpose, so
+// the boot is where they get noticed. Work that is not in the base branch stays put.
+await runtime
+  .reclaimOrphans()
+  .then((result) => {
+    if (result.removed.length > 0) {
+      console.log(`[agent] reclaimed ${result.removed.length} orphaned worktree(s): ${result.removed.map((item) => item.conversationId).join(", ")}`);
+    }
+    for (const item of result.kept) {
+      console.log(`[agent] kept worktree of deleted conversation ${item.conversationId}: ${item.reason} (${item.detail ?? ""})`);
+    }
+  })
+  .catch((error: unknown) => {
+    // A sweep that cannot run must not cost the boot; the worktrees stay as they are.
+    console.error("[agent] could not reclaim orphaned worktrees", error);
+  });
+
 // Local client bridge: the desktop app is just another watcher on the same storage.
 const server = await startAgentServer(runtime);
 
