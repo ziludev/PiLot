@@ -50,6 +50,8 @@ var zh = map[string]string{
 	"approvalFailed": "审批失败",
 	"morePending":    "还有 {n} 条",
 
+	"themeDark":       "切到深色",
+	"themeLight":      "切到浅色",
 	"newChat":         "新会话",
 	"attachImageMenu": "添加图片…",
 	"restartAgent":    "重启 agent",
@@ -104,6 +106,8 @@ var en = map[string]string{
 	"approvalFailed": "Couldn't answer the approval",
 	"morePending":    "{n} more",
 
+	"themeDark":       "Switch to dark",
+	"themeLight":      "Switch to light",
 	"newChat":         "New chat",
 	"attachImageMenu": "Attach image…",
 	"restartAgent":    "Restart agent",
