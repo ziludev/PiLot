@@ -280,6 +280,14 @@ export function bodyElements(markdown: string): Array<Record<string, unknown>> {
   return elements.length > 0 ? elements : [{ tag: "markdown", content: markdown }];
 }
 
+/**
+ * Card JSON **2.0**, and every card goes through here.
+ *
+ * The detail block is a `collapsible_panel`, which only exists in 2.0 — in a 1.0 card the client
+ * prints 「请升级至最新版本客户端，以查看内容」 in its place, so the steps of a turn were invisible
+ * on every answer card. 2.0 also *forbids* `note` and `action` (the API answers 200861), so the
+ * meta line is a notation-size markdown and the buttons sit in a `column_set`.
+ */
 function card(
   markdown: string,
   meta?: string,
@@ -292,25 +300,34 @@ function card(
     elements.push(detailPanel(details));
   }
   if (meta !== undefined) {
-    elements.push({ tag: "note", elements: [{ tag: "plain_text", content: meta }] });
+    elements.push({ tag: "markdown", content: meta, text_size: "notation" });
   }
   if (buttons !== undefined && buttons.length > 0) {
     elements.push({
-      tag: "action",
-      actions: buttons.map((button) => ({
-        tag: "button",
-        text: { tag: "plain_text", content: button.label },
-        type: button.type ?? "default",
-        value: button.value,
+      tag: "column_set",
+      flex_mode: "flow",
+      horizontal_spacing: "8px",
+      columns: buttons.map((button) => ({
+        tag: "column",
+        width: "auto",
+        elements: [
+          {
+            tag: "button",
+            text: { tag: "plain_text", content: button.label },
+            type: button.type ?? "default",
+            value: button.value,
+          },
+        ],
       })),
     });
   }
   return {
-    config: { wide_screen_mode: true, update_multi: true },
+    schema: "2.0",
+    config: { update_multi: true, width_mode: "fill" },
     ...(header === undefined
       ? {}
       : { header: { template: header.template, title: { tag: "plain_text", content: header.title } } }),
-    elements,
+    body: { elements },
   };
 }
 
@@ -328,46 +345,56 @@ function renderDetails(details: TurnDetails): string {
 }
 
 export function approvalCard(request: ApprovalRequest): Record<string, unknown> {
+  const buttons: Array<Record<string, unknown>> = [
+    {
+      tag: "button",
+      text: { tag: "plain_text", content: "允许" },
+      type: "primary",
+      value: { approval: request.callId, ok: true },
+    },
+    // One chat deliberately writing outside the workspace should not raise this
+    // card per file: grant the class for the rest of the conversation.
+    ...(request.grantKey === undefined
+      ? []
+      : [
+          {
+            tag: "button",
+            text: { tag: "plain_text", content: "本会话内全部允许" },
+            type: "default",
+            value: { approval: request.callId, ok: true, session: true, key: request.grantKey },
+          },
+        ]),
+    {
+      tag: "button",
+      text: { tag: "plain_text", content: "拒绝" },
+      type: "danger",
+      value: { approval: request.callId, ok: false },
+    },
+  ];
   return {
-    config: { wide_screen_mode: true, update_multi: true },
+    schema: "2.0",
+    config: { update_multi: true, width_mode: "fill" },
     header: {
       template: "orange",
       title: { tag: "plain_text", content: "⚠️ 需要你确认" },
     },
-    elements: [
-      { tag: "markdown", content: `**${request.tool}** — ${request.reason}` },
-      { tag: "markdown", content: "```\n" + request.summary.slice(0, 1200) + "\n```" },
-      { tag: "note", elements: [{ tag: "plain_text", content: `${Math.round(request.timeoutMs / 1000)}s 内不选则视为拒绝` }] },
-      {
-        tag: "action",
-        actions: [
-          {
-            tag: "button",
-            text: { tag: "plain_text", content: "允许" },
-            type: "primary",
-            value: { approval: request.callId, ok: true },
-          },
-          // One chat deliberately writing outside the workspace should not raise this
-          // card per file: grant the class for the rest of the conversation.
-          ...(request.grantKey === undefined
-            ? []
-            : [
-                {
-                  tag: "button",
-                  text: { tag: "plain_text", content: "本会话内全部允许" },
-                  type: "default",
-                  value: { approval: request.callId, ok: true, session: true, key: request.grantKey },
-                },
-              ]),
-          {
-            tag: "button",
-            text: { tag: "plain_text", content: "拒绝" },
-            type: "danger",
-            value: { approval: request.callId, ok: false },
-          },
-        ],
-      },
-    ],
+    body: {
+      elements: [
+        { tag: "markdown", content: `**${request.tool}** — ${request.reason}` },
+        { tag: "markdown", content: "```\n" + request.summary.slice(0, 1200) + "\n```" },
+        {
+          tag: "markdown",
+          content: `${Math.round(request.timeoutMs / 1000)}s 内不选则视为拒绝`,
+          text_size: "notation",
+        },
+        {
+          tag: "column_set",
+          flex_mode: "flow",
+          horizontal_spacing: "8px",
+          columns: buttons.map((button) => ({ tag: "column", width: "auto", elements: [button] })),
+        },
+      ],
+    },
   };
 }
 
