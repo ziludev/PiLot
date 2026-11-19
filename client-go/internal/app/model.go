@@ -9,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"pitta/internal/i18n"
+	"pitta/internal/icons"
 	"pitta/internal/protocol"
 	"pitta/internal/theme"
 )
@@ -28,7 +29,13 @@ type modelPick struct {
 	focus  bool
 	filter string
 	seen   string
-	sel    int
+	// sel indexes modelMatches: the flat list of candidates. The rows on screen
+	// group them by provider, so this is a model, not a row.
+	sel int
+	// closed is the providers folded by hand. Everything not in it that is not
+	// the chat's own provider or the default one starts folded, so the panel
+	// opens on a dozen lines instead of 756.
+	closed map[string]bool
 	// catalog is the whole list from the bridge, fetched when the panel first
 	// opens: 756 rows are not worth a round trip before anyone asks.
 	catalog []protocol.ModelEntry
@@ -108,6 +115,115 @@ func (a *App) modelOrdered() []protocol.ModelEntry {
 	return out
 }
 
+// pickRow is a line of the panel: either a provider's heading or a model.
+type pickRow struct {
+	header bool
+	// key is the provider for a heading and provider/id for a model.
+	key   string
+	label string
+	count int
+	open  bool
+	entry protocol.ModelEntry
+}
+
+// pickGroupKey is the pseudo-provider that holds the models chosen before.
+const pickGroupKey = "recent"
+
+// pickRows is the panel with nothing typed: a heading per provider with its
+// models under it, most of them folded, the models chosen before first. With
+// something typed it is the flat list of matches, because a filter is a
+// question about models and not about who makes them.
+func (a *App) pickRows() []pickRow {
+	matches := a.modelMatches()
+	if strings.TrimSpace(a.pick.filter) != "" {
+		rows := make([]pickRow, 0, len(matches))
+		for _, entry := range matches {
+			rows = append(rows, pickRow{key: modelKey(entry), entry: entry})
+		}
+		return rows
+	}
+
+	recent := make(map[string]bool, len(a.prefs.Recent))
+	for _, key := range a.prefs.Recent {
+		recent[key] = true
+	}
+	var recents []protocol.ModelEntry
+	byProvider := make(map[string][]protocol.ModelEntry)
+	var order []string
+	for _, entry := range matches {
+		if recent[modelKey(entry)] {
+			recents = append(recents, entry)
+			continue
+		}
+		if _, ok := byProvider[entry.Provider]; !ok {
+			order = append(order, entry.Provider)
+		}
+		byProvider[entry.Provider] = append(byProvider[entry.Provider], entry)
+	}
+
+	rows := make([]pickRow, 0, len(matches)+len(order)+1)
+	add := func(key, label string, entries []protocol.ModelEntry) {
+		open := a.pickOpen(key)
+		rows = append(rows, pickRow{header: true, key: key, label: label, count: len(entries), open: open})
+		if !open {
+			return
+		}
+		for _, entry := range entries {
+			rows = append(rows, pickRow{key: modelKey(entry), entry: entry})
+		}
+	}
+	if len(recents) > 0 {
+		add(pickGroupKey, i18n.T("recentModels"), recents)
+	}
+	for _, provider := range order {
+		add(provider, providerLabel(byProvider[provider][0]), byProvider[provider])
+	}
+	return rows
+}
+
+// pickOpen is whether a group's models are showing. A provider starts open when
+// it holds the chat's model or the default one — the two answers people open
+// the panel to check — and folded otherwise; folding one by hand is remembered
+// for as long as the panel is open.
+func (a *App) pickOpen(key string) bool {
+	if closed, ok := a.pick.closed[key]; ok {
+		return !closed
+	}
+	if key == pickGroupKey {
+		return true
+	}
+	if a.model != nil && a.model.Provider == key {
+		return true
+	}
+	return a.defaultModel != nil && a.defaultModel.Provider == key
+}
+
+// togglePick folds a provider's models away, or brings them back.
+func (a *App) togglePick(key string) {
+	if a.pick.closed == nil {
+		a.pick.closed = map[string]bool{}
+	}
+	a.pick.closed[key] = a.pickOpen(key)
+}
+
+// providerLabel is the name a provider goes by in the panel.
+func providerLabel(entry protocol.ModelEntry) string {
+	if entry.ProviderName != "" {
+		return entry.ProviderName
+	}
+	return entry.Provider
+}
+
+// pickRowOf is the row a model is drawn on, -1 when it is folded away.
+func (a *App) pickRowOf(key string) int {
+	for i, row := range a.pickRows() {
+		if !row.header && row.key == key {
+			return i
+		}
+	}
+	return -1
+}
+
 // modelKey names a model the way prefs remembers it: provider and id.
 func modelKey(entry protocol.ModelEntry) string {
 	return entry.Provider + "/" + entry.ID
@@ -178,6 +294,12 @@ func (a *App) openModelPicker() {
 	a.pick.filter = ""
 	a.pick.seen = ""
 	a.pick.sel = 0
+	a.pick.closed = map[string]bool{}
+	for i, entry := range a.modelMatches() {
+		if a.model != nil && entry.Provider == a.model.Provider && entry.ID == a.model.ModelID {
+			a.pick.sel = i
+		}
+	}
 	if a.pick.fetched {
 		return
 	}
@@ -241,7 +363,28 @@ func (a *App) movePick(delta int) {
 		return
 	}
 	a.pick.sel = (a.pick.sel + delta + n) % n
-	a.pick.list.ScrollIntoView(a.pick.sel)
+	a.revealPick()
+}
+
+// revealPick makes sure the highlighted model is on screen: its provider is
+// unfolded if it was folded, and the list scrolls to the line it landed on.
+func (a *App) revealPick() {
+	matches := a.modelMatches()
+	if len(matches) == 0 {
+		return
+	}
+	if a.pick.sel >= len(matches) {
+		a.pick.sel = len(matches) - 1
+	}
+	key := modelKey(matches[a.pick.sel])
+	if row := a.pickRowOf(key); row >= 0 {
+		a.pick.list.ScrollIntoView(row)
+		return
+	}
+	delete(a.pick.closed, matches[a.pick.sel].Provider)
+	if row := a.pickRowOf(key); row >= 0 {
+		a.pick.list.ScrollIntoView(row)
+	}
 }
 
 // choosePick takes the highlighted row; Enter and a click both land here.
@@ -281,6 +424,9 @@ func (a *App) modelPanel(c *ui.Context, t theme.Tokens) {
 		a.pick.seen = a.pick.filter
 		a.pick.sel = 0
 		a.pick.list.ScrollTo(0, ui.Start)
+		// A filter is a question; the providers it leaves are the answer, so
+		// every one of them is open.
+		a.pick.closed = map[string]bool{}
 	}
 	ui.Column(c).Width(380).Padding(8, 8, 8, 8).Radius(10).Gap(4).
 		Border(1, t.Border).Background(t.Card).Children(func() {
@@ -311,14 +457,21 @@ func (a *App) modelPanel(c *ui.Context, t theme.Tokens) {
 		}
 		// As tall as its rows, up to where the wheel takes over: a panel for
 		// four models should not be a 244pt hole under them.
+		rows := a.pickRows()
 		height := float32(modelPanelHeight)
-		if want := float32(len(matches) * modelRowSpan); want < height {
+		if want := float32(len(rows) * modelRowSpan); want < height {
 			height = want
 		}
-		ui.List(c, &a.pick.list, len(matches), func(row int) {
-			a.modelRow(c, t, matches[row], row == a.pick.sel)
+		ui.List(c, &a.pick.list, len(rows), func(i int) {
+			row := rows[i]
+			if row.header {
+				a.pickHeaderRow(c, t, row)
+				return
+			}
+			sel := matches[a.pick.sel]
+			a.modelRow(c, t, row.entry, row.entry.Provider == sel.Provider && row.entry.ID == sel.ID)
 		}).Height(height)
-		a.levelChips(c, t)
+		a.levelSlider(c, t)
 	})
 }
 
@@ -339,6 +492,24 @@ func (a *App) modelRow(c *ui.Context, t theme.Tokens, entry protocol.ModelEntry,
 	row.OnClick(func() { a.chooseModel(chosen) })
 }
 
+// pickHeaderRow is a provider's heading: a chevron, the name, and how many
+// models are folded under it.
+func (a *App) pickHeaderRow(c *ui.Context, t theme.Tokens, row pickRow) {
+	key := row.key
+	ui.ButtonBase(c).FillWidth().Height(22).Radius(4).Padding(4, 6).Gap(4).
+		AlignItems(ui.Center).Cursor(ui.CursorPointer).
+		OnClick(func() { a.togglePick(key) }).Children(func() {
+		icon := icons.ChevronRight
+		if row.open {
+			icon = icons.ChevronDown
+		}
+		ui.Icon(c, icon).Size(10, 10).TextColor(t.MutedFg)
+		ui.Text(c, clip(row.label, 28)).FontSize(9.5).FontWeight(600).TextColor(t.MutedFg)
+		ui.Spacer(c)
+		ui.Text(c, itoa(row.count)).FontSize(9.5).TextColor(t.MutedFg).Opacity(0.8)
+	})
+}
+
 // modelMeta is the right-hand column: provider, context, price per million.
 func modelMeta(entry protocol.ModelEntry) string {
 	provider := entry.ProviderName
@@ -355,31 +526,31 @@ func modelMeta(entry protocol.ModelEntry) string {
 	return meta
 }
 
-// levelChips is the thinking level of the chat's model. Only models that take a
-// level show it, and only when there is a choice to make.
-func (a *App) levelChips(c *ui.Context, t theme.Tokens) {
+// levelSlider is the thinking level of the chat's model: a slider with one stop
+// per level the model takes, because the levels are ordered (off is less than
+// low is less than high) and a slider says so where a row of chips does not.
+func (a *App) levelSlider(c *ui.Context, t theme.Tokens) {
 	entry := a.modelEntry(a.model)
 	if entry == nil || len(entry.ThinkingLevels) < 2 {
 		return
 	}
-	ui.Row(c).FillWidth().Gap(4).AlignItems(ui.Center).Padding(4, 2).Children(func() {
-		ui.Text(c, i18n.T("thinking")).FontSize(10).TextColor(t.MutedFg).Padding(0, 2)
-		for _, level := range entry.ThinkingLevels {
-			chip := ui.ButtonBase(c).Height(20).Radius(5).Padding(0, 6).
-				Justify(ui.Center).AlignItems(ui.Center).Cursor(ui.CursorPointer).
-				Background(t.Muted)
-			fg, weight := t.MutedFg, 400
-			if level == a.thinking {
-				chip = chip.Background(t.SidebarAccent)
-				fg, weight = t.Foreground, 500
-			}
-			chip.Children(func() {
-				ui.Text(c, level).FontSize(10).FontWeight(weight).TextColor(fg).MaxLines(1)
-			})
-			chosen := level
-			chip.OnClick(func() { a.setLevel(chosen) })
+	levels := entry.ThinkingLevels
+	at := 0
+	for i, level := range levels {
+		if level == a.thinking {
+			at = i
 		}
+	}
+	value := float64(at)
+	ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Padding(4, 2).Children(func() {
+		ui.Text(c, i18n.T("thinking")).FontSize(10).TextColor(t.MutedFg)
+		ui.StepSlider(c, &value, 0, float64(len(levels)-1), 1).Grow(1).Height(20)
+		ui.Text(c, levels[int(value)]).FontSize(10).FontWeight(500).MaxLines(1).
+			Width(48).TextAlign(ui.End)
 	})
+	if picked := levels[int(value)]; picked != levels[at] {
+		a.setLevel(picked)
+	}
 }
 
 // modelKey is the panel's keyboard: Enter takes the highlighted row, Esc closes,

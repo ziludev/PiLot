@@ -350,7 +350,8 @@ func TestSnapshotToolOutput(t *testing.T) {
 }
 
 // TestSnapshotModelPanel draws the picker open over the composer: the chip it
-// came from, the filter, and four of the catalog's rows.
+// came from, the filter, the chat's provider unfolded, and the other two folded
+// down to a heading with a count.
 func TestSnapshotModelPanel(t *testing.T) {
 	i18n.Set(i18n.ZH)
 	a := fixtureApp(t, false)
@@ -371,7 +372,10 @@ func TestSnapshotModelPanel(t *testing.T) {
 
 	tt := ui.NewTester(a.View, 1180, 820)
 	tt.Frame()
-	for _, text := range []string{"Claude Sonnet 4.5 · high", "Gemini 2.5 Pro", "Anthropic · 200k · $3/$15", "思考"} {
+	// Google is folded to a heading until it is asked for.
+	tt.Click("Google")
+	tt.Frame()
+	for _, text := range []string{"Claude Sonnet 4.5 · high", "Gemini 2.5 Pro", "Anthropic · 200k · $3/$15", "思考", "high"} {
 		if !tt.HasText(text) {
 			t.Fatalf("missing %q; texts = %v", text, tt.Texts())
 		}

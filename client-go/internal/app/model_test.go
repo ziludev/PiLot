@@ -18,11 +18,11 @@ import (
 )
 
 const modelCatalog = `{"models":[
- {"provider":"anthropic","id":"claude-sonnet-4.5","name":"Claude Sonnet 4.5","contextWindow":200000,"cost":{"input":3,"output":15},"thinkingLevels":["off","low","high"]},
- {"provider":"anthropic","id":"claude-haiku-4.5","name":"Claude Haiku 4.5","contextWindow":200000,"cost":{"input":0.8,"output":4}},
- {"provider":"google","id":"gemini-2.5-pro","name":"Gemini 2.5 Pro","contextWindow":1000000,"cost":{"input":1.25,"output":10}},
- {"provider":"deepseek","id":"deepseek-chat","name":"DeepSeek Chat","contextWindow":64000,"cost":{"input":0.27,"output":1.1}}
- ],"default":{"provider":"anthropic","id":"claude-sonnet-4.5"}}`
+ {"provider":"anthropic","providerName":"Anthropic","id":"claude-sonnet-4.5","name":"Claude Sonnet 4.5","contextWindow":200000,"cost":{"input":3,"output":15},"thinkingLevels":["off","low","high"]},
+ {"provider":"anthropic","providerName":"Anthropic","id":"claude-haiku-4.5","name":"Claude Haiku 4.5","contextWindow":200000,"cost":{"input":0.8,"output":4}},
+ {"provider":"google","providerName":"Google","id":"gemini-2.5-pro","name":"Gemini 2.5 Pro","contextWindow":1000000,"cost":{"input":1.25,"output":10}},
+ {"provider":"deepseek","providerName":"DeepSeek","id":"deepseek-chat","name":"DeepSeek Chat","contextWindow":64000,"cost":{"input":0.27,"output":1.1}}
+ ],"default":{"provider":"anthropic","providerName":"Anthropic","id":"claude-sonnet-4.5"}}`
 
 // modelBridge serves the catalog and records the writes that point a chat at
 // a model. status decides whether the write lands.
@@ -150,6 +150,12 @@ func TestModelChipOpensAndPicks(t *testing.T) {
 	if !a.pick.open {
 		t.Fatal("chip did not open the panel")
 	}
+	// Providers start folded except the one the chat is on, so a model from
+	// another provider is two clicks: the provider, then the model.
+	if err := tt.Click("Google"); err != nil {
+		t.Fatalf("provider heading: %v", err)
+	}
+	tt.Frame()
 	if err := tt.Click("Gemini 2.5 Pro"); err != nil {
 		t.Fatalf("row: %v", err)
 	}
@@ -208,9 +214,10 @@ func TestModelKeyboardPicks(t *testing.T) {
 	}
 }
 
-// TestModelLevelChips changes the level of the chat's own model, which is the
-// only other thing the panel does.
-func TestModelLevelChips(t *testing.T) {
+// TestModelLevelSlider changes the level of the chat's own model, which is the
+// only other thing the panel does. The levels are ordered, so the control is a
+// slider: clicking its middle lands on the middle level.
+func TestModelLevelSlider(t *testing.T) {
 	i18n.Set(i18n.EN)
 	b := newModelBridge(t)
 	a := pickerApp(t, b)
@@ -218,15 +225,24 @@ func TestModelLevelChips(t *testing.T) {
 	tt := ui.NewTester(a.View, 1180, 820)
 	tt.Frame()
 
-	if err := tt.Click("high"); err != nil {
-		t.Fatalf("level chip: %v", err)
+	label, ok := tt.Find("Thinking")
+	if !ok {
+		t.Fatalf("no slider label; drew %v", tt.Texts())
 	}
+	// Nothing has been chosen in this chat, so the readout starts at the bottom
+	// stop, which is also what the bridge does with no level set.
+	readout, ok := tt.Find("off")
+	if !ok {
+		t.Fatalf("no level readout; drew %v", tt.Texts())
+	}
+	middle := label.X + label.W + (readout.X-(label.X+label.W))/2
+	tt.ClickAt(middle, readout.Y+readout.H/2)
 	tt.Frame()
-	if a.thinking != "high" {
-		t.Errorf("thinking = %q", a.thinking)
+	if a.thinking != "low" {
+		t.Fatalf("thinking = %q, want the middle stop", a.thinking)
 	}
 	write := b.take(t)
-	if write["modelId"] != "claude-sonnet-4.5" || write["thinkingLevel"] != "high" {
+	if write["modelId"] != "claude-sonnet-4.5" || write["thinkingLevel"] != "low" {
 		t.Errorf("write = %v", write)
 	}
 }
@@ -294,5 +310,38 @@ func TestModelRecentsLeadThePanel(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "google/gemini-2.5-pro") {
 		t.Fatalf("prefs = %s", data)
+	}
+}
+
+// TestModelGroupsFoldByProvider: the panel is a folded list of providers, so a
+// model from one that is not the chat's own is behind its heading — and the
+// heading folds again when asked.
+func TestModelGroupsFoldByProvider(t *testing.T) {
+	i18n.Set(i18n.EN)
+	b := newModelBridge(t)
+	a := pickerApp(t, b)
+	a.openModelPicker()
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+
+	if tt.HasText("Gemini 2.5 Pro") {
+		t.Fatalf("a folded provider drew its models; texts = %v", tt.Texts())
+	}
+	if !tt.HasText("Google") {
+		t.Fatalf("no heading for the folded provider; texts = %v", tt.Texts())
+	}
+	if err := tt.Click("Google"); err != nil {
+		t.Fatalf("heading: %v", err)
+	}
+	tt.Frame()
+	if !tt.HasText("Gemini 2.5 Pro") {
+		t.Fatalf("unfolding did not show the model; texts = %v", tt.Texts())
+	}
+	if err := tt.Click("Google"); err != nil {
+		t.Fatalf("heading again: %v", err)
+	}
+	tt.Frame()
+	if tt.HasText("Gemini 2.5 Pro") {
+		t.Fatalf("folding back did not hide the model; texts = %v", tt.Texts())
 	}
 }
