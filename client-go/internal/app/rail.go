@@ -114,8 +114,24 @@ func (a *App) railFooter(c *ui.Context, t theme.Tokens) {
 		if a.rail == railTasks {
 			a.usageButton(c, t)
 		}
+		a.projectsButton(c, t)
 		a.settingsButton(c, t)
 	})
+}
+
+// projectsButton opens the drawer of repositories a chat can live in. It sits
+// in the rail because a project is not a property of the chat that happens to be
+// open: it is where the next chat could go.
+func (a *App) projectsButton(c *ui.Context, t theme.Tokens) {
+	color := t.MutedFg
+	btn := ui.ButtonBase(c).Size(22, 22).Radius(5).Justify(ui.Center).AlignItems(ui.Center).
+		Cursor(ui.CursorPointer).Tooltip(i18n.T("projects"))
+	if a.projects.open {
+		color = t.Foreground
+		btn = btn.Background(t.Secondary)
+	}
+	btn.Children(func() { ui.Icon(c, icons.Folder).Size(12, 12).TextColor(color) })
+	btn.OnClick(a.toggleProjects)
 }
 
 // usageButton opens the calendar. It exists only on the task tab, because the

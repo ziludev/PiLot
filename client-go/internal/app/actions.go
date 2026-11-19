@@ -98,11 +98,15 @@ func (a *App) decide(callID string, approved bool) {
 }
 
 // newChat starts an empty chat in the built-in workspace and opens it.
-func (a *App) newChat() {
+func (a *App) newChat() { a.newChatIn("") }
+
+// newChatIn starts an empty chat in a project's worktree. An empty id is the
+// built-in sandbox — the same thing the rail's + has always done.
+func (a *App) newChatIn(projectID string) {
 	go func() {
-		ctx, cancel := context.WithTimeout(a.ctx, 20*time.Second)
+		ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
 		defer cancel()
-		convID, _, err := a.api.NewConversation(ctx, "")
+		convID, _, err := a.api.NewConversation(ctx, projectID)
 		if err != nil {
 			a.post(event{kind: evNotice, notice: i18n.T("sendFailed") + " · " + err.Error()})
 			return

@@ -11,7 +11,7 @@
 | 缺的 | 第一版怎么做的 | 接口 | mygo 原语 |
 | --- | --- | --- | --- |
 | 会话菜单里的「清理 worktree」 | `ChatMenu.tsx`（未合并的分支拒绝并提示） | `POST /api/worktree/remove` | 现在重命名 / 归档直接进 `button.Menu`，加一项即可 |
-| 右栏剩下的：项目栏 | `SidePanel.tsx` + `side/*.go` | `/api/file`、`/api/commit`、`/api/git/push`、`/api/merge`、`/api/git/base`、`/api/projects` | 改动 / 提交两栏和提交/推送/合并都回来了（`internal/app/changes.go`、`gitwrite.go`） |
+| 右栏剩下的：项目栏里的 base 分支切换、清理 worktree、拖拽排序/置顶、每步耗时竖轨 | `SidePanel.tsx` + `side/*.go` | `/api/file`、`/api/commit`、`/api/git/push`、`/api/merge`、`/api/git/base`、`/api/projects` | 改动 / 提交两栏、提交/推送/合并、项目栏都回来了（`internal/app/changes.go`、`gitwrite.go`、`projects.go`） |
 | 权限页 | `AccessPanel.tsx` | `GET /api/access`、`/api/audit` | `ui.Segmented` 过滤 + 表格 |
 | 拖拽排序 / 置顶 | `Rail.tsx` + `prefs.Order/Pinned` | 无（本地） | `ui.List` 的 `Reorder` |
 | 每步耗时竖轨 | `TurnRail.tsx` / `TurnDurations.tsx` | 无 | 现在折叠成一行 `⋯ 4 步 · 12s` |
@@ -43,6 +43,9 @@
 - **写操作只问一句，做的是 bridge**（`gitwrite.go`）：提交要一句话，推送和合并各要一次确认；结果留在抽屉底部而不是
   只弹 toast —— 冲突是一串文件名，飘过去就读不到了。bridge 拒绝（工作区脏、目标分支脏、冲突）都当作可读的指令，原样显示。
   合并成功后整份重读，不照着回包改列表：分支的提交在合并那一刻就变了。
+- **项目栏在 rail 上，不在右栏的开关里**（`projects.go`）：项目不是当前这个会话的属性，它是下一个会话可能去的地方。
+  点一个项目就在那儿开会话；加路径被拒时说的是「不是 git 仓库 / 没有这个目录 / 已经有了」，因为这三件事要人做的不同。
+  移除项目会说它的会话挪去了内置工作区——挪走不是消失。
 - **右栏是抽屉，两个抽屉轮着来**（`internal/app/changes.go`、`memory.go`）：同一个右边缘，打开一个
   就关另一个——两个 460 点的栏会把 transcript 挤成一条。窄窗口时抽屉 `Shrink(1)` 到 300，rail 的 260
   之外还得给 transcript 留活路。
