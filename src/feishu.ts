@@ -5,7 +5,7 @@ import { join } from "node:path";
 import * as Lark from "@larksuiteoapi/node-sdk";
 import { UsageDoc } from "@earendil-works/pi-durable";
 import { config, requireFeishuCredentials, requireFeishuOwner } from "./config.ts";
-import { gatewayClient, gatewayEnabled, gatewayEndpoint, type FeishuIm, type ImResponse } from "./feishu-gw.ts";
+import { gatewayClient, gatewayEndpoint, type FeishuIm, type ImResponse } from "./feishu-gw.ts";
 import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
 import { watchLive, type LiveSnapshot } from "./live.ts";
 import { advance, renderSteps, stepCount, type Trail } from "./steps.ts";
@@ -861,28 +861,6 @@ function larkClient(): Lark.Client {
   return sharedClient;
 }
 
-/**
- * The SDK behind the same five-operation surface as feishu-gw. Shaped alike on purpose: that is what
- * makes FEISHU_TRANSPORT a one-line switch rather than two code paths through the send logic.
- */
-function sdkTransport(client: Lark.Client): FeishuIm {
-  const cast = (answer: unknown) => answer as ImResponse;
-  return {
-    message: {
-      create: async (input) => cast(await client.im.message.create(input as never)),
-      reply: async (input) => cast(await client.im.message.reply(input as never)),
-      patch: async (input) => cast(await client.im.message.patch(input as never)),
-      get: async (input) => cast(await client.im.message.get(input as never)),
-    },
-    messageResource: {
-      get: async (input) => (await client.im.messageResource.get(input as never)) as never,
-    },
-    botOpenId: async () =>
-      ((await client.request({ method: "GET", url: "/open-apis/bot/v3/info" })) as { bot?: { open_id?: string } })?.bot
-        ?.open_id,
-  };
-}
-
 async function senderName(openId: string): Promise<string | undefined> {
   if (openId.length === 0) return undefined;
   const known = senderNames.get(openId);
@@ -1034,7 +1012,7 @@ export type GatewayEvent = { type: "message" | "card"; eventId?: string; eventTy
 let gatewayIngress: ((payload: GatewayEvent) => Promise<unknown>) | undefined;
 
 /**
- * One event handed over by feishu-gw. The same dispatcher the long connection fed handles it, so the
+ * One event handed over by feishu-gw, wrapped back into the shape the SDK's dispatcher expects: the
  * handlers, the dedupe and the card answers are untouched — only the transport differs. The answer is
  * returned rather than swallowed because a card action's answer is what Feishu shows.
  */
@@ -1072,10 +1050,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
   await adoptChatLevels(runtime.harness, context, config.feishu.allowedChatIds);
   const client = new Lark.Client({ appId, appSecret });
   sharedClient = client;
-  // `FEISHU_TRANSPORT=go` hands the five Feishu operations to feishu-gw over localhost. Every call
-  // site below goes through `im`, so the switch is here and nowhere else.
-  const goTransport = gatewayEnabled();
-  const im: FeishuIm = goTransport ? gatewayClient(gatewayEndpoint()) : sdkTransport(client);
+  // Every Feishu operation goes through feishu-gw over localhost; there is no second transport left
+  // to switch to. `client` survives for the calls that were never transport: message history.
+  const im: FeishuIm = gatewayClient(gatewayEndpoint());
 
   // Who we are, so an @ of the bot can be dropped from the text instead of leaving "@".
   await im
@@ -2815,189 +2792,116 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
     );
   }
 
-  // Set only by the SDK branch; stop() closes whatever transport is actually running.
+  // Nothing is listening on a socket any more, so stop() has only the interval to clear.
   let stopTransport = (): void => {};
 
-  if (goTransport) {
-    // feishu-gw owns the long connection and forwards each event here. The answer is returned
-    // synchronously because a card action has to be: the gateway hands our reply straight back to
-    // Feishu, which shows its own error if that takes more than about three seconds.
-    gatewayIngress = async (payload) =>
-      await eventDispatcher.invoke(
-        {
-          schema: "2.0",
-          header: {
-            event_id: payload.eventId ?? "",
-            event_type: payload.eventType ?? (payload.type === "card" ? "card.action.trigger" : "im.message.receive_v1"),
-            create_time: String(Date.now()),
-          },
-          event: payload.event,
+  // feishu-gw owns the long connection and forwards each event here. The answer is returned
+  // synchronously because a card action has to be: the gateway hands our reply straight back to
+  // Feishu, which shows its own error if that takes more than about three seconds.
+  gatewayIngress = async (payload) =>
+    await eventDispatcher.invoke(
+      {
+        schema: "2.0",
+        header: {
+          event_id: payload.eventId ?? "",
+          event_type: payload.eventType ?? (payload.type === "card" ? "card.action.trigger" : "im.message.receive_v1"),
+          create_time: String(Date.now()),
         },
-        { needCheck: false },
-      );
-    // Only the url: the endpoint object also carries the shared token, and a token in the log is a
-    // token in every screenshot of the log.
-    const endpoint = gatewayEndpoint();
-    log("feishu", "transport go: events arrive from feishu-gw", { url: endpoint.url });
-
-    /**
-     * A message that reaches the owner even when the gateway cannot: the SDK's HTTP client is a
-     * different path to the same app, so it keeps working while the gateway is the broken thing.
-     */
-    const tellOwnerDirect = async (text: string): Promise<void> => {
-      const chat = await ownerChatId(runtime.harness, context).catch(() => undefined);
-      if (chat === undefined) return;
-      const response = await larkClient().im.message.create({
-        params: { receive_id_type: "chat_id" },
-        data: { receive_id: chat, msg_type: "text", content: JSON.stringify({ text }) },
-      });
-      if ((response?.code ?? 0) !== 0) throw new Error(response?.msg ?? "direct send refused");
-    };
-
-    /**
-     * Restart the gateway process without knowing its label: the plist in LaunchAgents is the
-     * record of what it was installed as. A gateway can hold a connection Feishu routes nothing
-     * to (seen while bringing this up), and only a fresh process re-subscribes.
-     */
-    const kickGateway = async (): Promise<string> => {
-      const dir = join(homedir(), "Library", "LaunchAgents");
-      const plist = (await readdir(dir).catch(() => [] as string[])).find((name) => name.endsWith("feishu-gw.plist"));
-      if (plist === undefined) return "no launchd job found";
-      const label = plist.replace(/\.plist$/, "");
-      return await new Promise<string>((resolve) => {
-        const child = spawn("launchctl", ["kickstart", "-k", `gui/${process.getuid?.() ?? 501}/${label}`], {
-          stdio: "ignore",
-        });
-        child.on("error", (error) => resolve(`kickstart failed: ${error.message}`));
-        child.on("exit", (code) => resolve(code === 0 ? `kickstart ${label}` : `kickstart exited ${code}`));
-      });
-    };
-
-    let watch = { misses: 0, alertedAt: 0 };
-    /**
-     * The watchdog watches the *connection*, not the traffic. A gateway that is connected and quiet
-     * is what a normal evening looks like — and after every restart it is quiet until the next
-     * message arrives, which is exactly when an alert would be wrong. `ready` (connected *and* has
-     * received something) still drives status; silence beyond that is reported, never alerted on.
-     */
-    const pollGateway = async (): Promise<void> => {
-      let healthy = false;
-      let why = "";
-      try {
-        const response = await fetch(`${endpoint.url}/healthz`, { signal: AbortSignal.timeout(5_000) });
-        const health = (await response.json()) as { connected?: boolean; ready?: boolean; dropped?: number };
-        healthy = health.connected === true;
-        why = "网关在跑，但连不上飞书";
-        const ready = health.ready === true;
-        if (ready && !feishuStatus.ready) feishuStatus.since = Date.now();
-        if (!ready && feishuStatus.ready) {
-          feishuStatus.flaps += 1;
-          feishuStatus.since = Date.now();
-        }
-        feishuStatus.ready = ready;
-        if (!healthy) feishuStatus.lastError = "feishu-gw is up but not connected to Feishu";
-        else if (!ready) feishuStatus.lastError = "feishu-gw connected, nothing received yet";
-        if ((health.dropped ?? 0) > 0) {
-          feishuStatus.lastError = `feishu-gw dropped ${health.dropped} event(s)`;
-        }
-      } catch (error) {
-        why = `网关进程没应答（${endpoint.url}）`;
-        if (feishuStatus.ready) feishuStatus.since = Date.now();
-        feishuStatus.ready = false;
-        feishuStatus.lastError = (error as Error)?.message ?? String(error);
-      }
-      const step = gatewayWatchStep(watch, healthy, Date.now());
-      watch = step.state;
-      if (step.act === "alert") {
-        const minutes = Math.max(1, Math.round((Date.now() - feishuStatus.since) / 60_000));
-        logError("feishu", `feishu-gw not ready for ${minutes}min (${why})`, undefined);
-        const outcome = await kickGateway().catch((error: unknown) => `kickstart failed: ${String(error)}`);
-        log("feishu", `gateway restart attempted: ${outcome}`);
-        await tellOwnerDirect(
-          `⚠️ 飞书网关失联约 ${minutes} 分钟\n` +
-            `收不到新消息，也发不出去（${why}）。\n` +
-            `已尝试重启网关：${outcome}。若这条之后仍无动静，手动跑 ./scripts/agentctl status。`,
-        ).catch((error: unknown) => logError("feishu", "could not report gateway outage", error));
-      } else if (step.act === "recovered") {
-        log("feishu", "feishu-gw is ready again");
-        await tellOwnerDirect("✅ 飞书网关恢复了，消息收发正常。").catch(() => {});
-      }
-    };
-    setInterval(() => void pollGateway(), 30_000).unref();
-  } else {
-    const loggerLevel =
-      (process.env.FEISHU_LOG_LEVEL ?? "info") === "debug" ? Lark.LoggerLevel.debug : Lark.LoggerLevel.info;
-    const wsOptions = {
-      appId,
-      appSecret,
-      loggerLevel,
-      // Connection state is not obvious from the SDK's own logs; make flapping visible.
-      onReady: () => {
-        console.log("[feishu] ws ready");
-        feishuStatus.ready = true;
-        feishuStatus.since = Date.now();
+        event: payload.event,
       },
-      onError: (error: unknown) => {
-        feishuStatus.ready = false;
+      { needCheck: false },
+    );
+  // Only the url: the endpoint object also carries the shared token, and a token in the log is a
+  // token in every screenshot of the log.
+  const endpoint = gatewayEndpoint();
+  log("feishu", "transport go: events arrive from feishu-gw", { url: endpoint.url });
+
+  /**
+   * A message that reaches the owner even when the gateway cannot: the SDK's HTTP client is a
+   * different path to the same app, so it keeps working while the gateway is the broken thing.
+   */
+  const tellOwnerDirect = async (text: string): Promise<void> => {
+    const chat = await ownerChatId(runtime.harness, context).catch(() => undefined);
+    if (chat === undefined) return;
+    const response = await larkClient().im.message.create({
+      params: { receive_id_type: "chat_id" },
+      data: { receive_id: chat, msg_type: "text", content: JSON.stringify({ text }) },
+    });
+    if ((response?.code ?? 0) !== 0) throw new Error(response?.msg ?? "direct send refused");
+  };
+
+  /**
+   * Restart the gateway process without knowing its label: the plist in LaunchAgents is the
+   * record of what it was installed as. A gateway can hold a connection Feishu routes nothing
+   * to (seen while bringing this up), and only a fresh process re-subscribes.
+   */
+  const kickGateway = async (): Promise<string> => {
+    const dir = join(homedir(), "Library", "LaunchAgents");
+    const plist = (await readdir(dir).catch(() => [] as string[])).find((name) => name.endsWith("feishu-gw.plist"));
+    if (plist === undefined) return "no launchd job found";
+    const label = plist.replace(/\.plist$/, "");
+    return await new Promise<string>((resolve) => {
+      const child = spawn("launchctl", ["kickstart", "-k", `gui/${process.getuid?.() ?? 501}/${label}`], {
+        stdio: "ignore",
+      });
+      child.on("error", (error) => resolve(`kickstart failed: ${error.message}`));
+      child.on("exit", (code) => resolve(code === 0 ? `kickstart ${label}` : `kickstart exited ${code}`));
+    });
+  };
+
+  let watch = { misses: 0, alertedAt: 0 };
+  /**
+   * The watchdog watches the *connection*, not the traffic. A gateway that is connected and quiet
+   * is what a normal evening looks like — and after every restart it is quiet until the next
+   * message arrives, which is exactly when an alert would be wrong. `ready` (connected *and* has
+   * received something) still drives status; silence beyond that is reported, never alerted on.
+   */
+  const pollGateway = async (): Promise<void> => {
+    let healthy = false;
+    let why = "";
+    try {
+      const response = await fetch(`${endpoint.url}/healthz`, { signal: AbortSignal.timeout(5_000) });
+      const health = (await response.json()) as { connected?: boolean; ready?: boolean; dropped?: number };
+      healthy = health.connected === true;
+      why = "网关在跑，但连不上飞书";
+      const ready = health.ready === true;
+      if (ready && !feishuStatus.ready) feishuStatus.since = Date.now();
+      if (!ready && feishuStatus.ready) {
         feishuStatus.flaps += 1;
-        feishuStatus.lastError = (error as Error)?.message ?? String(error);
-        console.error(`[feishu] ws error: ${feishuStatus.lastError}`);
-      },
-      onReconnecting: () => {
-        feishuStatus.ready = false;
-        console.warn("[feishu] ws reconnecting");
-      },
-      onReconnected: () => {
-        feishuStatus.ready = true;
         feishuStatus.since = Date.now();
-        console.log("[feishu] ws reconnected");
-      },
-    };
-    const makeWSClient = (): Lark.WSClient => new Lark.WSClient(wsOptions);
-    let wsClient = makeWSClient();
-    stopTransport = () => {
-      clearInterval(supervisor);
-      wsClient.close({ force: true });
-    };
-    await wsClient.start({ eventDispatcher });
-    log("feishu", `long connection established for app ${appId}`);
-    void backfillChatNames().catch((error: unknown) => logError("feishu", "could not backfill chat names", error));
-
-    // The SDK stops retrying once it gives up, and a long connection that dies silently
-    // is indistinguishable from a bot nobody talks to. Restart it ourselves when it stays
-    // down; while it is down, events published by Feishu are lost, not queued.
-    let lastAttempt = Date.now();
-    let restarts = 0;
-    const supervisor = setInterval(() => {
-      if (feishuStatus.ready) return;
-      const down = Date.now() - feishuStatus.since;
-      if (down < 120_000 || Date.now() - lastAttempt < 120_000) return;
-      lastAttempt = Date.now();
-      restarts += 1;
-      // A client that keeps failing to connect caches what it resolved the first time. After a
-      // network change (Wi-Fi off/on, a proxy whose routes moved) only a fresh instance re-resolves:
-      // observed as ENETUNREACH to Feishu's IPs for minutes, until the process was restarted.
-      if (restarts % 3 === 0) {
-        logError("feishu", `long connection down ${Math.round(down / 1000)}s, rebuilding the client`, undefined);
-        // Retire the old client first: a half-open socket still counts as a listener, and two
-        // connections on one app make Feishu push every event to both.
-        const stale = wsClient;
-        wsClient = makeWSClient();
-        try {
-          stale.close({ force: true });
-        } catch {
-          // already torn down
-        }
-      } else {
-        logError("feishu", `long connection down ${Math.round(down / 1000)}s, restarting it`, undefined);
       }
-      void wsClient.start({ eventDispatcher }).catch((error: unknown) => {
-        feishuStatus.lastError = (error as Error)?.message ?? String(error);
-        logError("feishu", "could not restart long connection", error);
-      });
-    }, 30_000);
-  }
-
+      feishuStatus.ready = ready;
+      if (!healthy) feishuStatus.lastError = "feishu-gw is up but not connected to Feishu";
+      else if (!ready) feishuStatus.lastError = "feishu-gw connected, nothing received yet";
+      if ((health.dropped ?? 0) > 0) {
+        feishuStatus.lastError = `feishu-gw dropped ${health.dropped} event(s)`;
+      }
+    } catch (error) {
+      why = `网关进程没应答（${endpoint.url}）`;
+      if (feishuStatus.ready) feishuStatus.since = Date.now();
+      feishuStatus.ready = false;
+      feishuStatus.lastError = (error as Error)?.message ?? String(error);
+    }
+    const step = gatewayWatchStep(watch, healthy, Date.now());
+    watch = step.state;
+    if (step.act === "alert") {
+      const minutes = Math.max(1, Math.round((Date.now() - feishuStatus.since) / 60_000));
+      logError("feishu", `feishu-gw not ready for ${minutes}min (${why})`, undefined);
+      const outcome = await kickGateway().catch((error: unknown) => `kickstart failed: ${String(error)}`);
+      log("feishu", `gateway restart attempted: ${outcome}`);
+      await tellOwnerDirect(
+        `⚠️ 飞书网关失联约 ${minutes} 分钟\n` +
+          `收不到新消息，也发不出去（${why}）。\n` +
+          `已尝试重启网关：${outcome}。若这条之后仍无动静，手动跑 ./scripts/agentctl status。`,
+      ).catch((error: unknown) => logError("feishu", "could not report gateway outage", error));
+    } else if (step.act === "recovered") {
+      log("feishu", "feishu-gw is ready again");
+      await tellOwnerDirect("✅ 飞书网关恢复了，消息收发正常。").catch(() => {});
+    }
+  };
+  const watchTimer = setInterval(() => void pollGateway(), 30_000);
+  watchTimer.unref();
+  stopTransport = () => clearInterval(watchTimer);
   // A crash or redeploy leaves the conversation resuming in this process while the
   // old card has no owner. Reacquire the submission, wait for it, deliver the answer
   // as a message, and close the card — the durable equivalent of "it kept working".

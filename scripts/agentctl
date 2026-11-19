@@ -22,8 +22,8 @@ LOG_MAX_BYTES="${LOG_MAX_BYTES:-5242880}"   # 5 MB per file, three generations: 
 
 LABEL="com.pitta.agent"
 BACKUP_LABEL="$LABEL.backup"
-# The transport half: holds the Feishu long connection and the app credentials. Only loaded when
-# .env says FEISHU_TRANSPORT=go — two transports at once means two answers per message.
+# The transport half: holds the Feishu long connection and the app credentials. The bridge no longer
+# has a connection of its own, so this is not optional — without it the bot is deaf and mute.
 GW_LABEL="$LABEL.feishu-gw"
 # A restart asked for from inside a turn cannot do the bootout itself: the bootout
 # kills the turn mid-sentence. This second job does the waiting instead, and being
@@ -57,17 +57,7 @@ render() {
   echo "rendered $output (node: $node_bin)"
 }
 
-# The gateway is only worth running in transport-go mode; installing it in any other mode would give
-# the app a second long connection and, with it, a second answer to every message.
-gateway_wanted() {
-  grep -qE '^FEISHU_TRANSPORT=[\"'"'"']?go' "$PROJECT/.env" 2>/dev/null
-}
-
 install_gateway() {
-  if ! gateway_wanted; then
-    echo "feishu-gw not installed: FEISHU_TRANSPORT is not go (the bridge keeps its own connection)"
-    return 0
-  fi
   if ! command -v go >/dev/null 2>&1; then
     echo "go not found in PATH; cannot build feishu-gw" >&2
     return 1
