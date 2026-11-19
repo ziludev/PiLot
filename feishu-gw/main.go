@@ -44,11 +44,29 @@ type config struct {
 type stats struct {
 	events    atomic.Int64 // message events seen on the long connection
 	cards     atomic.Int64 // card actions seen
+	reactions atomic.Int64 // emoji reactions seen (counted, not acted on)
 	delivered atomic.Int64 // events the bridge accepted
 	dropped   atomic.Int64 // events no retry could deliver
 	lastEvent atomic.Int64 // unix seconds, 0 = never
 	connected atomic.Bool
 	started   time.Time
+}
+
+// wireReactions answers the emoji events the app is subscribed to. A reaction is a person doing a
+// normal thing to a card, but an unregistered event type comes back from the dispatcher as an error
+// and the SDK logs every one of them: 80 [Error] lines in thirteen hours, three quarters of that log,
+// which is exactly how a real handler failure would hide. Counting keeps the number visible and lets
+// the ack say all there is to say. Nothing acts on a reaction yet — that is a product decision.
+func wireReactions(events *dispatcher.EventDispatcher, state *stats) {
+	events.OnP2MessageReactionCreatedV1(func(ctx context.Context, event *larkim.P2MessageReactionCreatedV1) error {
+		state.reactions.Add(1)
+		state.lastEvent.Store(time.Now().Unix())
+		return nil
+	})
+	events.OnP2MessageReactionDeletedV1(func(ctx context.Context, event *larkim.P2MessageReactionDeletedV1) error {
+		state.reactions.Add(1)
+		return nil
+	})
 }
 
 func main() {
@@ -100,6 +118,7 @@ func main() {
 		go forwarder.deliver(body)
 		return nil
 	})
+	wireReactions(events, state)
 	events.OnP2CardActionTrigger(func(ctx context.Context, event *callback.CardActionTriggerEvent) (*callback.CardActionTriggerResponse, error) {
 		state.cards.Add(1)
 		state.lastEvent.Store(time.Now().Unix())
