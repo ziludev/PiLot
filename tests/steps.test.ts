@@ -45,3 +45,29 @@ test("a long trail shows the newest steps and counts the rest", () => {
   assert.match(lines.at(-1) ?? "", /^▸ bash · 3s$/);
   assert.equal(stepCount(trail).done, 9);
 });
+
+test("a round is named from the arguments the model committed with it", async () => {
+  const { readCallArgs } = await import("../src/live.ts");
+  const entries = [
+    { model: [{ role: "user", content: "check the build" }] },
+    {
+      model: [
+        {
+          role: "assistant",
+          content: [
+            { type: "text", text: "running it" },
+            { type: "toolCall", id: "call_1", name: "bash", arguments: { command: "npm test" } },
+          ],
+        },
+      ],
+    },
+    { model: [{ role: "toolResult", content: [{ type: "text", text: "ok" }] }] },
+  ];
+  assert.deepEqual(readCallArgs(entries), { call_1: { command: "npm test" } });
+
+  let trail: Trail = { rounds: [], since: 0 };
+  trail = advance(trail, { text: "", tools: ["bash"], callIds: ["call_1"], args: readCallArgs(entries), busy: true }, 1_000);
+  trail = advance(trail, { text: "", tools: ["read"], callIds: ["call_2"], busy: true }, 9_000);
+  assert.equal(trail.rounds[0].label, "跑 npm test");
+  assert.equal(trail.label, "read");
+});
