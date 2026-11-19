@@ -89,6 +89,24 @@ type CardAction = {
 export const MAX_CARD_CHARS = 9_000;
 
 /**
+ * Whether a message came from this app — the bot's own answers included.
+ *
+ * Feishu reports a message we sent with `sender.id` set to the app id (`cli_...`) and the bot's
+ * open_id in `open_bot_id`; a person arrives as `ou_...` with `sender_type: "user"`. Comparing `id`
+ * with the bot's open_id is therefore never true, which quietly turned every quote of our answer in
+ * a group into "not ours" and the turn into "you forgot to @ me".
+ */
+export function writtenByApp(
+  sender: { id?: string; open_bot_id?: string; sender_type?: string } | undefined,
+  appId: string,
+  botOpenId: string | undefined,
+): boolean {
+  if (sender?.sender_type !== "app") return false;
+  if (appId.length > 0 && sender.id === appId) return true;
+  return botOpenId !== undefined && sender.open_bot_id === botOpenId;
+}
+
+/**
  * Patches to one message run one at a time, in the order they were asked for.
  *
  * The live card repaints on a timer and on every step, and the finished answer is a patch of its
@@ -1743,14 +1761,16 @@ const continuing = new Set<string>();
    * the topic root), so this stays a cheap check.
    */
   async function quoteIsOurs(parentId: string | undefined): Promise<boolean> {
-    if (parentId === undefined || botOpenId === undefined) return false;
+    if (parentId === undefined) return false;
     const known = quotedFromUs.get(parentId);
     if (known !== undefined) return known;
     let ours = false;
     try {
       const response = await im.message.get({ path: { message_id: parentId } });
-      const sender = response?.data?.items?.[0]?.sender as { id?: string; open_id?: string } | undefined;
-      ours = (sender?.id ?? sender?.open_id) === botOpenId;
+      const sender = response?.data?.items?.[0]?.sender as
+        | { id?: string; open_bot_id?: string; sender_type?: string }
+        | undefined;
+      ours = writtenByApp(sender, config.feishu.appId, botOpenId);
     } catch {
       return false;
     }
