@@ -56,6 +56,15 @@ func (a *App) settingsDialog(c *ui.Context, t theme.Tokens) {
 				func(picked int) {
 					a.setTheme([3]string{"", "light", "dark"}[picked])
 				})
+			a.settingsChoice(c, t, i18n.T("remind"),
+				[]string{i18n.T("remindOn"), i18n.T("remindOff")},
+				func() int {
+					if a.prefs.Silent {
+						return 1
+					}
+					return 0
+				},
+				func(picked int) { a.setSilent(picked == 1) })
 		})
 	})
 }

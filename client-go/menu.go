@@ -30,6 +30,19 @@ func installMenu(a *app.App) {
 				},
 				{Type: mygo.MenuItemSeparator},
 				{
+					ID:          "reveal",
+					Label:       i18n.T("reveal"),
+					Accelerator: "CmdOrCtrl+Shift+R",
+					Click:       func(*mygo.MenuItem, *mygo.Window) { a.Reveal() },
+				},
+				{
+					ID:          "open-editor",
+					Label:       i18n.T("openInEditor"),
+					Accelerator: "CmdOrCtrl+Shift+O",
+					Click:       func(*mygo.MenuItem, *mygo.Window) { a.OpenInEditor() },
+				},
+				{Type: mygo.MenuItemSeparator},
+				{
 					ID:    "restart-agent",
 					Label: i18n.T("restartAgent"),
 					Click: func(*mygo.MenuItem, *mygo.Window) { a.RestartAgent() },
