@@ -29,6 +29,7 @@ const (
 	railTask
 	railGroup
 	railHint
+	railSearchHit
 )
 
 type railRow struct {
@@ -46,6 +47,12 @@ type railRow struct {
 	// at is the chat's newest activity, drawn as a relative time when known.
 	at     time.Time
 	unread bool
+
+	// hit is a search result: which chat and entry it came from, and the line
+	// matched. A hit may point at a chat the rail's snapshot does not list.
+	convID  int
+	entryID int
+	snippet string
 
 	// section, count and open belong to a chat section's header: section names
 	// the group it folds, count is how many chats are in it, open is whether
@@ -69,11 +76,46 @@ func sourceLabel(kind string) string {
 }
 
 // railRows projects the rail's list: the filtered chats, or the tasks by group.
+// The chats come with the bridge's search hits above them, since that is where
+// the user is looking when they type.
 func (a *App) railRows() []railRow {
 	if a.rail == railChats {
-		return a.chatRows(lowerTrim(a.filter))
+		return append(a.searchRows(), a.chatRows(lowerTrim(a.filter))...)
 	}
 	return a.taskRows(lowerTrim(a.filter))
+}
+
+// searchRows is the 「搜索结果」 block: one line per hit, the chat it sits in and
+// the matched text. It exists only for the query the hits belong to, so a reply
+// that arrives after the user typed on is never drawn under the new query.
+func (a *App) searchRows() []railRow {
+	if !a.searchBlock(lowerTrim(a.filter)) {
+		return nil
+	}
+	rows := make([]railRow, 0, len(a.search.hits)+1)
+	rows = append(rows, railRow{kind: railGroup, label: i18n.T("searchResults")})
+	for _, hit := range a.search.hits {
+		rows = append(rows, railRow{
+			kind:    railSearchHit,
+			convID:  hit.ConversationID,
+			entryID: hit.EntryID,
+			label:   a.chatTitle(hit.ConversationID),
+			snippet: oneLine(hit.Snippet),
+		})
+	}
+	return rows
+}
+
+// chatTitle names the chat a hit belongs to. The hits carry no title, so the
+// rail's own snapshot supplies it; a chat the snapshot has not caught up with
+// yet keeps its number rather than borrowing another chat's name.
+func (a *App) chatTitle(convID int) string {
+	for _, s := range a.surfaceSnapshot() {
+		if s.ConversationID == convID && s.Title != "" {
+			return s.Title
+		}
+	}
+	return "#" + itoa(convID)
 }
 
 // chatRows files every chat under one section. A chat that spoke since
@@ -85,14 +127,26 @@ func (a *App) chatRows(filter string) []railRow {
 	// The section holding the chat on screen: it is drawn open whatever the
 	// user folded, since folding away the conversation being read is a bug.
 	showing := ""
+	// Archived chats are out of the sections but not out of reach: they hang at
+	// the end of the rail, folded, and their menu is the way back.
+	var archived []railRow
 	for _, s := range a.sortedSurfaces() {
-		if s.Archived {
-			continue
-		}
 		if filter != "" && !containsFold(s.Title, filter) {
 			continue
 		}
 		at := a.vm.tails[s.ConversationID]
+		if s.Archived {
+			if s.ConversationID == a.active {
+				showing = sectionArchived
+			}
+			archived = append(archived, railRow{
+				kind: railChat,
+				conv: s,
+				meta: sourceLabel(s.Kind),
+				at:   at,
+			})
+			continue
+		}
 		section := chatSectionOf(s, at, a.now, a.queued[s.ConversationID])
 		if s.ConversationID == a.active {
 			showing = section
@@ -133,7 +187,17 @@ func (a *App) chatRows(filter string) []railRow {
 			rows = append(rows, chats...)
 		}
 	}
-	if heading == 0 {
+	if len(archived) > 0 {
+		open := filter != "" || showing == sectionArchived || !a.prefs.sectionClosed(sectionArchived)
+		rows = append(rows, railRow{kind: railGroup, label: i18n.T("sectionArchived"), section: sectionArchived, count: len(archived), open: open})
+		if open {
+			rows = append(rows, archived...)
+		}
+	}
+	// A search that found nothing in the titles may still have found it in a
+	// transcript, so the hit list speaks for itself instead of leaving 「暂无会话」
+	// under it.
+	if heading == 0 && len(archived) == 0 && !a.searchBlock(filter) {
 		rows = append(rows, railRow{kind: railHint, label: emptyChatsLabel(filter)})
 	}
 	return rows
@@ -168,6 +232,10 @@ const (
 	sectionTopic  = "topic"
 	sectionDirect = "direct"
 	sectionOther  = "other"
+	// sectionArchived is not a kind of chat either: it is the shelf the chats
+	// filed away sit on. It is drawn after the sections above and folds itself,
+	// so an archived chat never blocks the rail but is never lost.
+	sectionArchived = "archived"
 )
 
 var chatSections = []struct{ key, label string }{

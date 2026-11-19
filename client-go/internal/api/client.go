@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -240,4 +241,31 @@ func (c *Client) Health(ctx context.Context) (*protocol.Health, error) {
 		return nil, err
 	}
 	return &health, nil
+}
+
+// Search looks inside transcript text across chats (GET /api/search). The
+// bridge caps the reply itself — thirty hits, recent chats only — so there is
+// no limit or cursor to pass.
+func (c *Client) Search(ctx context.Context, q string) ([]protocol.SearchHit, error) {
+	var reply struct {
+		Hits []protocol.SearchHit `json:"hits"`
+	}
+	if err := c.get(ctx, "/api/search?q="+url.QueryEscape(q), &reply); err != nil {
+		return nil, err
+	}
+	return reply.Hits, nil
+}
+
+// SurfaceMeta is one write to a chat's surface metadata. A nil field is left
+// alone; a title that trims to nothing clears the override, so the rail falls
+// back to the chat's first message.
+type SurfaceMeta struct {
+	ConversationID int     `json:"conversationId"`
+	Title          *string `json:"title,omitempty"`
+	Archived       *bool   `json:"archived,omitempty"`
+}
+
+// PatchSurface writes a chat's title or archive flag (POST /api/surface-meta).
+func (c *Client) PatchSurface(ctx context.Context, meta SurfaceMeta) error {
+	return c.post(ctx, "/api/surface-meta", meta, nil)
 }

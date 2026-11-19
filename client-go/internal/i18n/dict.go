@@ -64,6 +64,15 @@ var zh = map[string]string{
 	"approvalFailed": "审批失败",
 	"morePending":    "还有 {n} 条",
 
+	"chatMenu":        "会话菜单",
+	"rename":          "重命名",
+	"archive":         "归档",
+	"unarchive":       "取消归档",
+	"sectionArchived": "已归档",
+	"searchResults":   "搜索结果",
+	"save":            "保存",
+	"cancel":          "取消",
+
 	"themeDark":       "切到深色",
 	"themeLight":      "切到浅色",
 	"newChat":         "新会话",
@@ -133,6 +142,15 @@ var en = map[string]string{
 	"deny":           "Deny",
 	"approvalFailed": "Couldn't answer the approval",
 	"morePending":    "{n} more",
+
+	"chatMenu":        "Chat menu",
+	"rename":          "Rename",
+	"archive":         "Archive",
+	"unarchive":       "Unarchive",
+	"sectionArchived": "Archived",
+	"searchResults":   "Results",
+	"save":            "Save",
+	"cancel":          "Cancel",
 
 	"themeDark":       "Switch to dark",
 	"themeLight":      "Switch to light",

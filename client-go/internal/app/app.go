@@ -94,6 +94,13 @@ type App struct {
 	histIndex  int
 	notice     string
 	busy       map[string]bool // call id → decision in flight
+
+	// search is the cross-chat search behind the filter box. Its hits belong to
+	// query, and seq retires the replies of queries the user has typed past.
+	search searchState
+	// rename is the dialog the row menu opens: which chat it renames and the
+	// text in it, so a frame that redraws the dialog keeps what was typed.
+	rename renameState
 }
 
 type viewModel struct {
@@ -106,6 +113,7 @@ type viewModel struct {
 	projection map[int]projectionCache
 	railCache  []railRow
 	railStamp  uint64
+	railFilter string
 
 	railList   ui.ListState
 	threadList ui.ListState
@@ -203,6 +211,13 @@ const (
 	evSelect
 	evProbeTails
 	evDraft
+	// The rail's two writes on a chat, and the search box's round trip: all
+	// posted from menus, dialogs and a debounce timer, applied on the frame.
+	evRenameChat
+	evArchiveChat
+	evMetaFailed
+	evSearch
+	evSearchDone
 )
 
 type event struct {
@@ -217,6 +232,12 @@ type event struct {
 	convID   int
 	callID   string
 	images   []imageRef
+	// A menu choice carries where the chat was going; a search reply carries
+	// the hits, the query they answer, and the generation it belongs to.
+	archived bool
+	seq      int
+	hits     []protocol.SearchHit
+	undo     *surfaceUndo
 }
 
 type snapshotResult struct {
@@ -490,6 +511,16 @@ func (a *App) apply(ev event) {
 		a.selectConversation(ev.convID)
 	case evProbeTails:
 		a.probeTails()
+	case evRenameChat:
+		a.openRename(ev.convID)
+	case evArchiveChat:
+		a.setArchived(ev.convID, ev.archived)
+	case evMetaFailed:
+		a.undoSurface(ev.undo)
+	case evSearch:
+		a.startSearch(ev.seq, ev.text)
+	case evSearchDone:
+		a.applySearch(ev.seq, ev.text, ev.hits)
 	}
 }
 
@@ -686,11 +717,16 @@ func (a *App) runSoFar() (time.Duration, bool) {
 
 // View is the frame: apply what arrived, then draw.
 func (a *App) View(c *ui.Context) {
+	// The menus the rail opens — the row's ⋯ and the others — are drawn by the
+	// window rather than by the system, so their items take the theme's type and
+	// colors instead of macOS's.
+	c.SetMenuPresentation(ui.PopoverMenus)
 	a.drain()
 	a.now = time.Now()
 	a.dark = a.prefs.dark(c.Theme().Dark)
 	t := theme.Use(c, a.dark)
 	a.shell(c, t)
+	a.renameDialog(c, t)
 }
 
 // fingerprint of an entry, for deciding whether a frame carried a new version.

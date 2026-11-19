@@ -103,11 +103,16 @@ func TestRailRowsChats(t *testing.T) {
 	a.vm.unread[3] = true
 
 	rows := a.railRows()
-	if len(rows) != 2 {
-		t.Fatalf("rows = %+v, want the two live chats", rows)
+	// The live chats, then the archived shelf: the archived chat is neither
+	// dropped nor mixed into a section, so the rail is three rows, not two.
+	if len(rows) != 3 {
+		t.Fatalf("rows = %+v, want the two live chats and the archived shelf", rows)
 	}
 	if rows[0].conv.ConversationID != 2 || rows[1].conv.ConversationID != 3 {
 		t.Fatalf("order = %d, %d; want newest first", rows[0].conv.ConversationID, rows[1].conv.ConversationID)
+	}
+	if rows[2].kind != railGroup || rows[2].section != sectionArchived || rows[2].count != 1 || rows[2].open {
+		t.Fatalf("archived shelf = %+v, want one folded chat", rows[2])
 	}
 	if rows[0].meta != "Local" || rows[1].meta != "Feishu" {
 		t.Fatalf("source labels = %q, %q", rows[0].meta, rows[1].meta)
@@ -278,5 +283,112 @@ func TestRailRowsSections(t *testing.T) {
 	}
 	if rows[3].conv.ConversationID != 2 {
 		t.Fatalf("row after the group heading = %+v, want chat 2", rows[3])
+	}
+}
+
+func TestRailArchivedShelf(t *testing.T) {
+	i18n.Set(i18n.EN)
+	a := newApp(Config{})
+	a.now = time.Date(2026, 11, 19, 15, 0, 0, 0, time.Local)
+	a.setSurfaces([]protocol.Surface{
+		{ConversationID: 2, Kind: "client", Title: "sky"},
+		{ConversationID: 4, Kind: "client", Title: "old", Archived: true},
+		{ConversationID: 5, Kind: "client", Title: "older", Archived: true},
+	})
+	a.vm.tails[2] = a.now.Add(-time.Minute)
+
+	// Folded by default: one live chat and the shelf, which says how many it holds.
+	rows := a.railRows()
+	if len(rows) != 2 {
+		t.Fatalf("rows = %+v, want the live chat and the folded shelf", rows)
+	}
+	if shelf := rows[1]; shelf.kind != railGroup || shelf.section != sectionArchived || shelf.count != 2 || shelf.open {
+		t.Fatalf("shelf = %+v, want two chats folded away", shelf)
+	}
+
+	// Unfolding is a preference, and the unfolded shelf lists its chats.
+	a.prefs.Sections = map[string]bool{sectionArchived: true}
+	rows = a.railRows()
+	if len(rows) != 4 {
+		t.Fatalf("rows = %+v, want the shelf open", rows)
+	}
+	// Newest first, like the sections above it.
+	if !rows[1].open || rows[2].kind != railChat || rows[2].conv.ConversationID != 5 {
+		t.Fatalf("open shelf = %+v", rows[1:])
+	}
+
+	// A filter opens the shelf: you cannot filter for what stays hidden.
+	a.prefs.Sections = map[string]bool{}
+	a.filter = "old"
+	rows = a.railRows()
+	if len(rows) != 3 || rows[0].kind != railGroup || !rows[0].open {
+		t.Fatalf("filtered rows = %+v, want the matching chats under an open shelf", rows)
+	}
+
+	// The chat on screen is never folded away either.
+	a.filter = ""
+	a.active = 4
+	if rows := a.railRows(); !rows[1].open {
+		t.Fatalf("shelf = %+v, want it open over the chat on screen", rows[1])
+	}
+}
+
+func TestRailSearchResults(t *testing.T) {
+	i18n.Set(i18n.EN)
+	a := newApp(Config{})
+	a.now = time.Date(2026, 11, 19, 15, 0, 0, 0, time.Local)
+	a.setSurfaces([]protocol.Surface{
+		{ConversationID: 2, Kind: "client", Title: "sky"},
+		{ConversationID: 4, Kind: "client", Title: "old", Archived: true},
+	})
+	a.vm.tails[2] = a.now.Add(-time.Minute)
+	a.search.query = "deploy"
+	a.search.hits = []protocol.SearchHit{
+		{ConversationID: 2, EntryID: 9, Snippet: "line one\nline two"},
+		{ConversationID: 7, EntryID: 3, Snippet: "no surface yet"},
+	}
+
+	// One character is the local filter; the bridge is not involved.
+	a.filter = "z"
+	rows := a.railRows()
+	if rows[0].kind != railHint {
+		t.Fatalf("rows = %+v, want no hit list under one character", rows)
+	}
+
+	a.filter = "deploy"
+	rows = a.railRows()
+	if len(rows) != 3 {
+		t.Fatalf("rows = %+v, want the header and the two hits", rows)
+	}
+	if rows[0].kind != railGroup || rows[0].label != i18n.T("searchResults") {
+		t.Fatalf("header = %+v", rows[0])
+	}
+	if rows[1].kind != railSearchHit || rows[1].convID != 2 || rows[1].entryID != 9 || rows[1].label != "sky" {
+		t.Fatalf("hit = %+v, want the chat's title", rows[1])
+	}
+	if rows[1].snippet != "line one line two" {
+		t.Fatalf("snippet = %q, want it on one line", rows[1].snippet)
+	}
+	// A hit in a chat the snapshot has not caught up with keeps its number.
+	if rows[2].label != "#7" {
+		t.Fatalf("hit label = %q, want the chat's number", rows[2].label)
+	}
+
+	// A reply for a query the user has typed past is not drawn.
+	a.search.query = "dep"
+	if rows := a.railRows(); rows[0].kind == railGroup {
+		t.Fatalf("rows = %+v, want the stale hits gone", rows)
+	}
+
+	// The filter moving on is a cache miss, so the block follows the box.
+	a.search.query = "deploy"
+	a.filter = "deploy"
+	a.vm.railCache, a.vm.railStamp, a.vm.railFilter = nil, 0, ""
+	if rows := a.railRowsCached(); rows[0].kind != railGroup {
+		t.Fatalf("cached rows = %+v, want the hits", rows)
+	}
+	a.filter = "deploy more"
+	if rows := a.railRowsCached(); rows[0].kind == railGroup {
+		t.Fatalf("cached rows = %+v, want them rebuilt for the new filter", rows)
 	}
 }

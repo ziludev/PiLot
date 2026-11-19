@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"image/png"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -271,4 +272,38 @@ func TestSnapshotRunning(t *testing.T) {
 		}
 	}
 	writePNG(t, "/tmp/clientv2-running.png", tt.Image())
+}
+
+// TestSnapshotRailSearch draws the rail with the filter box's two new blocks in
+// it: the bridge's hits above the chats, and the archived shelf under them. The
+// row menu of the chat on screen is there too, as a ⋯ of its own.
+func TestSnapshotRailSearch(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	// One chat filed away; its title matches the query, which opens the shelf.
+	surfaces := a.surfaceSnapshot()
+	surfaces = append(surfaces, protocol.Surface{
+		SurfaceID: "oc_5", ConversationID: 5, Kind: "feishu", Title: "sky notes, filed", Archived: true,
+	})
+	a.setSurfaces(surfaces)
+
+	a.filter = "sky"
+	a.search.query = lowerTrim(a.filter)
+	a.search.hits = []protocol.SearchHit{
+		{ConversationID: 11, EntryID: 44, Snippet: "deploy at six"},
+	}
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	for _, text := range []string{"搜索结果", "Why is the sky blue", "deploy at six", "已归档"} {
+		if !tt.HasText(text) {
+			t.Fatalf("missing %q; drew %v", text, tt.Texts())
+		}
+	}
+	// The ⋯ of the chat on screen: a text of its own, not the folded step's
+	// summary that happens to start with the same mark.
+	if !slices.Contains(tt.Texts(), "⋯") {
+		t.Fatalf("no row menu on the chat on screen; drew %v", tt.Texts())
+	}
+	writePNG(t, "/tmp/clientv2-search.png", tt.Image())
 }
