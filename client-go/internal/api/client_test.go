@@ -59,7 +59,9 @@ const (
 		`{"kind":"access","who":"ou_af","chat":"oc_2c","level":"owner","at":1794580724513}],"next":"cursor"}`
 
 	taskBody = `{"id":1084,"kind":"app.usage-sampler","conversationId":1,"owner":null,"background":true,` +
-		`"abortRequested":false,"status":"sleeping","phase":null,"until":1794819765170,"input":null,"outcome":null,"retries":0}`
+		`"abortRequested":false,"status":"sleeping","phase":null,"until":1794819765170,"input":null,"outcome":null,"retries":0,` +
+		`"subAgents":[{"conversationId":63983,"role":"为已实现的代码写测试用例","steps":152,` +
+		`"tool":"go test","live":true,"startedAt":1794819200000,"endedAt":null,"state":"live"}]}`
 
 	healthBody = `{"pid":39217,"startedAt":"2026-11-18T02:05:11.412Z","uptimeMs":11520000,"version":"0.4.2",` +
 		`"queueDepth":2,"runningTurns":1,"conversations":7,"somethingNew":true}`
@@ -231,6 +233,19 @@ func TestClientGET(t *testing.T) {
 				}
 				if task.Until == nil || *task.Until != 1794819765170 || task.Owner != nil || task.Phase != nil {
 					t.Fatalf("task = %+v", task)
+				}
+				// The stage clock and its state ride along in the same payload;
+				// a misnamed tag would leave them zero and the row would show
+				// no duration at all.
+				if len(task.SubAgents) != 1 {
+					t.Fatalf("subAgents = %+v", task.SubAgents)
+				}
+				stage := task.SubAgents[0]
+				if stage.State != "live" || stage.StartedAt == nil || *stage.StartedAt != 1794819200000 {
+					t.Fatalf("stage = %+v", stage)
+				}
+				if stage.EndedAt != nil || !stage.Live || stage.Steps != 152 || stage.Tool != "go test" {
+					t.Fatalf("stage = %+v", stage)
 				}
 			},
 		},
