@@ -10,6 +10,4 @@ export default defineConfig({
   out: "build",
   // The app icon scripts/render-icon.sh renders from resources/pilot-app-icon.svg.
   icon: "resources/icon.png",
-  // pilot://chat/123 opens that chat; ?window=new gives it its own window.
-  urlSchemes: ["pilot"],
 });

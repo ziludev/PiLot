@@ -1,135 +1,254 @@
 package app
 
 import (
-	"strconv"
 	"strings"
-	"time"
 
+	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 
 	"pitta/internal/i18n"
 	"pitta/internal/icons"
+	"pitta/internal/protocol"
 	"pitta/internal/theme"
 )
 
-// composer is the input under the transcript: the pending approvals above it,
-// the draft, and the row that sends it.
-func (a *App) composer(c *ui.Context) {
-	t := theme.Current(c)
-	ui.Column(c).FillWidth().PaddingY(12).PaddingX(16).Gap(8).Children(func() {
-		if len(a.approvals) > 0 {
-			a.approvalBar(c, t)
+// composerArea is the bottom of the pane. A pending approval takes the whole
+// slot: the decision is what the window is for while one waits, and a modal on
+// top of a composer would hide the message it is about.
+func (a *App) composerArea(c *ui.Context, t theme.Tokens) {
+	ui.Column(c).FillWidth().Padding(0, gutter, 14, gutter).Children(func() {
+		if len(a.pending) > 0 {
+			a.approvalCard(c, t, a.pending[0], len(a.pending)-1)
+			return
 		}
-		a.imageStrip(c, t)
-		// Enter breaks the line and Cmd+Enter sends, as the earlier client composer
-		// does: a Chinese input session confirms candidates with Enter, so
-		// sending on it would cut sentences short.
-		ui.TextArea(c, &a.draft).Fill().FontSize(13).MinHeight(64).Placeholder(i18n.T("placeholder")).
-			// An image on the clipboard becomes an attachment instead of a
-			// paste, which the earlier web client could not do at all: its paste
-			// handler only ever saw text.
-			OnPaste(func(text string) bool { return a.pasteImage(c) }).
-			OnTextKey(func(k ui.TextKey) bool {
-				if k.Key == ui.KeyUp || k.Key == ui.KeyDown {
-					return a.recallKey(k, k.Text())
-				}
-				if k.Key != ui.KeyEnter || k.Mods&(ui.Super|ui.Ctrl) == 0 {
-					return false
-				}
-				text := k.Text()
-				k.SetText("")
-				a.sendText(text)
-				return true
-			})
-		// The bottom row of the composer: picker, a hairline, the steer box on
-		// the left; the send button on the right.
-		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-			a.modelPicker(c)
-			ui.Box(c).Width(1).Height(14).Background(t.Border)
-			ui.Checkbox(c, &a.steer, i18n.T("steer")).FontSize(11)
-			iconButton(c, icons.Paperclip, i18n.T("attachImage")).OnClick(func() {
-				a.chooseImages()
-			})
-			ui.Row(c).Grow(1).Children(func() {})
-			send := ui.ButtonBase(c).Padding(5, 12).Radius(6).Cursor(ui.CursorPointer).
-				Background(t.Primary).Gap(6).AlignItems(ui.Center)
-			send.Label(i18n.T("send"))
-			send.Tooltip(i18n.T("send"))
-			if send.Hovered() {
-				send.Background(theme.Hover(t.Primary, t.PrimaryFg))
+		a.composerCard(c, t)
+	})
+}
+
+func (a *App) composerCard(c *ui.Context, t theme.Tokens) {
+	card := ui.Column(c).FillWidth().Padding(10, 12, 8, 12).Radius(12).
+		Border(1, t.Border).Background(t.Card).Gap(6)
+	card.Children(func() {
+		a.attachmentChips(c, t)
+		input := ui.TextAreaBase(c, &a.draft).FillWidth().Lines(1, 8).MinHeight(22).FontSize(12.5).
+			Placeholder(i18n.T("composerPlaceholder"))
+		if a.focusComposer {
+			input.AutoFocus()
+			a.focusComposer = false
+		}
+		input.OnTextKey(a.composerKey)
+		input.OnPaste(func(text string) bool {
+			if text != "" {
+				return false // text pastes as usual
 			}
-			send.Children(func() {
-				ui.Icon(c, icons.Send).Size(14, 14).TextColor(t.PrimaryFg)
-				ui.Text(c, i18n.T("send")).FontSize(12).TextColor(t.PrimaryFg)
-			})
-			send.OnClick(func() { a.submit() })
+			return a.pasteImage(c)
+		})
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
+			a.attachButton(c, t)
+			if cue := a.composerCue(); cue == "" {
+				ui.Box(c).Grow(1)
+			} else {
+				ui.Text(c, cue).Grow(1).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
+			}
+			a.sendButton(c, t)
 		})
 	})
 }
 
-// modelLabel is the model the next turn runs on, as ModelPicker shows it.
-func (a *App) modelLabel() string {
-	if a.model != nil && a.model.ModelID != "" {
-		return a.model.ModelID
+// composerKey takes Enter (send), Shift+Enter (newline, left to the input), and
+// the arrows that walk back through what was already said.
+func (a *App) composerKey(k ui.TextKey) bool {
+	switch {
+	case k.Key == ui.KeyEnter && k.Mods&ui.Shift == 0:
+		a.submit()
+		return true
+	case k.Key == ui.KeyUp && k.Mods == 0 && !containsNewline(a.draft):
+		return a.historyBack()
+	case k.Key == ui.KeyDown && k.Mods == 0 && !containsNewline(a.draft):
+		return a.historyForward()
 	}
-	return i18n.T("model")
+	return false
 }
 
-// approvalBar lists the tool calls waiting for a decision. A blocked run burns
-// wall-clock time, so each row says how long it waited.
-func (a *App) approvalBar(c *ui.Context, t theme.Tokens) {
-	// No slide-in, and not only for taste: a Transition pins the size the node
-	// was measured at, so a bar laid out before the side panel opened kept that
-	// width — at 900 points the last button was painted under the panel instead
-	// of moving left with the column. A wrapping node behaves the same way.
-	ui.Column(c).Fill().Padding(6, 8).Gap(6).Radius(6).Background(t.Muted).Children(func() {
-		for _, approval := range a.approvals {
-			approval := approval
-			// The ask reads on its own line and the buttons sit under it: a
-			// row holding both needs the width of the widest sentence plus
-			// three buttons, and the side panel takes that width away — the
-			// last button used to be clipped instead of wrapped.
-			ui.Column(c).Fill().Gap(6).Children(func() {
-				ui.Row(c).Fill().Gap(8).Children(func() {
-					ui.Icon(c, icons.ShieldAlert).Size(12, 12).TextColor(t.Warning)
-					ui.Column(c).Grow(1).Gap(2).Children(func() {
-						ui.Text(c, i18n.T("needsApproval")+" · "+approval.Tool+" — "+approval.Reason+waitedSuffix(approval.CreatedAt)).
-							FontSize(11).TextColor(t.Foreground).Wrap()
-						if summary := strings.TrimSpace(approval.Summary); summary != "" {
-							ui.Text(c, truncate(summary, 240)).FontSize(10).TextColor(t.MutedFg).Wrap()
-						}
-					})
+// composerCue is the line under the box. With text in it the placeholder is
+// gone, so this is where the Enter rule lives; an empty box already carries it
+// in the placeholder, and saying it twice would just be noise.
+func (a *App) composerCue() string {
+	if strings.TrimSpace(a.draft) == "" {
+		return ""
+	}
+	return i18n.T("composerHint")
+}
+
+func containsNewline(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			return true
+		}
+	}
+	return false
+}
+
+// historyBack walks towards older messages; the composer's own text is lost
+// once the walk starts, which is what every shell does.
+func (a *App) historyBack() bool {
+	if len(a.history) == 0 {
+		return false
+	}
+	if a.histIndex < 0 {
+		a.histIndex = len(a.history)
+	}
+	if a.histIndex == 0 {
+		return true
+	}
+	a.histIndex--
+	a.draft = a.history[a.histIndex]
+	return true
+}
+
+func (a *App) historyForward() bool {
+	if a.histIndex < 0 || a.histIndex >= len(a.history)-1 {
+		a.histIndex = len(a.history)
+		if a.histIndex > 0 {
+			a.draft = ""
+		}
+		return a.histIndex > 0
+	}
+	a.histIndex++
+	a.draft = a.history[a.histIndex]
+	return true
+}
+
+// pasteImage attaches a screenshot from the clipboard; text pastes through.
+func (a *App) pasteImage(c *ui.Context) bool {
+	data := c.Services().ReadClipboardData(transfer.PNG)
+	if len(data.Items()) == 0 {
+		return false
+	}
+	png, err := data.Read(transfer.PNG)
+	if err != nil || len(png) == 0 {
+		return false
+	}
+	a.addImages([]imageRef{{mime: "image/png", data: png}})
+	return true
+}
+
+func (a *App) attachmentChips(c *ui.Context, t theme.Tokens) {
+	if len(a.draftImage) == 0 {
+		return
+	}
+	ui.Row(c).FillWidth().Gap(6).Children(func() {
+		for i := range a.draftImage {
+			index := i
+			chip := ui.Row(c).Gap(4).AlignItems(ui.Center).Padding(2, 2, 2, 2).
+				Radius(8).Background(t.Muted)
+			chip.Children(func() {
+				if bitmap := a.draftImage[index].bitmap(); bitmap != nil {
+					ui.Image(c, bitmap).Size(40, 40).Radius(6).Clip()
+				}
+				remove := ui.ButtonBase(c).Size(16, 16).Radius(8).Justify(ui.Center).
+					AlignItems(ui.Center).Cursor(ui.CursorPointer).Tooltip(i18n.T("removeImage"))
+				remove.Children(func() {
+					ui.Icon(c, icons.X).Size(9, 9).TextColor(t.MutedFg)
 				})
-				ui.Row(c).Fill().Gap(6).Justify(ui.End).Children(func() {
-					ui.Button(c, i18n.T("allow")).OnClick(func() { a.decideApproval(approval.CallID, true, false) })
-					if approval.GrantKey != "" {
-						ui.Button(c, i18n.T("allowSession")).OnClick(func() { a.decideApproval(approval.CallID, true, true) })
-					}
-					ui.Button(c, i18n.T("deny")).OnClick(func() { a.decideApproval(approval.CallID, false, false) })
+				remove.OnClick(func() {
+					a.draftImage = append(a.draftImage[:index], a.draftImage[index+1:]...)
+					a.invalidate()
 				})
 			})
 		}
 	})
 }
 
-// waitedSuffix says how long a call has been parked. createdAt is epoch
-// milliseconds, as src/approvals.ts stamps it with Date.now().
-func waitedSuffix(createdAt int64) string {
-	if createdAt <= 0 {
-		return ""
-	}
-	seconds := (time.Now().UnixMilli() - createdAt) / 1000
-	if seconds < 0 {
-		seconds = 0
-	}
-	return "  " + i18n.T("waited") + " " + strconv.FormatInt(seconds, 10) + "s"
+func (a *App) attachButton(c *ui.Context, t theme.Tokens) {
+	button := ui.ButtonBase(c).Size(24, 24).Radius(6).Justify(ui.Center).AlignItems(ui.Center).
+		Cursor(ui.CursorPointer).Tooltip(i18n.T("attachImage"))
+	button.Children(func() {
+		ui.Icon(c, icons.Paperclip).Size(13, 13).TextColor(t.MutedFg)
+	})
+	button.OnClick(a.attachImages)
 }
 
-// truncate cuts s to max runes, as the earlier client bar slices summaries to 240.
-func truncate(s string, max int) string {
-	runes := []rune(s)
-	if len(runes) <= max {
-		return s
+// sendButton is send while idle and stop while a turn runs: one button, one
+// place the eye already is.
+func (a *App) sendButton(c *ui.Context, t theme.Tokens) {
+	running := a.running()
+	button := ui.ButtonBase(c).Size(28, 28).Radius(14).Justify(ui.Center).AlignItems(ui.Center).
+		Cursor(ui.CursorPointer).Background(t.Primary)
+	label := i18n.T("send")
+	if running {
+		label = i18n.T("stop")
 	}
-	return string(runes[:max]) + "…"
+	button = button.Tooltip(label)
+	button.Children(func() {
+		if running {
+			ui.Icon(c, icons.Square).Size(11, 11).TextColor(t.PrimaryFg)
+		} else {
+			ui.Icon(c, icons.Send).Size(13, 13).TextColor(t.PrimaryFg)
+		}
+	})
+	if running {
+		button.OnClick(a.abort)
+	} else {
+		button.OnClick(a.submit)
+	}
+}
+
+// approvalCard replaces the composer while a tool call waits. It names the
+// tool, shows what it wants to run, and offers the two answers.
+func (a *App) approvalCard(c *ui.Context, t theme.Tokens, approval protocol.PendingApproval, more int) {
+	card := ui.Row(c).FillWidth().Radius(12).Border(1, t.Border).Background(t.Card).
+		AlignItems(ui.Stretch).Children(func() {
+		ui.Box(c).Width(2).AlignSelf(ui.Stretch).Background(t.Warning)
+		ui.Column(c).Grow(1).Padding(10, 12).Gap(6).Children(func() {
+			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
+				ui.Icon(c, icons.ShieldAlert).Size(13, 13).TextColor(t.Warning)
+				ui.Text(c, i18n.TF("approvalTitle", map[string]any{"tool": approval.Tool})).
+					Grow(1).FontSize(12.5).FontWeight(600).TextColor(t.Foreground).MaxLines(1)
+				if more > 0 {
+					ui.Text(c, i18n.TF("morePending", map[string]any{"n": more})).
+						FontSize(10.5).TextColor(t.MutedFg)
+				}
+			})
+			if summary := approvalSummary(approval); summary != "" {
+				ui.Text(c, summary).FontSize(11.5).TextColor(t.MutedFg).MaxLines(3)
+			}
+			ui.Row(c).FillWidth().Justify(ui.End).Gap(6).Children(func() {
+				a.approvalButton(c, t, i18n.T("deny"), false, approval.CallID, false)
+				a.approvalButton(c, t, i18n.T("allow"), true, approval.CallID, true)
+			})
+		})
+	})
+	_ = card
+}
+
+func (a *App) approvalButton(c *ui.Context, t theme.Tokens, label string, primary bool, callID string, approved bool) {
+	button := ui.ButtonBase(c).Height(24).Radius(6).Padding(0, 10).Justify(ui.Center).
+		Cursor(ui.CursorPointer)
+	if primary {
+		button = button.Background(t.Primary)
+	} else {
+		button = button.Border(1, t.Border).Background(t.Background)
+	}
+	if a.busy[callID] {
+		button = button.Disabled(true)
+	}
+	button.Children(func() {
+		color := t.Foreground
+		if primary {
+			color = t.PrimaryFg
+		}
+		ui.Text(c, label).FontSize(11).FontWeight(500).TextColor(color)
+	})
+	button.OnClick(func() { a.decide(callID, approved) })
+}
+
+// approvalSummary is what the bridge says the call wants to do, plus why it
+// asked, when it said that separately.
+func approvalSummary(approval protocol.PendingApproval) string {
+	summary := clip(oneLine(approval.Summary), 160)
+	if approval.Reason != "" && approval.Reason != approval.Summary {
+		summary = strings.TrimSpace(summary + " · " + clip(oneLine(approval.Reason), 120))
+	}
+	return summary
 }

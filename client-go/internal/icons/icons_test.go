@@ -11,18 +11,12 @@ func TestEveryIconParses(t *testing.T) {
 			Size() (float32, float32)
 		}
 	}{
-		{"CornerDownRight", CornerDownRight}, {"Monitor", Monitor}, {"MessagesSquare", MessagesSquare},
-		{"Languages", Languages}, {"Plus", Plus}, {"Archive", Archive},
-		{"RotateCw", RotateCw}, {"Database", Database}, {"Search", Search},
-		{"Pin", Pin}, {"Check", Check}, {"X", X}, {"Copy", Copy},
-		{"Play", Play}, {"Square", Square}, {"Folder", Folder},
+		{"Paperclip", Paperclip}, {"Send", Send}, {"Square", Square},
 		{"ChevronDown", ChevronDown}, {"ChevronRight", ChevronRight},
-		{"Paperclip", Paperclip}, {"Send", Send},
-		{"PanelRight", PanelRight}, {"Brain", Brain}, {"ShieldCheck", ShieldCheck},
-		{"GitCommit", GitCommit}, {"GitCompare", GitCompare}, {"Trash", Trash},
-		{"Wand", Wand}, {"MessagePlus", MessagePlus}, {"Signal", Signal},
-		{"ChevronLeft", ChevronLeft}, {"ExternalLink", ExternalLink},
-		{"FileIcon", FileIcon}, {"Clock", Clock}, {"Star", Star},
+		{"Check", Check}, {"Plus", Plus}, {"Search", Search}, {"X", X},
+		{"MessagePlus", MessagePlus}, {"ShieldAlert", ShieldAlert},
+		{"AlertTriangle", AlertTriangle}, {"Clock", Clock},
+		{"RefreshCw", RefreshCw}, {"PlugZap", PlugZap},
 	} {
 		if w, h := icon.svg.Size(); w != 24 || h != 24 {
 			t.Fatalf("%s: size %vx%v, want 24x24", icon.name, w, h)

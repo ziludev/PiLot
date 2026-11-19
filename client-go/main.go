@@ -1,42 +1,34 @@
 // PiLot: a native desktop client for the local pi-durable agent.
 //
-// The window is drawn by mygo's ui package from Go; there is no web page. The
-// Go side also owns what the web page could not do itself in the earlier client
-// client: reading the bridge port and token from the agent's .env, running
-// scripts/agentctl, notifications and revealing the log directory.
+// The window is drawn by mygo's ui package from Go; there is no web page, no
+// tray, and no second window. One app, one window, one conversation.
 package main
 
 import (
-	"fmt"
 	"log"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/api"
 	"pitta/internal/app"
 	"pitta/internal/bridge"
-	"pitta/internal/notify"
 	"pitta/internal/theme"
 )
 
 func main() {
-	cfg := app.Config{
+	a := app.New(app.Config{
 		BaseURL: bridge.BaseURL(),
 		Token:   bridge.Token(),
-		Home:    bridge.Home(),
-	}
+	})
 
 	mygo.App.WhenReady(func() {
 		if err := theme.RegisterFonts(); err != nil {
 			log.Printf("theme: register font: %v", err)
 		}
-		a := app.New(cfg)
 		win := mygo.NewWindow(mygo.WindowOptions{
 			Title: "PiLot",
-			// The client draws its own header instead of a title bar, so the
-			// traffic lights sit over the rail's top row, as in the native apps
-			// this replaces (see App.View's c.TitleBar() padding).
+			// The window draws its own header, so the traffic lights sit over
+			// the rail's top strip, where the eye expects them.
 			TitleBarStyle:        mygo.TitleBarHidden,
 			TrafficLightPosition: &mygo.Point{X: 14, Y: 14},
 			Width:                1180,
@@ -47,83 +39,10 @@ func main() {
 			StateKey:             "main",
 			Content:              ui.View(a.View),
 		})
-		tray := installTray(a, win)
-		app.SetBadgeHook(func(n int) {
-			mygo.App.SetBadgeCount(n)
-			if tray != nil {
-				// The menu bar is where a hidden window's work shows up.
-				title := ""
-				if n > 0 {
-					title = fmt.Sprintf(" %d", n)
-				}
-				tray.SetTitle(title)
-			}
-		})
-		app.SetPicker(mygo.Dialog.Open)
-		app.SetQuit(mygo.App.Quit)
-		// The settings panel's transparency slider reaches every window, the
-		// ones already open and the ones opened later, which Attach applies.
-		app.SetOpacityHook(func(w *mygo.Window, value float32) {
-			w.SetOpacity(float64(value))
-		})
-		// An approval is the one thing that must reach the user while the
-		// window is behind others: the system alert plus a Dock bounce, which
-		// stops as soon as the wait is over.
-		var bounce int
-		app.SetAttention(func(on bool) {
-			if on {
-				mygo.Shell.Beep()
-				bounce = mygo.App.Dock.Bounce(false)
-				return
-			}
-			if bounce != 0 {
-				mygo.App.Dock.CancelBounce(bounce)
-				bounce = 0
-			}
-		})
-		notify.Sender = func(id, title, body string) error {
-			return mygo.NewNotification(mygo.NotificationOptions{
-				ID: id, Title: title, Body: body, Group: "answers",
-			}).Show()
-		}
-		// A click lands on the chat the answer came from, not just on the app:
-		// the notification says which one in its id.
-		mygo.App.OnNotificationClick(func(id string) {
-			win.Show()
-			win.Focus()
-			if chatID, ok := notify.ChatFromID(id); ok {
-				a.OpenFromNotification(chatID)
-			}
-		})
-		// pilot://chat/123 from a terminal, a script or a chat message: the
-		// scheme is declared in mygo.config.ts.
-		mygo.App.OnOpenURL(func(raw string) {
-			win.Show()
-			win.Focus()
-			a.OpenDeepLink(raw)
-		})
 		installMenu(a)
-		registerHotkey(win)
-		// ⌘⇧N and the rail's menu open one chat in its own window: it shares
-		// the client, while approvals, the badge and the preference file stay
-		// with the first window.
-		app.SetWindowOpener(func(cfg app.Config, client *api.Client, conversationID int) {
-			second := app.NewSecondary(cfg, client, conversationID)
-			win := mygo.NewWindow(mygo.WindowOptions{
-				Title:                "PiLot",
-				Width:                1180,
-				Height:               820,
-				MinWidth:             720,
-				MinHeight:            480,
-				BackgroundColor:      "light-dark(#ffffff, #0a0a0a)",
-				TitleBarStyle:        mygo.TitleBarHidden,
-				TrafficLightPosition: &mygo.Point{X: 14, Y: 14},
-				Content:              ui.View(second.View),
-			})
-			second.Attach(win)
-		})
 		a.Attach(win)
 	})
+
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
 	}

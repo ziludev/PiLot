@@ -1,5 +1,5 @@
-// Package i18n carries the UI strings of the earlier web client so the Go side can
-// phrase the same messages in the same two languages.
+// Package i18n carries the window's strings in its two languages: Chinese and
+// English. The tables live in dict.go; this file is only the lookup.
 package i18n
 
 import (
@@ -28,14 +28,15 @@ var (
 	missing sync.Map
 )
 
-// detectLang stands in for the browser's initialLang: there is no ?lang query
-// and no localStorage here, so the process locale is the closest equivalent of
-// navigator.language. Anything that is not zh keeps the English default.
+// detectLang picks the window's language: Chinese, because that is the language
+// the window is written for, and English only when asked for by name with
+// PILOT_LANG=en. The process locale is not consulted: a Mac set to English says
+// nothing about which language its owner wants to read.
 func detectLang() Lang {
-	if strings.HasPrefix(strings.ToLower(os.Getenv("LANG")), "zh") {
-		return ZH
+	if strings.EqualFold(os.Getenv("PILOT_LANG"), "en") {
+		return EN
 	}
-	return EN
+	return ZH
 }
 
 // Set overrides the language for the rest of the process; a caller that wants a

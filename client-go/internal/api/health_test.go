@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// TestHealthReadsTheBridgeReport: the footer trusts this call for the uptime,
-// the queue depth and the version, so every field has to survive the trip.
+// TestHealthReadsTheBridgeReport: the composer's queue strip reads this call,
+// so its counts have to survive the trip.
 func TestHealthReadsTheBridgeReport(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/health" {
@@ -32,7 +32,7 @@ func TestHealthReadsTheBridgeReport(t *testing.T) {
 	if got.QueueDepth != 2 || got.Running != 1 || got.Chats != 7 {
 		t.Fatalf("health counts = %+v, want 2 / 1 / 7", got)
 	}
-	// The footer computes the uptime itself, from this stamp.
+	// The stamp is a string on the wire and a time here.
 	started, err := time.Parse(time.RFC3339, got.StartedAt)
 	if err != nil {
 		t.Fatalf("startedAt %q does not parse: %v", got.StartedAt, err)
@@ -42,9 +42,9 @@ func TestHealthReadsTheBridgeReport(t *testing.T) {
 	}
 }
 
-// TestHealthOnAnOldBridge is the case the footer's red state exists for: a
-// bridge that predates /api/health answers 404, and the client must report an
-// error rather than a zero-valued report it would draw as a healthy agent.
+// TestHealthOnAnOldBridge: a bridge that predates /api/health answers 404, and
+// the client must report an error rather than a zero-valued report the composer
+// would draw as an empty queue.
 func TestHealthOnAnOldBridge(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
