@@ -10,7 +10,6 @@
 
 | 缺的 | 第一版怎么做的 | 接口 | mygo 原语 |
 | --- | --- | --- | --- |
-| 工具输出的结构化渲染 | `ToolOutput.tsx` 按内容分派：diff 着色、JSON、日志级别、TSV 表格、失败色 | 无（数据在 entry 里） | `ui.Text` 着色、`ui.Table`、`ui.Collapsible` |
 | 会话菜单：重命名 / 归档 / 清理 worktree | `ChatMenu.tsx`（未合并的分支拒绝并提示） | `POST /api/surface-meta`、`POST /api/worktree/remove` | `ui.Popover` + `ui.MenuBase` + `ui.Modal` |
 | 跨会话搜索 | `SearchBox.tsx` 提交走 `/api/search`，列命中、点进会话 | `GET /api/search` | 列表 + 防抖 |
 | 模型选择（含思考档） | `ModelPicker.tsx` | `GET /api/models`、`POST /api/model`、`POST /api/default-model` | 内联面板（见 §2） |

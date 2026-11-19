@@ -27,6 +27,9 @@ type Tokens struct {
 	// Warning is amber-500, the color the approval bar and running tasks use;
 	// that token set has no equivalent.
 	Warning ui.Color
+	// Success is emerald-600 in light and emerald-400 in dark: diff additions
+	// and anything that went through. The token set this maps has no green.
+	Success ui.Color
 	// Selection is the highlight behind selected text, which mygo draws
 	// itself; a browser paints it, so these are mygo's own
 	// defaults, kept explicit so a theme change cannot make it invisible.
@@ -62,6 +65,7 @@ func Light() Tokens {
 		AccentFg: ui.Hex("#171717"),
 
 		Warning:     ui.Hex("#f59e0b"),
+		Success:     ui.Hex("#059669"),
 		Selection:   ui.RGBA(37, 99, 235, 0.25),
 		Destructive: ui.Hex("#e7000b"),
 		Border:      ui.Hex("#e5e5e5"),
@@ -96,6 +100,7 @@ func Dark() Tokens {
 		AccentFg: ui.Hex("#fafafa"),
 
 		Warning:     ui.Hex("#fbbf24"),
+		Success:     ui.Hex("#34d399"),
 		Selection:   ui.RGBA(59, 130, 246, 0.40),
 		Destructive: ui.Hex("#ff6467"),
 		Border:      ui.RGBA(255, 255, 255, 0.10),

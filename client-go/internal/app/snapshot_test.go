@@ -307,3 +307,44 @@ func TestSnapshotRailSearch(t *testing.T) {
 	}
 	writePNG(t, "/tmp/clientv2-search.png", tt.Image())
 }
+
+// TestSnapshotToolOutput draws an opened fold whose tool result is a diff and a
+// failing test run: the block is the point of opening it, so it is not the
+// eighty clipped characters the row summary used to be.
+func TestSnapshotToolOutput(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	out := "--- a/src/queue.ts\n+++ b/src/queue.ts\n@@ -12,7 +12,7 @@\n-  const retries = 3;\n+  const retries = 5;\n \n FAIL src/queue.test.ts\n  ● retries after a 502\n\n    expect(received).toBe(expected)\n\n    Expected: 5\n    Received: 3\n\n  \x1b[1m\x1b[31m1 failed\x1b[0m, 1 passed"
+	quoted, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.thread(11).upsert(entryJSON(t, 91, "pi.tool-result", time.Now().Add(-7*time.Minute),
+		`[{"role":"toolResult","content":[{"type":"text","text":`+string(quoted)+`}],"timestamp":__ts}]`))
+	a.thread(11).upsert(entryJSON(t, 90, "pi.assistant", time.Now().Add(-7*time.Minute),
+		`[{"role":"assistant","content":[{"type":"toolCall","name":"bash","arguments":{"command":"npx vitest run src/queue.test.ts"}}],"timestamp":__ts}]`))
+	for _, row := range a.threadRows(11) {
+		if row.kind == rowSteps {
+			a.vm.folds[row.id] = true
+		}
+	}
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	for _, text := range []string{
+		"npx vitest run src/queue.test.ts",
+		"@@ -12,7 +12,7 @@",
+		"-  const retries = 3;",
+		"… 还有 2 行", // dropped from the middle, and says so
+		"Expected: 5",
+		"1 failed, 1 passed", // ANSI stripped, not drawn as garbage
+	} {
+		if !tt.HasText(text) {
+			t.Fatalf("missing %q; drew %v", text, tt.Texts())
+		}
+	}
+	if hasAnyText(tt, "\x1b") {
+		t.Fatal("escape codes reached the screen")
+	}
+	writePNG(t, "/tmp/clientv2-tooloutput.png", tt.Image())
+}
