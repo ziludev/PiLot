@@ -17,3 +17,4 @@ toolbox-go/bin/
 
 # goal state, written by the agent while it works
 .pi/
+/bin

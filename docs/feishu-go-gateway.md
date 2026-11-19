@@ -159,6 +159,23 @@ TS 侧
   因此 P2 不能把“连上了”当健康判据：要么等首条事件再宣布 ready，要么和桥接层的事件数对账。
 - 收事件到日志的延迟在毫秒级，`/healthz` 的 `lastEvent` 可直接当活性探针。
 
+### 8.2 P2 实测记录（2026-11-19）
+
+`FEISHU_TRANSPORT=go` 已在真机上跑通一整轮：gw 收 `im.message.receive_v1` → 转发 `POST
+/feishu/events` → 桥接层 `eventDispatcher.invoke` → 出卡 → gw 发回群。`/healthz` 在那一轮
+报 `events=1 delivered=1 dropped=0`，桥接层日志走的是同一条 `turn start` → `final card patched` 路径。
+
+几个落地的细节，比方案里写的更具体：
+
+- gw 的 HTTP API 用 `x-pilot-token`（`FEISHU_GW_TOKEN`）鉴权，转发到桥接层时带
+  `Authorization: Bearer $AGENT_HTTP_TOKEN`——桥接层的 API 本来就拒绝陌生请求，这一层不另开口子。
+- `im.message.get` 对 app 发的消息返回 `sender.id = cli_...`（app_id），`open_id` 为空；
+  对人是 `id = ou_...`。所以“这条引用是不是我们自己写的”只能按 `sender_type === "app"` 加 app_id 判，
+  现在桥接层比的是 `sender.id === botOpenId`，实际一直为 false（历史 bug，未在 P2 里改）。
+- 桥接层保留一个 SDK client：`im.message.list`（线程历史/摘要）不在 gw 的五个操作里，仍走 SDK。
+- 守护：`launchd/feishu-gw.plist.tmpl` + `agentctl install-gateway`，`KeepAlive` 常驻；
+  `agentctl install` 只在 `FEISHU_TRANSPORT=go` 时才装它——两条连接并存会让每条消息被回答两次。
+
 ## 9. 风险
 
 | 风险 | 影响 | 对策 |
