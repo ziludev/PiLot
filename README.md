@@ -123,6 +123,10 @@ One level per chat, in `app.chat-access`: `closed`, `owner` or `group`. Chats li
 
 `remind` creates a durable reminder task: the deadline is in the database, the task sleeps, and a restart does not lose it. Running tasks show in the client's left rail with a status dot and their next fire time, and a finished turn raises a native notification when the window is in the background.
 
+`routine` is the same durable sleep with a turn behind it: it wakes, starts a full turn in the chat (`daily 09:00` / `weekdays 09:00` / `weekly mon 09:00` / `every 6h`), then goes back to sleep — a route that never ends, so the ledger is the schedule. Because it sleeps on a stored deadline, a fire that falls while the machine is off happens once when it comes back, not the whole backlog. `routines` lists them and cancels one.
+
+`POST /api/hook/<name>` is the same door for things that are not Feishu: a git hook, an SLS alarm, a cron on another box. It starts a real turn in the owner's chat and returns 202 immediately, since the turn takes minutes and the caller should not hold a socket for it. Same bearer token as the rest of `/api`.
+
 ### Where the coding tools run
 
 `bash`, `read`, `write` and `edit` execute in a separate Go process, `toolbox-go/`, not inside the agent. The Node side keeps the tool schemas and a thin proxy, so the model sees the same names, parameters, result shapes, truncation, exit codes and diagnostics it saw when the tools ran in-process — that equality is what `tests/toolbox-parity.test.ts` and `tests/toolbox-files-parity.test.ts` assert, by running pi-durable's own tools against a real environment and comparing both paths field by field.
@@ -276,6 +280,7 @@ src/
   memory.ts        three memory layers; curator.ts suggests, never writes
   settle.ts        setting a final state: "already terminal / abort-marked / session closed" is not an error
   reminders.ts     durable reminder tasks (sleepUntil) and the remind tool
+  routines.ts      recurring turns: a reminder that starts a turn and never settles
   projects.ts      projects, conversation↔project/base binding
   worktree.ts      one worktree and branch per conversation; merge back to the base
   git-info.ts      commits, a single patch, push, PR/MR links

@@ -136,6 +136,8 @@
 ### 主动性
 
 - `remind` 工具创建 **durable 定时任务**：deadline 落库、任务睡觉、重启后照样到点触发
+- `routine` 工具创建 **常驻定时任务**：到点自动在聊天里开一轮（`daily 09:00` / `weekdays 09:00` / `weekly mon 09:00` / `every 6h`），跑完结果发回那个聊天，然后接着睡。到点时机器是关着的，醒来只补一次，不会把落下的全补一遍。`routines` 列出/取消
+- `POST /api/hook/<name>`：给飞书以外的东西（git hook、SLS 告警、别的机器上的 cron）一个叫醒 agent 的入口，起的是一整轮 turn，不是一条通知；立刻回 202，因为一轮要跑几分钟
 - 左栏「运行中」显示后台任务 + 红黄绿状态点 + 触发时刻（`● 伸个懒腰 12:15`）
 - 客户端窗口在后台时，一轮回答结束发原生通知
 
@@ -284,6 +286,7 @@ src/
   memory.ts        global / chat / work 三层记忆 doc、remember/forget/recall
   curator.ts       手动整理：读会话 → 只产出建议
   reminders.ts     durable Reminder task（sleepUntil）+ remind 工具
+  routines.ts      常驻定时任务：会开一轮 turn 的提醒，永不 settle
   approval.ts      guard hook：危险调用识别 + 审批
   approvals.ts     审批注册表（飞书卡片与客户端共用）
   budget.ts        每日花费 doc + 闸门

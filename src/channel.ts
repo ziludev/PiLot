@@ -19,6 +19,31 @@ export async function notify(surfaceId: string, text: string): Promise<void> {
   await notifier(surfaceId, text);
 }
 
+/**
+ * Starts a turn in a chat as if a message had arrived — the routine timer's way of knocking. The
+ * bridge installs the Feishu version (card, queue slot, delivery); the CLI prints it, because a
+ * routine firing on the command line has nobody to talk to.
+ */
+type TurnStarter = (surfaceId: string, text: string, key: string) => Promise<boolean>;
+
+let turnStarter: TurnStarter | undefined;
+
+export function setTurnStarter(next: TurnStarter | undefined): void {
+  turnStarter = next;
+}
+
+/**
+ * True when a turn was actually started; false when there was nowhere to run it. `key` is the
+ * request id, and it must be stable across attempts so a retry dedupes instead of running twice.
+ */
+export async function startTurn(surfaceId: string, text: string, key: string): Promise<boolean> {
+  if (turnStarter === undefined) {
+    console.log(`[turn:${surfaceId}] ${text}`);
+    return false;
+  }
+  return turnStarter(surfaceId, text, key);
+}
+
 export type ApprovalRequest = {
   /** Tool call id; unique per call and used as the durable memo key. */
   callId: string;

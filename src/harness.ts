@@ -25,6 +25,7 @@ import { ChatMemory, GlobalMemory, memoryExtension, type Note } from "./memory.t
 import type { ToolStep } from "./details.ts";
 import { answerBlocksInTx, answerTextInTx, type AnswerBlock } from "./answer.ts";
 import { reminderExtension } from "./reminders.ts";
+import { routineExtension } from "./routines.ts";
 import { guardExtension } from "./approval.ts";
 import { diagnosticsExtension } from "./diagnostics.ts";
 import { larkExtension } from "./lark-tools.ts";
@@ -206,6 +207,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   registry.install(skillsExtension);
   registry.install(memoryExtension);
   registry.install(reminderExtension);
+  registry.install(routineExtension);
   registry.install(guardExtension);
   registry.install(diagnosticsExtension);
   // Deferred tools are installed but not offered; this is how the model finds them again.
