@@ -68,6 +68,8 @@ type App struct {
 	// notes is what the last snapshot said about the chats nobody is looking at.
 	// It only exists to tell a finished turn from one that finished long ago.
 	notes notifier
+	// zoom is the picture opened from a message, if one is open over the window.
+	zoom zoomState
 	// banner is where an alert goes. The window hands it to the system; tests
 	// keep it, because whether a banner is right is a question about snapshots,
 	// not about Notification Center.
@@ -139,6 +141,11 @@ type viewModel struct {
 	// tails is the newest entry time per chat, as probed from the bridge.
 	tails  map[int]time.Time
 	unread map[int]bool
+	// seen is the newest entry the user has had on screen in a chat, and newFrom
+	// is where that stood when they opened the chat they are in now. The line
+	// that marks what arrived while they were away is drawn from the gap.
+	seen    map[int]int
+	newFrom map[int]int
 	// folds is the disclosure state of folded step rows, keyed by
 	// (conversationID, turnID).
 	folds      map[string]bool
@@ -172,6 +179,11 @@ func New(cfg Config) *App {
 	a.prefs = loadPrefs()
 	a.prefs.applyLang()
 	a.railW = a.prefs.railWidth()
+	for key, entry := range a.prefs.Seen {
+		if convID, err := strconv.Atoi(key); err == nil {
+			a.vm.seen[convID] = entry
+		}
+	}
 	go a.reconcileLoop()
 	go a.elapsedLoop()
 	go a.tailLoop()
@@ -194,6 +206,8 @@ func newApp(cfg Config) *App {
 		vm: viewModel{
 			tails:      map[int]time.Time{},
 			unread:     map[int]bool{},
+			seen:       map[int]int{},
+			newFrom:    map[int]int{},
 			folds:      map[string]bool{},
 			projection: map[int]projectionCache{},
 		},
@@ -275,6 +289,8 @@ const (
 	evProjects
 	evProjectAdd
 	evProjectRemove
+	// A picture opened from a message, once it has decoded.
+	evZoom
 )
 
 type event struct {
@@ -318,7 +334,9 @@ type event struct {
 	// in path, above.
 	projects []protocol.Project
 	usage    []api.UsageDay
-	err      error
+	// zoom is a decoded picture on its way to the overlay.
+	zoom *ui.Bitmap
+	err  error
 }
 
 type snapshotResult struct {
@@ -651,6 +669,8 @@ func (a *App) apply(ev event) {
 		a.applyTaskStop(ev.taskID, ev.seq, ev.err)
 	case evUsage:
 		a.applyUsage(ev.seq, ev.usage, ev.err)
+	case evZoom:
+		a.applyZoom(ev.zoom, ev.err)
 	case evFile:
 		a.applyFileText(ev.convID, ev.path, ev.fileText, ev.truncated, ev.err)
 	case evWrite:
@@ -726,6 +746,7 @@ func (a *App) applyPage(result *pageResult) {
 	th.rev = make(map[int]uint64, len(result.entries))
 	for _, entry := range result.entries {
 		th.rev[entry.ID] = fingerprint(entry)
+		a.noteSeen(result.convID, entry.ID)
 	}
 	th.version++
 }
@@ -750,6 +771,7 @@ func (a *App) applyFrame(result *frameResult) {
 		}
 		th.rev[entry.ID] = stamp
 		th.upsert(entry)
+		a.noteSeen(result.convID, entry.ID)
 		changed = true
 	}
 	if result.frame.Value.Docs != nil {
@@ -779,6 +801,32 @@ func (a *App) applyTail(result *tailResult) {
 	}
 }
 
+// remember writes the read mark of a chat to disk, on the way out of it: the map
+// is touched on every frame, and a write per frame is a write per keystroke.
+func (a *App) remember(convID int) {
+	if convID == 0 || a.vm.seen[convID] == 0 {
+		return
+	}
+	key := strconv.Itoa(convID)
+	if a.prefs.Seen == nil {
+		a.prefs.Seen = map[string]int{}
+	}
+	if a.vm.seen[convID] <= a.prefs.Seen[key] {
+		return
+	}
+	a.prefs.Seen[key] = a.vm.seen[convID]
+	go savePrefs(a.prefs)
+}
+
+// noteSeen records that the user has had this entry on screen. Only the open
+// chat counts: the rest is what the line in the transcript is about.
+func (a *App) noteSeen(convID, entry int) {
+	if convID != a.active || entry <= a.vm.seen[convID] {
+		return
+	}
+	a.vm.seen[convID] = entry
+}
+
 // thread is the store for one chat, created on first use.
 func (a *App) thread(convID int) *threadStore {
 	if th, ok := a.threads[convID]; ok {
@@ -805,7 +853,9 @@ func (a *App) selectConversation(convID int) {
 	if convID == 0 || convID == a.active {
 		return
 	}
+	a.remember(a.active)
 	a.active = convID
+	a.vm.newFrom[convID] = a.vm.seen[convID]
 	a.revealChatSection(convID)
 	a.vm.unread[convID] = false
 	delete(a.vm.unread, convID)
@@ -885,6 +935,7 @@ func (a *App) View(c *ui.Context) {
 	a.renameDialog(c, t)
 	a.settingsDialog(c, t)
 	a.taskDetailDialog(c, t)
+	a.zoomDialog(c, t)
 	a.usageDialog(c, t)
 	a.writeDialog(c, t)
 }

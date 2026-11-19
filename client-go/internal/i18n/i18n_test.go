@@ -24,8 +24,10 @@ import (
 // five strings that asked which branch to measure from — the chip only names it.
 // 205 keys: the banners say how a turn ended and what a write wants, and the
 // settings panel grew the switch that silences them, and the changes drawer
-// learned how to hand the checkout to Finder or the editor.
-const maxKeys = 207
+// learned how to hand the checkout to Finder or the editor, and a picture that
+// will not open says so, the thumbnail says what it is for, and the transcript
+// marks where the reader left off.
+const maxKeys = 210
 
 func TestDictionariesMatch(t *testing.T) {
 	keys := Keys()

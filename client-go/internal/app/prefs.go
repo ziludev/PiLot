@@ -30,6 +30,9 @@ type prefs struct {
 	// the file is read from disk where a missing field means false — and the
 	// window should tell you about a finished turn until you ask it not to.
 	Silent bool `json:"silent,omitempty"`
+	// Seen is the newest entry the user had on screen in each chat, keyed by
+	// conversation: what makes the line in the transcript survive a restart.
+	Seen map[string]int `json:"seen,omitempty"`
 }
 
 // prefsPath is this window's own file. The earlier client's ~/.pitta/ui.json is
@@ -63,12 +66,13 @@ func readPrefs() prefs {
 		Recent   []string        `json:"recentModels"`
 		Kept     []int           `json:"keptChats"`
 		Silent   bool            `json:"silent"`
+		Seen     map[string]int  `json:"seen"`
 	}
 	if err := json.Unmarshal(data, &p); err != nil {
 		log.Printf("prefs: parse %s: %v", path, err)
 		return prefs{}
 	}
-	return prefs{Lang: p.Lang, Theme: p.Theme, Rail: p.Rail, Sections: p.Sections, Recent: p.Recent, Kept: p.Kept, Silent: p.Silent}
+	return prefs{Lang: p.Lang, Theme: p.Theme, Rail: p.Rail, Sections: p.Sections, Recent: p.Recent, Kept: p.Kept, Silent: p.Silent, Seen: p.Seen}
 }
 
 // loadPrefs reads the two settings this window keeps.
