@@ -7,11 +7,12 @@ import (
 
 // P0 keeps the window's strings in one small table; a key nobody draws costs a
 // reader a row and a translator a translation, so the ceiling is enforced here.
+// 122 keys: the message bar names its verbs and the jump pill says where it goes;
 // 117 keys: the memory drawer named its three scopes, the settings panel took the
 // rail footer's switches, the find bar counts its hits, and the changes drawer
 // names a patch, a branch and a way back. The point of the ceiling is that it
 // only moves with a reason.
-const maxKeys = 117
+const maxKeys = 122
 
 func TestDictionariesMatch(t *testing.T) {
 	keys := Keys()
