@@ -119,6 +119,28 @@ test("a one-line ending keeps the analysis above it", () => {
   assert.ok(!text.includes("_过程"), text);
 });
 
+test("a closing offer after a long answer is a footnote, not the answer", () => {
+  // The shape that made a 1000-char plan render as one line: the model writes the answer, calls
+  // report_done, then adds one sentence of its own. Absolute length alone can't tell that apart
+  // from a real follow-up — relative length can.
+  const plan = [
+    "**方案已写到 docs/feishu-go-gateway.md（ab748c7）。核心判断：不整包迁移，加一个 Go 中间进程。**",
+    "为什么：SDK 只碰传输层，19 个调用点归结为 5 个操作，而卡片内容是纯 JSON，与 SDK 无耦合。",
+    "架构：feishu-gw 用 oapi-sdk-go/v3 收长连接、发消息，桥接层通过 HTTP 调它，卡片 JSON 原样透传。",
+    "按键回调是唯一要小心的：飞书给 card.action.trigger 的响应有 3 秒超时，所以对它是同步转交。",
+    "分四阶段：只收事件 → 接上发送层 → 切默认观察七天 → 删掉 Node 路径。成本 2 到 2.5 人日。",
+  ].join("\n\n");
+  const blocks = answerBlocksOf([
+    narration(plan, "report_done"),
+    narration("如果你需要，我可以先把 P1（只收事件、不发送消息）跑通，再决定是否继续做发送层。"),
+  ]);
+  const text = composeAnswer(blocks);
+  assert.match(text, /^\*\*方案已写到/, "the plan is the answer, so it leads");
+  assert.ok(text.includes("成本 2 到 2.5 人日"), "the plan is not condensed into one bullet");
+  assert.ok(text.includes("我可以先把 P1"), "the closing offer is kept as its own line");
+  assert.ok(!text.includes("_过程"), text);
+});
+
 test("a long narration line ends on a sentence, not mid-parenthesis", () => {
   const blocks = answerBlocksOf([
     narration(
