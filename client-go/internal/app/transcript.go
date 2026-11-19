@@ -467,7 +467,10 @@ func (a *App) toolRun(c *ui.Context, t theme.Tokens, turn *turns.Turn, steps []t
 				ui.Text(c, i18n.TF("toolRunFailed", map[string]any{"count": failures})).
 					FontSize(10.5).TextColor(t.Destructive)
 			}
-			if ms := turns.RunElapsed(steps, time.Now().UnixMilli()); ms >= slowStepMS {
+			// While the run is live this line is the only place the clock
+			// exists; once it settles the turn's own summary carries the
+			// duration, and repeating it here would say it twice.
+			if ms := turns.RunElapsed(steps, time.Now().UnixMilli()); live && ms >= slowStepMS {
 				ui.Text(c, "·").FontSize(10.5).TextColor(t.MutedFg)
 				ui.Text(c, turns.Clock(ms)).FontSize(10.5).TextColor(t.MutedFg)
 			}

@@ -85,26 +85,33 @@ func (a *App) approvalBar(c *ui.Context, t theme.Tokens) {
 		Transition(motion.PopoverEnter()).Children(func() {
 		for _, approval := range a.approvals {
 			approval := approval
-			ui.Row(c).Fill().Gap(8).Children(func() {
-				ui.Icon(c, icons.ShieldAlert).Size(12, 12).TextColor(t.Warning)
-				ui.Column(c).Grow(1).Gap(2).Children(func() {
-					ui.Text(c, i18n.T("needsApproval")+" · "+approval.Tool+" — "+approval.Reason+waitedSuffix(approval.CreatedAt)).
-						FontSize(11).TextColor(t.Foreground)
-					if summary := strings.TrimSpace(approval.Summary); summary != "" {
-						ui.Text(c, truncate(summary, 240)).FontSize(10).TextColor(t.MutedFg)
-					}
+			// The ask reads on its own line and the buttons sit under it: a
+			// row holding both needs the width of the widest sentence plus
+			// three buttons, and the side panel takes that width away — the
+			// last button used to be clipped instead of wrapped.
+			ui.Column(c).Fill().Gap(6).Children(func() {
+				ui.Row(c).Fill().Gap(8).Children(func() {
+					ui.Icon(c, icons.ShieldAlert).Size(12, 12).TextColor(t.Warning)
+					ui.Column(c).Grow(1).Gap(2).Children(func() {
+						ui.Text(c, i18n.T("needsApproval")+" · "+approval.Tool+" — "+approval.Reason+waitedSuffix(approval.CreatedAt)).
+							FontSize(11).TextColor(t.Foreground).Wrap()
+						if summary := strings.TrimSpace(approval.Summary); summary != "" {
+							ui.Text(c, truncate(summary, 240)).FontSize(10).TextColor(t.MutedFg).Wrap()
+						}
+					})
 				})
-				ui.Button(c, i18n.T("allow")).OnClick(func() { a.decideApproval(approval.CallID, true, false) })
-				if approval.GrantKey != "" {
-					ui.Button(c, i18n.T("allowSession")).OnClick(func() { a.decideApproval(approval.CallID, true, true) })
-				}
-				ui.Button(c, i18n.T("deny")).OnClick(func() { a.decideApproval(approval.CallID, false, false) })
+				ui.Row(c).Fill().Gap(6).Justify(ui.End).Children(func() {
+					ui.Button(c, i18n.T("allow")).OnClick(func() { a.decideApproval(approval.CallID, true, false) })
+					if approval.GrantKey != "" {
+						ui.Button(c, i18n.T("allowSession")).OnClick(func() { a.decideApproval(approval.CallID, true, true) })
+					}
+					ui.Button(c, i18n.T("deny")).OnClick(func() { a.decideApproval(approval.CallID, false, false) })
+				})
 			})
 		}
 	})
 }
 
-// waitedSuffix words how long the call has been blocked.
 // waitedSuffix says how long a call has been parked. createdAt is epoch
 // milliseconds, as src/approvals.ts stamps it with Date.now().
 func waitedSuffix(createdAt int64) string {
