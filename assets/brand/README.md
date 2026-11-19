@@ -1,5 +1,10 @@
 # PiLot brand
 
+**The mark is the fox.** `PiLot_fox.jpg` (2048², navy tile and the head) is what the app
+ships as its icon and as the face in the transcript; it is a raster, so `client-go/scripts/render-icon.sh`
+cuts both from it. Everything below is the retired vector kit, kept because the wordmark and the
+web icons have no raster equivalent.
+
 The vector masters, as they came from the brand kit (`README_vector_assets.txt` is the kit's own
 inventory). Nothing here is drawn by hand at build time; the app copies from these files.
 

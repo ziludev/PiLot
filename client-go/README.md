@@ -33,9 +33,9 @@ open "$HOME/Applications/PiLot.app"
 
 ## 图标
 
-`resources/icon.png`（1024×1024）由 `resources/pilot-app-icon.svg` 渲染而来——就是 PiLot 品牌资产里的 app icon（`#182235` 圆角底 + 五色模块与白箭头）。品牌包的矢量源在 [`assets/brand/`](../assets/brand/README.md)，这份 `resources/` 是它给 `go:embed` 的副本，对应关系写在那份 README 里。
-托盘图标 `resources/tray.png` 由 `resources/pilot-mark.svg`（单色 mono symbol）渲染，是模板图标，菜单栏按自己的配色上色。
-重跑 `./scripts/render-icon.sh` 刷新，`go tool mygo build` 会把它打成 `AppIcon.icns`。脚本要求 Chrome（`CHROME` 可覆盖路径）与 python3 + Pillow。
+`resources/icon.png`（1024×1024）与 `internal/app/avatar.png`（128）都从同一张母版切出来：`assets/brand/PiLot_fox.jpg`（2048，狐狸头 + `#273244` 底）。前者按 `#182235` 一脉的 squircle 出图，`go tool mygo build` 再把它打成 `AppIcon.icns`；后者是干净的头像裁切，回答旁边和 rail 都用它——Dock 里的图标和对话里的那张脸是同一张画。
+
+重跑 `./scripts/render-icon.sh` 刷新，脚本只依赖 python3 + Pillow（系统自带的那份即可），不再需要 Chrome。
 
 ## 目录
 
