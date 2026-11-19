@@ -34,6 +34,7 @@ import {
 import { lookupMessage } from "./threads.ts";
 import { readTurnDetails, saveTurnDetails, type TurnDetails } from "./details.ts";
 import { formatDecision, noteDecision, takeDecisions } from "./decisions.ts";
+import { shortRole, spanText, stageLine, subAgentStagesSince } from "./activity.ts";
 import { doneVerdict, takeDone } from "./done.ts";
 import {
   adoptChatLevels,
@@ -377,11 +378,7 @@ function clock(at: number): string {
 
 /** "3m 12s" — duration as a human reads it. */
 function duration(ms: number): string {
-  const seconds = Math.max(0, Math.round(ms / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  return spanText(ms);
 }
 
 export function clip(text: string): string {
@@ -429,10 +426,12 @@ type CardTrace = { digest: string };
  * running now (with its age, the only signal a hanging round gives), then the answer as it streams.
  * The step trail is why a five-minute turn no longer reads `bash · 0s` and nothing else.
  */
-function renderLive(live: LiveSnapshot, trace?: CardTrace, trail?: Trail): string {
+export function renderLive(live: LiveSnapshot, trace?: CardTrace, trail?: Trail, stages?: string[]): string {
   const body = live.text.trim();
   const steps = trail === undefined ? "" : renderSteps(trail, Date.now());
   const parts: string[] = [];
+  // A pipeline's stage is the biggest thing happening, so it goes above the tool rounds.
+  if (stages !== undefined && stages.length > 0) parts.push(stages.join("\n"));
   if (steps.length > 0) {
     parts.push(steps);
     if (live.activity !== undefined && live.activity.length > 0) parts.push(`_${live.activity}_`);
@@ -1279,8 +1278,22 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     let finished = false;
     const tools = new Set<string>();
 
+    // Which stage of a pipeline is running, if one is. The work happens in child conversations, so
+    // the card asks the store — but not on every patch: a token-by-token stream would open a
+    // connection per token.
+    let stages: string[] = [];
+    let stagesAt = 0;
+    const refreshStages = (): void => {
+      const now = Date.now();
+      if (now - stagesAt < 2_000) return;
+      stagesAt = now;
+      stages = subAgentStagesSince(config.dbPath, conversation.id as unknown as number, startedAt)
+        .filter((agent) => agent.state !== "pending")
+        .slice(-5)
+        .map((agent) => stageLine(agent, now));
+    };
     const body = (): string => {
-      if (last !== undefined) return renderLive(last, { digest }, trail);
+      if (last !== undefined) return renderLive(last, { digest }, trail, stages);
       return digest.length === 0 ? "🤔 思考中…" : `> ${digest}\n\n🤔 思考中…`;
     };
     // How far the turn got, in the subtitle: "3 步完成 · 2m18s" beats a bare clock.
@@ -1296,6 +1309,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     ];
     const paint = (): void => {
       if (phase !== "live") return;
+      refreshStages();
       void patchCard(cardId, body(), status === "" ? working() : status, stopButtons(), WORKING_HEADER).catch((error) => {
         if (streamErrors < 3) {
           streamErrors += 1;

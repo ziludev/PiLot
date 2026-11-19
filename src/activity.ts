@@ -103,6 +103,57 @@ function isLive(db: DatabaseSync, conversationId: number): boolean {
   return (row?.live ?? 0) > 0;
 }
 
+/** Elapsed wall clock the way the cards write it: 42s, 6m 12s, 2h 10m. */
+export function spanText(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+/**
+ * One stage, one line: the role, how long it has been at it, and whether it broke. A card that
+ * shows only tool rounds cannot tell "still designing" from "already implementing".
+ */
+export function stageLine(agent: SubAgentActivity, now: number): string {
+  const role = shortRole(agent.role);
+  if (agent.state === "failed") return `✗ ${role} · 失败`;
+  const span = spanText((agent.endedAt ?? now) - (agent.startedAt ?? now));
+  return `${agent.state === "live" ? "▸" : "✓"} ${role} · ${span}`;
+}
+
+/**
+ * A stage name short enough for a card line. The role is a sentence ("按设计文档实现代码，跑通构建"),
+ * and a card that repeats the whole sentence spends a line saying what the state already says.
+ */
+export function shortRole(role: string | null, limit = 10): string {
+  if (role === null || role.trim() === "") return "子会话";
+  const head = (role.split(/[，。；、]/)[0] ?? role).trim();
+  return head.length <= limit ? head : `${head.slice(0, limit)}…`;
+}
+
+/** One row per child conversation, newest last, from a list of conversation ids. */
+function describe(db: DatabaseSync, children: Array<{ id: number }>): SubAgentActivity[] {
+  const count = db.prepare(`select count(*) as steps from entries where conversation_id = ?`);
+  return children.map((child) => {
+    const steps = (count.get(child.id) as { steps?: number } | undefined)?.steps ?? 0;
+    const live = isLive(db, child.id);
+    const clock = stageClock(db, child.id);
+    const state = live ? "live" : clock.failure ? "failed" : clock.startedAt === null ? "pending" : "done";
+    return {
+      conversationId: child.id,
+      role: systemRole(db, child.id),
+      steps,
+      tool: lastTool(db, child.id),
+      live,
+      startedAt: clock.startedAt,
+      endedAt: live ? null : clock.endedAt,
+      state,
+    };
+  });
+}
+
 /**
  * One row per child conversation, newest last. A task with no children returns nothing, which is what
  * an ordinary chat task looks like.
@@ -119,25 +170,47 @@ export function subAgentActivity(dbPath: string, taskId: number): SubAgentActivi
     const children = db
       .prepare(`select id from conversations where owner_task_id = ? order by id`)
       .all(taskId) as Array<{ id: number }>;
-    const count = db.prepare(`select count(*) as steps from entries where conversation_id = ?`);
-    return children.map((child) => {
-      const steps = (count.get(child.id) as { steps?: number } | undefined)?.steps ?? 0;
-      const live = isLive(db, child.id);
-      const clock = stageClock(db, child.id);
-      const state = live ? "live" : clock.failure ? "failed" : clock.startedAt === null ? "pending" : "done";
-      return {
-        conversationId: child.id,
-        role: systemRole(db, child.id),
-        steps,
-        tool: lastTool(db, child.id),
-        live,
-        startedAt: clock.startedAt,
-        endedAt: live ? null : clock.endedAt,
-        state,
-      };
-    });
+    return describe(db, children);
   } catch {
     // A schema this build does not know is not worth a 500 on the task endpoint.
+    return [];
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * The stages of the turn now running in a chat conversation.
+ *
+ * A card belongs to a turn, but the children that do a pipeline's work hang off that turn's task,
+ * one level below the conversation the card serves — and the card has no task id. The conversation
+ * and "started after this turn began" are what it does have, so that is what this reads. Stages of
+ * earlier turns in the same chat stay out of the current card.
+ */
+export function subAgentStagesSince(
+  dbPath: string,
+  conversationId: number,
+  since: number,
+): SubAgentActivity[] {
+  let db: DatabaseSync;
+  try {
+    db = new DatabaseSync(dbPath, { readOnly: true });
+  } catch {
+    return [];
+  }
+  try {
+    const children = db
+      .prepare(
+        `select distinct c.id as id
+           from conversations c
+           join tasks t on t.id = c.owner_task_id
+          where t.conversation_id = ?
+            and coalesce(json_extract(t.record, '$.startedAt'), 0) >= ?
+          order by c.id`,
+      )
+      .all(conversationId, since) as Array<{ id: number }>;
+    return describe(db, children);
+  } catch {
     return [];
   } finally {
     db.close();
