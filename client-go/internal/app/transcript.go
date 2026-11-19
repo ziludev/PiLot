@@ -40,9 +40,11 @@ func (a *App) transcript(c *ui.Context) {
 		}
 		return rows[row].key
 	}
+	// The transcript takes the height the chat has left, so the composer sits
+	// at the bottom of the window instead of floating under the last turn.
 	ui.List(c, &a.turnList, len(rows), func(row int) {
 		a.chatRow(c, t, rows[row])
-	})
+	}).Grow(1)
 	// AtEnd reports the last frame, which is the one the reader is looking at:
 	// a frame of lag on a chip is not a frame of lag on the chat.
 	a.atBottom = a.turnList.AtEnd()
