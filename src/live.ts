@@ -41,7 +41,7 @@ function textOfMessage(message: unknown): string {
  * `pi.live` carries a call's name and id but not its arguments; the assistant message that issued
  * it does, and the window holds the newest fifty entries — every round the trail can still show.
  */
-function readCallArgs(entries: unknown): Record<string, Json> {
+export function readCallArgs(entries: unknown): Record<string, Json> {
   const args: Record<string, Json> = {};
   if (!Array.isArray(entries)) return args;
   for (const entry of entries) {
