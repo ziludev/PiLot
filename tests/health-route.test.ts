@@ -40,7 +40,10 @@ const runtime = {
 		inspect: async () => {
 			if (storageDead) throw new Error("storage is dead");
 			return {
-				submissions: [{ status: "queued" }, { status: "placed" }],
+				submissions: [
+					{ status: "queued", conversationId: 11 },
+					{ status: "placed", conversationId: 12 },
+				],
 				tasks: [{ state: { kind: "running" } }, { state: { kind: "done" } }],
 			};
 		},
@@ -86,6 +89,7 @@ test("the bridge reports itself with the numbers the footer draws", async () => 
 	assert.ok((uptimeMs as number) >= 0, `uptimeMs is negative: ${String(uptimeMs)}`);
 
 	assert.equal(body["queueDepth"], 2, "queued and placed submissions are the queue");
+	assert.deepEqual(body["queued"], { "11": 1 }, "only the waiting input, filed under its chat");
 	assert.equal(body["runningTurns"], 1, "only the running task counts");
 	assert.equal(body["conversations"], 2, "two surfaces sharing a chat count once");
 });

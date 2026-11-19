@@ -45,6 +45,9 @@ type Health struct {
 	QueueDepth int    `json:"queueDepth"`
 	Running    int    `json:"runningTurns"`
 	Chats      int    `json:"conversations"`
+	// Queued is the same queue split by conversation, so the rail can badge the
+	// chat a waiting message actually sits behind.
+	Queued map[string]int `json:"queued"`
 }
 
 // Task is a background or sleeping task the agent runs.
@@ -56,6 +59,9 @@ type Task struct {
 	State          string `json:"state"`
 	Until          int64  `json:"until"`
 	Title          string `json:"title"`
+	// StartedAt is when the harness took the work (ms), so the window can time
+	// the turn it is watching.
+	StartedAt int64 `json:"startedAt"`
 	// Spend is what the task's last run cost, for tasks that run unattended.
 	Spend *TaskSpend `json:"spend"`
 }
@@ -120,6 +126,16 @@ type LiveDoc struct {
 	Run        json.RawMessage   `json:"run"`
 	Generation json.RawMessage   `json:"generation"`
 	Tools      []json.RawMessage `json:"tools"`
+	// Items is pi.inbox: messages the harness has taken but not yet turned into
+	// entries, which is the queue the composer shows above the box.
+	Items []InboxItem `json:"items"`
+}
+
+// InboxItem is one message waiting for the running turn to finish.
+type InboxItem struct {
+	ID      int             `json:"id"`
+	Mode    string          `json:"mode"` // steer: join this turn; followUp: wait for the next
+	Content json.RawMessage `json:"content"`
 }
 
 // Frame is one socket message: a patch of the conversation the client asked

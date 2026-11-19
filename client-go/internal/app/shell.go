@@ -56,18 +56,47 @@ func (a *App) paneHeader(c *ui.Context, t theme.Tokens) {
 	})
 }
 
+// queueRows is how many waiting messages the strip spells out; past that it
+// counts them.
+const queueRows = 3
+
 // statusStrip draws what the composer cannot say while it is an approval card:
-// the queue behind the running turn, and the last failed action.
+// the messages waiting behind the running turn, and the last failed action.
 func (a *App) statusStrip(c *ui.Context, t theme.Tokens) {
-	if a.queue == 0 && a.notice == "" {
+	inbox := a.inboxItems()
+	elapsed, running := a.runSoFar()
+	if len(inbox) == 0 && a.notice == "" && !running {
 		return
 	}
 	ui.Column(c).FillWidth().Padding(0, gutter, 0, gutter).Gap(2).Children(func() {
-		if a.queue > 0 {
+		if running {
 			ui.Row(c).FillWidth().Gap(5).AlignItems(ui.Center).Children(func() {
 				ui.Icon(c, icons.Clock).Size(10, 10).TextColor(t.MutedFg)
-				ui.Text(c, i18n.TF("queueCount", map[string]any{"n": a.queue})).
+				ui.Text(c, i18n.TF("runElapsed", map[string]any{"t": shortDuration(elapsed)})).
 					FontSize(10.5).TextColor(t.MutedFg)
+			})
+		}
+		for index, item := range inbox {
+			if index == queueRows {
+				ui.Row(c).FillWidth().Gap(5).AlignItems(ui.Center).Children(func() {
+					ui.Icon(c, icons.Clock).Size(10, 10).TextColor(t.MutedFg)
+					ui.Text(c, i18n.TF("queueMore", map[string]any{"n": len(inbox) - index})).
+						FontSize(10.5).TextColor(t.MutedFg)
+				})
+				break
+			}
+			text := inboxText(item.Content)
+			if text == "" {
+				text = i18n.T("queueUntitled")
+			}
+			ui.Row(c).FillWidth().Gap(5).AlignItems(ui.Center).Children(func() {
+				ui.Icon(c, icons.Clock).Size(10, 10).TextColor(t.MutedFg)
+				label := i18n.T("queued")
+				if item.Mode == "steer" {
+					label = i18n.T("queueSteer")
+				}
+				ui.Text(c, label).FontSize(10.5).TextColor(t.MutedFg)
+				ui.Text(c, text).FontSize(10.5).TextColor(t.MutedFg).MaxLines(1).Grow(1)
 			})
 		}
 		if a.notice != "" {

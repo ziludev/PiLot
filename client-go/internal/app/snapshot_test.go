@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"encoding/json"
 	"image"
 	"image/color"
 	"image/png"
@@ -98,7 +99,10 @@ func TestSnapshotWindow(t *testing.T) {
 		} else {
 			// The composer's own layers: a draft, a queued message, an attachment.
 			a.draft = "and what about sunsets on Mars?"
-			a.queue = 2
+			a.thread(a.active).inbox = []protocol.InboxItem{
+				{ID: 1, Mode: "followUp", Content: []byte(`"and what about sunsets on Mars?"`)},
+				{ID: 2, Mode: "steer", Content: []byte(`"check the build too"`)},
+			}
 			a.draftImage = []imageRef{{mime: "image/png", data: thumbnailPNG(t)}}
 		}
 		tt := ui.NewTester(a.View, 1180, 820)
@@ -134,7 +138,7 @@ func TestSnapshotWindow(t *testing.T) {
 				}
 			}
 		} else {
-			for _, text := range []string{"2 条排队"} {
+			for _, text := range []string{"排队", "and what about sunsets on Mars?", "插话", "check the build too"} {
 				if !tt.HasText(text) {
 					t.Fatalf("%s: missing %q; drew %v", c.name, text, tt.Texts())
 				}
@@ -212,3 +216,29 @@ func nearColor(a, b uint8) bool {
 }
 
 var _ = strings.TrimSpace
+
+// TestSnapshotRunning draws the moment the composer has to describe: a turn in
+// flight, messages waiting behind it, and a chat further down the rail holding
+// its own queue. The png is left in /tmp for a person to look at.
+func TestSnapshotRunning(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	now := time.Now()
+	a.queued = map[int]int{9: 2, 11: 2}
+	a.tasks = append(a.tasks, protocol.Task{ID: 9001, State: "working", StartedAt: now.Add(-92 * time.Second).UnixMilli()})
+	a.thread(11).live.Run = json.RawMessage(`{"taskId":9001}`)
+	a.thread(11).inbox = []protocol.InboxItem{
+		{ID: 1, Mode: "followUp", Content: []byte(`"and what about sunsets on Mars?"`)},
+		{ID: 2, Mode: "steer", Content: []byte(`"check the build too"`)},
+	}
+	a.draft = ""
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	for _, text := range []string{"已经跑了 1m32s", "排队", "插话", "check the build too"} {
+		if !tt.HasText(text) {
+			t.Fatalf("missing %q; drew %v", text, tt.Texts())
+		}
+	}
+	writePNG(t, "/tmp/clientv2-running.png", tt.Image())
+}
