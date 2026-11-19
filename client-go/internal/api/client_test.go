@@ -151,11 +151,11 @@ func TestSubmit(t *testing.T) {
 func TestAbort(t *testing.T) {
 	var got capture
 	client := serve(t, `{"cancelled":1}`, &got)
-	outcome, err := client.Abort(context.Background(), 4)
+	outcome, err := client.Abort(context.Background(), 4, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.path != "/api/abort" || got.body["conversationId"] != float64(4) {
+	if got.path != "/api/abort" || got.body["conversationId"] != float64(4) || got.body["all"] != true {
 		t.Fatalf("got %s %v", got.path, got.body)
 	}
 	if outcome.Cancelled != 1 {

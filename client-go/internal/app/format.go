@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"pitta/internal/i18n"
+	"pitta/internal/protocol"
 )
 
 // relTime places a conversation in time. An unknown time draws nothing: a
@@ -117,4 +118,16 @@ func decodeBase64(s string) []byte {
 		return nil
 	}
 	return data
+}
+
+// money is a run's price in dollars: three decimals below a dollar, where the
+// difference between two routines lives, and two above it.
+func money(spend *protocol.TaskSpend) string {
+	if spend == nil || spend.Cost <= 0 {
+		return ""
+	}
+	if spend.Cost < 1 {
+		return fmt.Sprintf("$%.3f", spend.Cost)
+	}
+	return fmt.Sprintf("$%.2f", spend.Cost)
 }
