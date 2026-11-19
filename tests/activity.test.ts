@@ -6,18 +6,23 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { subAgentActivity } from "../src/activity.ts";
 
+/** When the fixture's in-flight stage started, in wall clock ms. */
+const LIVE_START = 3_600_000;
+
 /** The columns the reader touches, so a schema change here shows up as a failing test. */
 function store(rows: {
   children: number[];
   entries: Record<number, Array<{ kind: string; toolName?: string; instructions?: string }>>;
   live: number[];
+  /** Settled tasks per conversation: the stage's clock and how it ended. */
+  settled?: Record<number, { startedAt: number; endedAt: number; outcome?: string }>;
 }): string {
   const dir = mkdtempSync(join(tmpdir(), "activity-"));
   const path = join(dir, "agent.sqlite");
   const db = new DatabaseSync(path);
   db.exec("create table conversations (id integer primary key, owner_task_id integer)");
   db.exec("create table entries (id integer primary key autoincrement, conversation_id integer, record text)");
-  db.exec("create table tasks (id integer primary key autoincrement, conversation_id integer, status text)");
+  db.exec("create table tasks (id integer primary key autoincrement, conversation_id integer, status text, record text)");
   for (const id of rows.children) {
     db.prepare("insert into conversations (id, owner_task_id) values (?, 42)").run(id);
   }
@@ -33,7 +38,24 @@ function store(rows: {
     }
   }
   for (const id of rows.live) {
-    db.prepare("insert into tasks (conversation_id, status) values (?, 'running')").run(id);
+    // A running task already carries the instant it started, which is what the
+    // stage's elapsed time counts from.
+    const record = { startedAt: LIVE_START, endedAt: null, state: { status: "running" } };
+    db.prepare("insert into tasks (conversation_id, status, record) values (?, 'running', ?)").run(
+      id,
+      JSON.stringify(record),
+    );
+  }
+  for (const [id, settled] of Object.entries(rows.settled ?? {})) {
+    const record = {
+      startedAt: settled.startedAt,
+      endedAt: settled.endedAt,
+      state: { status: "terminal", outcome: { status: settled.outcome ?? "completed" } },
+    };
+    db.prepare("insert into tasks (conversation_id, status, record) values (?, 'terminal', ?)").run(
+      Number(id),
+      JSON.stringify(record),
+    );
   }
   db.close();
   return path;
@@ -54,13 +76,63 @@ test("a running pipeline reports its children, their role and last tool", () => 
       ],
     },
     live: [63983],
+    settled: { 60833: { startedAt: 1_000, endedAt: 241_000 } },
   });
   try {
     const agents = subAgentActivity(path, 42);
     assert.deepEqual(agents, [
-      { conversationId: 60833, role: "写技术设计文档", steps: 2, tool: "bash", live: false },
-      { conversationId: 63983, role: "为已实现的代码写测试用例", steps: 3, tool: "go test", live: true },
+      {
+        conversationId: 60833,
+        role: "写技术设计文档",
+        steps: 2,
+        tool: "bash",
+        live: false,
+        startedAt: 1_000,
+        endedAt: 241_000,
+        state: "done",
+      },
+      {
+        conversationId: 63983,
+        role: "为已实现的代码写测试用例",
+        steps: 3,
+        tool: "go test",
+        live: true,
+        startedAt: LIVE_START,
+        endedAt: null,
+        state: "live",
+      },
     ]);
+  } finally {
+    rmSync(join(path, ".."), { recursive: true, force: true });
+  }
+});
+
+test("a stage reads pending before it starts and failed after it breaks", () => {
+  // The dialog draws these three states differently, so the bridge has to tell
+  // them apart: nothing run yet, run and broke, run and finished.
+  const path = store({
+    children: [1, 2, 3],
+    entries: {
+      1: [{ kind: "pi.system", instructions: "你的角色：设计。" }],
+      2: [{ kind: "pi.system", instructions: "你的角色：实现。" }],
+      3: [{ kind: "pi.system", instructions: "你的角色：测试。" }],
+    },
+    live: [],
+    settled: {
+      2: { startedAt: 5_000, endedAt: 65_000, outcome: "failed" },
+      3: { startedAt: 65_000, endedAt: 125_000 },
+    },
+  });
+  try {
+    const agents = subAgentActivity(path, 42);
+    assert.deepEqual(
+      agents.map((agent) => [agent.conversationId, agent.state, agent.startedAt, agent.endedAt]),
+      [
+        [1, "pending", null, null],
+        [2, "failed", 5_000, 65_000],
+        [3, "done", 65_000, 125_000],
+      ],
+    );
   } finally {
     rmSync(join(path, ".."), { recursive: true, force: true });
   }
