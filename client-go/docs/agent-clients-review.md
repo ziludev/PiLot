@@ -47,7 +47,7 @@ assistant-ui 的 composer 里还有 `Quote`（引用某条消息）、`Dictate`�
 | 想要 | 为什么不做 |
 | --- | --- |
 | `BranchPicker`（回答的分支选择、重新生成的多个候选） | pi-durable 里一轮回答只有一份，没有候选分支的数据结构。做出来只能是一个假的箭头。 |
-| `Reasoning` / `ChainOfThought` 折叠 | entries 里没有 reasoning part（我们用的模型不产），做了永远是空块。真要比，得先在 bridge 侧把模型输出的 reasoning 落进 entries。 |
+| `Reasoning` / `ChainOfThought` 折叠 | 客户端已经有等价物：entries 里的 thinking 会在步骤折叠里算作一步（实测最近 300 个版本里没有，因为我们的模型不产 reasoning；有数据就会出现）。再做一个专门的折叠块，是为了一个常年空着的区域写代码。 |
 | `Suggestion`（回答下面的后续建议） | 得再调一次模型生成，bridge 没有这条通道；客户端自己编建议就是编事实。 |
 | `Dictate` 口述、`SelectionToolbar` 划词引用 | mygo 没有麦克风与文本选区原语。 |
 | 并发多会话面板（vibe-kanban 那种） | 一条会话一个 run，没有并发数据可画。 |
