@@ -5,6 +5,7 @@ import { join } from "node:path";
 import * as Lark from "@larksuiteoapi/node-sdk";
 import { UsageDoc } from "@earendil-works/pi-durable";
 import { config, requireFeishuCredentials, requireFeishuOwner } from "./config.ts";
+import { markTree, touchedSince } from "./changes.ts";
 import { gatewayClient, gatewayEndpoint, type FeishuIm, type ImResponse } from "./feishu-gw.ts";
 import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
 import { runInFlight, watchLive, type LiveSnapshot } from "./live.ts";
@@ -749,6 +750,23 @@ export function formatTokens(tokens: number): string {
  * No duration here: the "答完了" ping right below the card already says how long it took, and the
  * same number twice in two adjacent messages is noise. The start time went with it.
  */
+/**
+ * What the finished card says about files: three names and a count under the cost line. On a phone
+ * this is the one fact the client would otherwise be opened for — "did it actually touch anything,
+ * and what". A turn that only talked prints nothing at all.
+ */
+export function touchedLine(files: string[]): string {
+  if (files.length === 0) return "";
+  const shown = files.slice(0, 3).map((path) => `\`${path}\``).join(" · ");
+  const rest = files.length - 3;
+  return `📝 改了 ${files.length} 个文件：${shown}${rest > 0 ? ` …还有 ${rest} 个` : ""}`;
+}
+
+function withTouched(meta: string, files: string[]): string {
+  const line = touchedLine(files);
+  return line === "" ? meta : `${meta}\n${line}`;
+}
+
 export function turnMeta(input: {
   tools: number;
   tokens: number;
@@ -1516,6 +1534,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         total: 0,
         byModel: new Map<string, number>(),
       }));
+      const turnAgent = await conversation.agent(context).catch(() => undefined);
+      const workDir = turnAgent?.cwd ?? config.workspace;
+      const treeMark = await markTree(workDir).catch(() => undefined);
       const submission = await conversation.submit({ type: "input", content: instruction, requestId: key }, context);
       await card.start();
       const settled = await submission.wait(context);
@@ -1573,13 +1594,17 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
           }
         }
         const agentPlan = await conversation.agent(context).catch(() => undefined);
-        const meta = turnMeta({
-          tools: card.tools.size,
-          tokens: Math.max(0, tokensAfter.total - tokensBefore.total),
-          costUsd: cost,
-          model: modelUsed,
-          thinking: String(agentPlan?.thinkingLevel ?? ""),
-        });
+        const touched = treeMark === undefined ? [] : await touchedSince(workDir, treeMark).catch(() => []);
+        const meta = withTouched(
+          turnMeta({
+            tools: card.tools.size,
+            tokens: Math.max(0, tokensAfter.total - tokensBefore.total),
+            costUsd: cost,
+            model: modelUsed,
+            thinking: String(agentPlan?.thinkingLevel ?? ""),
+          }),
+          touched,
+        );
         await deliverAnswer(
           chatId,
           cardId,
@@ -2691,6 +2716,11 @@ const continuing = new Set<string>();
           ? undefined
           : speakerTag(isOwner, senderId, isOwner ? undefined : await senderName(senderId).catch(() => undefined));
       const userContent = await buildUserContent(message, parsed, speaker);
+      // Marked before the turn's first write, so the finished card can name what this turn changed
+      // and not the uncommitted mess that was already in the tree when it started.
+      const turnAgent = await conversation.agent(context).catch(() => undefined);
+      const workDir = turnAgent?.cwd ?? config.workspace;
+      const treeMark = await markTree(workDir).catch(() => undefined);
       const submission = await conversation.submit(
         { type: "input", content: userContent, requestId },
         context,
@@ -2817,13 +2847,17 @@ const continuing = new Set<string>();
           }
         }
         const agentPlan = await conversation.agent(context).catch(() => undefined);
-        const meta = turnMeta({
-          tools: card.tools.size,
-          tokens: Math.max(0, tokensAfter.total - tokensBefore.total),
-          costUsd: cost,
-          model: modelUsed,
-          thinking: String(agentPlan?.thinkingLevel ?? ""),
-        });
+        const touched = treeMark === undefined ? [] : await touchedSince(workDir, treeMark).catch(() => []);
+        const meta = withTouched(
+          turnMeta({
+            tools: card.tools.size,
+            tokens: Math.max(0, tokensAfter.total - tokensBefore.total),
+            costUsd: cost,
+            model: modelUsed,
+            thinking: String(agentPlan?.thinkingLevel ?? ""),
+          }),
+          touched,
+        );
         // The steps are always recorded (the client reads them) and now ride along in the answer
         // card as a folded panel, so a group sees the work too and nothing has to be pressed.
         const steps = await turnPanel(cost);
