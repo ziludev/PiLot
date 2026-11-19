@@ -28,13 +28,21 @@ func fixtureApp(t *testing.T, pending bool) *App {
 	a.now = now
 	a.online = true
 
+	// Two chats spoke today and are drawn open; the rest are filed under what
+	// they are, folded, one heading each.
 	a.setSurfaces([]protocol.Surface{
-		{SurfaceID: "client:12", ConversationID: 12, Kind: "feishu", Title: "Deploy checklist for the 0.4 train", ProjectID: "workspace"},
+		{SurfaceID: "oc_12", ConversationID: 12, Kind: "feishu", ChatType: "p2p", Title: "Deploy checklist for the 0.4 train", ProjectID: "workspace"},
 		{SurfaceID: "client:11", ConversationID: 11, Kind: "client", Title: "Why is the sky blue", ProjectID: "workspace"},
+		{SurfaceID: "oc_8", ConversationID: 8, Kind: "feishu", ChatType: "group", Title: "backend-deploys"},
+		{SurfaceID: "oc_7", ConversationID: 7, Kind: "feishu", ChatType: "group", Topic: true, Title: "release talk"},
+		{SurfaceID: "oc_6", ConversationID: 6, Kind: "feishu", ChatType: "p2p", Title: "alex"},
 		{SurfaceID: "client:9", ConversationID: 9, Kind: "other", Title: "Sandbox scratch", ProjectID: "workspace"},
 	})
 	a.vm.tails[11] = now.Add(-3 * time.Minute)
 	a.vm.tails[12] = now.Add(-2 * time.Hour)
+	a.vm.tails[8] = now.Add(-3 * 24 * time.Hour)
+	a.vm.tails[7] = now.Add(-4 * 24 * time.Hour)
+	a.vm.tails[6] = now.Add(-5 * 24 * time.Hour)
 	a.vm.tails[9] = now.Add(-26 * time.Hour)
 	a.vm.unread[12] = true
 
@@ -127,6 +135,18 @@ func TestSnapshotWindow(t *testing.T) {
 		}
 		if !c.pending && !tt.HasText("飞书") {
 			t.Fatalf("%s: the chat list lost its source marker; drew %v", c.name, tt.Texts())
+		}
+		if !c.pending {
+			// Every chat section has its heading, and the folded ones keep their
+			// chats out of the list: the sections are the rail's filing.
+			for _, text := range []string{"进行中", "群聊", "话题", "私聊", "其他"} {
+				if !tt.HasText(text) {
+					t.Fatalf("%s: missing section %q; drew %v", c.name, text, tt.Texts())
+				}
+			}
+			if tt.HasText("backend-deploys") {
+				t.Fatalf("%s: a folded group leaked its chats", c.name)
+			}
 		}
 		if !tt.HasText("⋯ 2 步 · 12s") {
 			t.Fatalf("%s: folded summary missing; drew %v", c.name, tt.Texts())

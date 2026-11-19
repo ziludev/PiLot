@@ -16,6 +16,8 @@ export type SurfaceMeta = {
   members?: number;
   /** A topic group (话题群): every message is a topic, so answers must go inside one. */
   topic?: boolean;
+  /** A single chat with one person, or a group. The rail files chats by this. */
+  chatType?: "p2p" | "group";
 };
 
 /**
@@ -48,6 +50,8 @@ export async function updateSurfaceMeta(
     chatName?: string;
     chatOwner?: string;
     members?: number;
+    topic?: boolean;
+    chatType?: "p2p" | "group";
   },
 ): Promise<void> {
   await harness.commit(async (tx) => {
@@ -61,6 +65,8 @@ export async function updateSurfaceMeta(
     if (patch.chatName !== undefined) current.chatName = patch.chatName;
     if (patch.chatOwner !== undefined) current.chatOwner = patch.chatOwner;
     if (patch.members !== undefined) current.members = patch.members;
+    if (patch.topic !== undefined) current.topic = patch.topic;
+    if (patch.chatType !== undefined) current.chatType = patch.chatType;
     doc.surfaces[surfaceId] = current;
   }, context);
   log("surface", "meta updated", { surfaceId, ...patch });

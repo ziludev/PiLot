@@ -170,14 +170,22 @@ func railKey(row railRow) any {
 		return "c" + itoa(row.conv.ConversationID)
 	case railTask:
 		return "t" + itoa(row.task.ID)
-	default:
+	case railGroup:
+		if row.section != "" {
+			return "s" + row.section
+		}
 		return "h" + row.label
 	}
+	return "h" + row.label
 }
 
 func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 	switch row.kind {
 	case railGroup:
+		if row.section != "" {
+			a.railSectionRow(c, t, row)
+			return
+		}
 		ui.Row(c).FillWidth().Height(24).Padding(6, 7, 2, 7).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, row.label).FontSize(9.5).FontWeight(600).TextColor(t.MutedFg)
 		})
@@ -190,6 +198,32 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 	default:
 		a.railChatRow(c, t, row)
 	}
+}
+
+func (a *App) railSectionRow(c *ui.Context, t theme.Tokens, row railRow) {
+	item := ui.ButtonBase(c).FillWidth().Height(24).Radius(4).Padding(0, 7).
+		Gap(4).AlignItems(ui.Center).Cursor(ui.CursorPointer).
+		OnClick(func() { a.toggleSection(row.section) })
+	item.Children(func() {
+		icon := icons.ChevronRight
+		if row.open {
+			icon = icons.ChevronDown
+		}
+		ui.Icon(c, icon).Size(11, 11).TextColor(t.MutedFg)
+		ui.Text(c, row.label).FontSize(9.5).FontWeight(600).TextColor(t.MutedFg)
+		ui.Spacer(c)
+		ui.Text(c, itoa(row.count)).FontSize(9.5).TextColor(t.MutedFg).Opacity(0.8)
+	})
+}
+
+// toggleSection opens or folds a chat section and remembers it across launches.
+func (a *App) toggleSection(section string) {
+	if a.prefs.Sections == nil {
+		a.prefs.Sections = map[string]bool{}
+	}
+	a.prefs.Sections[section] = a.prefs.sectionClosed(section)
+	savePrefs(a.prefs)
+	a.invalidate()
 }
 
 func (a *App) railChatRow(c *ui.Context, t theme.Tokens, row railRow) {

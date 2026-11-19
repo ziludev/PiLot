@@ -2942,7 +2942,7 @@ const continuing = new Set<string>();
 /** Feishu's own name for a chat, and whose it is. */
 async function chatInfo(
   chatId: string,
-): Promise<{ name?: string; owner?: string; members?: number; topic?: boolean } | undefined> {
+): Promise<{ name?: string; owner?: string; members?: number; topic?: boolean; chatType?: "p2p" | "group" } | undefined> {
   const response = await client
     .request({ method: "GET", url: `/open-apis/im/v1/chats/${chatId}` })
     .catch((error: unknown) => {
@@ -2962,6 +2962,9 @@ async function chatInfo(
     // A topic group: `group_message_type` is "thread", and every message is its own topic, so an
     // inline answer would start a new topic instead of continuing the conversation.
     ...(data.group_message_type === "thread" || data.chat_mode === "topic" ? { topic: true } : {}),
+    // p2p or group, so the rail can file a chat under 私聊 or 群聊 without opening it.
+    ...(data.chat_mode === "p2p" ? { chatType: "p2p" as const } : {}),
+    ...(data.chat_mode === "group" || data.chat_mode === "topic" ? { chatType: "group" as const } : {}),
   };
 }
 
@@ -2981,6 +2984,7 @@ async function rememberChatInfo(chatId: string): Promise<void> {
   topicChats.set(chatId, info.topic === true);
   await updateSurfaceMeta(runtime.harness, context, chatId, {
     ...(info.topic === undefined ? {} : { topic: info.topic }),
+    ...(info.chatType === undefined ? {} : { chatType: info.chatType }),
     ...(info.name === undefined ? {} : { chatName: info.name }),
     ...(info.owner === undefined ? {} : { chatOwner: info.owner }),
     ...(info.members === undefined ? {} : { members: info.members }),
@@ -2992,12 +2996,16 @@ async function rememberChatInfo(chatId: string): Promise<void> {
   }).catch((error: unknown) => logError("feishu", "could not store the chat info", error));
 }
 
-/** At boot: fill in names for chats that already have a conversation but no name yet. */
+/** At boot: fill in names and chat kinds for chats that have a conversation but no name yet. */
 async function backfillChatNames(): Promise<void> {
   const mapping = await runtime.harness.snapshot(ChatsToken, context).catch(() => undefined);
   const known = Object.keys(mapping?.chats ?? {}).filter((chatId) => chatId.startsWith("oc_"));
   const meta = (await runtime.harness.snapshot(SurfaceMetaDoc, context).catch(() => undefined))?.surfaces ?? {};
-  const missing = known.filter((chatId) => (meta[chatId]?.chatName ?? "").length === 0);
+  // A chat stored before chatType existed is still nameless in the rail's terms, and one API
+  // call settles both: the name and whether it is a group, a topic group, or a single chat.
+  const missing = known.filter(
+    (chatId) => (meta[chatId]?.chatName ?? "").length === 0 || meta[chatId]?.chatType === undefined,
+  );
   for (const chatId of missing) await rememberChatInfo(chatId);
   if (missing.length > 0) log("feishu", "chat names filled in", { chats: missing.length });
 }

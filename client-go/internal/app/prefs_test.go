@@ -11,12 +11,35 @@ func TestPrefsRoundTrip(t *testing.T) {
 	prefsPath = func() string { return filepath.Join(dir, "window.json") }
 	defer func() { prefsPath = saved }()
 
-	if got := loadPrefs(); got != (prefs{}) {
+	if got := loadPrefs(); got.Lang != "" || got.Theme != "" || got.Rail != 0 || got.Sections != nil {
 		t.Fatalf("missing file read as %+v, want empty", got)
 	}
-	savePrefs(prefs{Lang: "en", Theme: "dark", Rail: 300})
-	if got := loadPrefs(); got.Lang != "en" || got.Theme != "dark" || got.Rail != 300 {
+	savePrefs(prefs{Lang: "en", Theme: "dark", Rail: 300, Sections: map[string]bool{"group": true}})
+	got := loadPrefs()
+	if got.Lang != "en" || got.Theme != "dark" || got.Rail != 300 {
 		t.Fatalf("read back %+v", got)
+	}
+	if !got.Sections["group"] {
+		t.Fatalf("read back sections %+v, want group open", got.Sections)
+	}
+}
+
+// A section the window has never seen folded must start the way the rail
+// intends it to: the working set open, the filing folded.
+func TestPrefsSectionClosed(t *testing.T) {
+	empty := prefs{}
+	if empty.sectionClosed(sectionActive) {
+		t.Fatal("进行中 should start open")
+	}
+	if !empty.sectionClosed(sectionGroup) {
+		t.Fatal("群聊 should start folded")
+	}
+	saved := prefs{Sections: map[string]bool{sectionGroup: true, sectionActive: false}}
+	if saved.sectionClosed(sectionGroup) {
+		t.Fatal("a saved open section should stay open")
+	}
+	if !saved.sectionClosed(sectionActive) {
+		t.Fatal("a saved folded section should stay folded")
 	}
 }
 

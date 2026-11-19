@@ -205,3 +205,78 @@ func TestLongTitleKeepsTheTimeOnTheRail(t *testing.T) {
 		t.Fatalf("the time fell off the rail; drew %v", tt.Texts())
 	}
 }
+
+// The rail files chats by what they are, and only the ones being worked on are
+// drawn: everything else waits behind a heading with its count on it.
+func TestRailRowsSections(t *testing.T) {
+	i18n.Set(i18n.EN)
+	a := newApp(Config{})
+	now := time.Date(2026, 11, 19, 15, 0, 0, 0, time.Local)
+	a.now = now
+	day := 24 * time.Hour
+	a.setSurfaces([]protocol.Surface{
+		{ConversationID: 1, SurfaceID: "oc_1", Kind: "feishu", Title: "alex", ChatType: "p2p"},
+		{ConversationID: 2, SurfaceID: "oc_2", Kind: "feishu", Title: "backend", ChatType: "group"},
+		{ConversationID: 3, SurfaceID: "oc_3", Kind: "feishu", Title: "release", ChatType: "group", Topic: true},
+		{ConversationID: 4, SurfaceID: "oc_4", Kind: "feishu", Title: "now", ChatType: "p2p"},
+		{ConversationID: 5, Kind: "client", Title: "local"},
+		{ConversationID: 6, SurfaceID: "oc_6", Kind: "feishu", Title: "mystery"},
+	})
+	a.vm.tails[1] = now.Add(-3 * day)
+	a.vm.tails[2] = now.Add(-5 * day)
+	a.vm.tails[3] = now.Add(-6 * day)
+	a.vm.tails[4] = now.Add(-time.Hour)
+	a.vm.tails[6] = now.Add(-9 * day)
+
+	rows := a.railRows()
+	want := []struct {
+		kind    railRowKind
+		section string
+		conv    protocol.Surface
+	}{
+		{railGroup, sectionActive, protocol.Surface{}},
+		{railChat, "", protocol.Surface{ConversationID: 4}},
+		{railGroup, sectionGroup, protocol.Surface{}},
+		{railGroup, sectionTopic, protocol.Surface{}},
+		{railGroup, sectionDirect, protocol.Surface{}},
+		{railGroup, sectionOther, protocol.Surface{}},
+	}
+	if len(rows) != len(want) {
+		t.Fatalf("rows = %+v, want %d", rows, len(want))
+	}
+	for i, w := range want {
+		if rows[i].kind != w.kind || rows[i].section != w.section || rows[i].conv.ConversationID != w.conv.ConversationID {
+			t.Fatalf("row %d = %+v, want %+v", i, rows[i], w)
+		}
+	}
+	if rows[0].count != 1 || !rows[0].open {
+		t.Fatalf("active heading = %+v, want one chat drawn", rows[0])
+	}
+	if rows[2].count != 1 || rows[2].open {
+		t.Fatalf("group heading = %+v, want one chat folded", rows[2])
+	}
+
+	// Opening a section keeps its chats, and the choice outlives the run.
+	a.prefs.Sections = map[string]bool{sectionDirect: true}
+	rows = a.railRows()
+	drawn := make([]int, 0, len(rows))
+	for _, r := range rows {
+		if r.kind == railChat {
+			drawn = append(drawn, r.conv.ConversationID)
+		}
+	}
+	if len(drawn) != 3 {
+		t.Fatalf("drawn = %v, want the active chat and both direct ones", drawn)
+	}
+
+	// The chat being read is never hidden behind a fold.
+	a.active = 2
+	a.prefs.Sections = map[string]bool{}
+	rows = a.railRows()
+	if rows[2].section != sectionGroup || !rows[2].open {
+		t.Fatalf("group heading = %+v, want it open because chat 2 is on screen", rows[2])
+	}
+	if rows[3].conv.ConversationID != 2 {
+		t.Fatalf("row after the group heading = %+v, want chat 2", rows[3])
+	}
+}
