@@ -63,6 +63,8 @@ var memTabKeys = [3]string{"memGlobal", "memWork", "memChat"}
 func (a *App) toggleMemory() {
 	a.mem.open = !a.mem.open
 	if a.mem.open {
+		// One right edge, one drawer.
+		a.changes.open = false
 		a.mem.saved = ""
 		a.loadMemory()
 	}
@@ -198,7 +200,8 @@ func (a *App) closeSuggestions() {
 
 // memoryView is the drawer itself.
 func (a *App) memoryView(c *ui.Context, t theme.Tokens) {
-	ui.Column(c).Width(memWidth).FillHeight().Background(t.Sidebar).Children(func() {
+	ui.Column(c).Width(memWidth).Shrink(1).MinWidth(260).FillHeight().
+		Background(t.Sidebar).Children(func() {
 		a.memoryHeader(c, t)
 		ui.Box(c).Width(memWidth).Height(1).Background(t.SidebarBorder)
 		if a.mem.suggesting {

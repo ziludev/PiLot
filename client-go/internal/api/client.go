@@ -331,3 +331,38 @@ func (c *Client) ApplyMemory(ctx context.Context, lines []protocol.MemorySuggest
 	}
 	return &out, nil
 }
+
+// Changes is GET /api/changes: the worktree's uncommitted files and their patch.
+// The patch is the whole thing; splitting it per file is the panel's job, because
+// only the panel knows which file is open.
+func (c *Client) Changes(ctx context.Context, convID int) (*protocol.Changes, error) {
+	var out protocol.Changes
+	path := "/api/changes?conversationId=" + strconv.Itoa(convID)
+	if err := c.get(ctx, path, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Git is GET /api/git: the branch, its commits and where they went.
+func (c *Client) Git(ctx context.Context, convID, limit int) (*protocol.Git, error) {
+	var out protocol.Git
+	path := "/api/git?conversationId=" + strconv.Itoa(convID) + "&limit=" + strconv.Itoa(limit)
+	if err := c.get(ctx, path, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// CommitDiff is GET /api/git/diff: one commit's patch, by hash.
+func (c *Client) CommitDiff(ctx context.Context, convID int, hash string) (string, error) {
+	var out struct {
+		Hash string `json:"hash"`
+		Diff string `json:"diff"`
+	}
+	path := "/api/git/diff?conversationId=" + strconv.Itoa(convID) + "&hash=" + url.QueryEscape(hash)
+	if err := c.get(ctx, path, &out); err != nil {
+		return "", err
+	}
+	return out.Diff, nil
+}

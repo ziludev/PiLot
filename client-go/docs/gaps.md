@@ -11,7 +11,7 @@
 | 缺的 | 第一版怎么做的 | 接口 | mygo 原语 |
 | --- | --- | --- | --- |
 | 会话菜单里的「清理 worktree」 | `ChatMenu.tsx`（未合并的分支拒绝并提示） | `POST /api/worktree/remove` | 现在重命名 / 归档直接进 `button.Menu`，加一项即可 |
-| 改动 / 文件 / 提交 / 合并 / 项目栏 | `SidePanel.tsx` + `side/*.go` | `/api/changes`、`/api/git/diff`、`/api/file`、`/api/git`、`/api/commit`、`/api/git/push`、`/api/merge`、`/api/git/base`、`/api/projects` | `ui.Split` 右栏 + `ui.Tabs` + 折叠卡片 |
+| 右栏剩下的：文件预览、提交 / 推送 / 合并的写操作、项目栏 | `SidePanel.tsx` + `side/*.go` | `/api/file`、`/api/commit`、`/api/git/push`、`/api/merge`、`/api/git/base`、`/api/projects` | 改动 / 提交两栏已经回来了（`internal/app/changes.go`，只读）；写操作得走批准路径 |
 | 任务详情对话框 + 用量日历 | `TaskDialog.tsx`、`UsageCalendar.tsx` | `GET /api/tasks`、`POST /api/task/cancel`、`GET /api/usage-calendar` | `ui.Modal`、`ui.Table` |
 | 权限页 | `AccessPanel.tsx` | `GET /api/access`、`/api/audit` | `ui.Segmented` 过滤 + 表格 |
 | 消息级操作：复制 / 编辑重发 / 复制整段 | `Transcript.tsx` 的 hover 动作条 | 无 | 行尾小图标 |
@@ -28,12 +28,16 @@
   输出时不要改折叠结构，只在展开后的内容里分派。
 - **rail 的分区是 `rows.go` 的 `chatSections` + `prefs.Sections`**。新的分区（比如「已归档」）照抄这套，
   默认折叠、点分区头开合、选过的状态进 `~/.pitta/window.json`。
+- **右栏是抽屉，两个抽屉轮着来**（`internal/app/changes.go`、`memory.go`）：同一个右边缘，打开一个
+  就关另一个——两个 460 点的栏会把 transcript 挤成一条。窄窗口时抽屉 `Shrink(1)` 到 300，rail 的 260
+  之外还得给 transcript 留活路。
+- **diff 一行一个 `ui.List` 行**：一个重新生成的 lock 文件是几千行，不虚拟化就会在渲染上卡住。
 - **设置收在一个面板里**（`internal/app/settings.go`）：rail 页脚现在只有一个齿轮。齿轮打开对话框时
   每帧重读 prefs，面板本身不存状态——多一份副本就会漂移。
 - **查找条是手写的**（`internal/app/find.go`）：`ui.FindBar` 用窗口语言说 "1 of 3"，而这个 app 的语言
   是自己存的，中文窗口里冒出英文比多写四个小按钮更糟。命中按「行」算，滚到当前命中并给它上底色。
 - **中文界面默认**，文案都走 `internal/i18n/dict.go`，zh 与 en 两套一起加；`i18n` 测试钉着键数上限
-  （现在 107 = 上限），加键就抬上限并在 `maxKeys` 上写清是哪一块加的。
+  （现在 117 = 上限），加键就抬上限并在 `maxKeys` 上写清是哪一块加的。
 - **记忆抽屉是右栏，不是 rail 的分区**（`internal/app/memory.go`）：记忆是句子，260 点的 rail 会把它们
   折成一团。它跟着打开的会话走（`selectConversation` 里重读 chat 那一档），整理是一轮模型调用，所以
   按钮上写着在跑、失败也照实说。
