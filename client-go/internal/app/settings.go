@@ -71,6 +71,15 @@ func (a *App) settingsDialog(c *ui.Context, t theme.Tokens) {
 					return 0
 				},
 				func(picked int) { a.setSilent(picked == 1) })
+			a.settingsChoice(c, t, i18n.T("railGroup"),
+				[]string{i18n.T("railGroupKind"), i18n.T("railGroupProject")},
+				func() int {
+					if a.prefs.groupByProject() {
+						return 1
+					}
+					return 0
+				},
+				func(picked int) { a.setRailGroup([2]string{"", groupProject}[picked]) })
 		})
 	})
 }

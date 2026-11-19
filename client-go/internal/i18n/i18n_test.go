@@ -27,8 +27,15 @@ import (
 // learned how to hand the checkout to Finder or the editor, and a picture that
 // will not open says so, the thumbnail says what it is for, and the transcript
 // marks where the reader left off, the ⌘K palette says what it found and what
-// the keys do, and an export says where the file went.
-const maxKeys = 221
+// the keys do, and an export says where the file went. 227 keys: ⌘P lists a
+// checkout's files, so the palette says what it is listing, why it is still
+// empty and that ⏎ writes a path rather than opening something. 236 keys: the
+// rail grew 置顶 and can be grouped by project, so it names the shelf, the pin,
+// the two groupings and the line that says which one is on. 239 keys: a sheet of
+// five shortcuts, the line that says how to call it back, one verb for the last
+// of them that reads as a verb ("Latest" is a pill, not a sentence), and the HTML
+// export.
+const maxKeys = 240
 
 func TestDictionariesMatch(t *testing.T) {
 	keys := Keys()

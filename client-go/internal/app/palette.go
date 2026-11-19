@@ -12,25 +12,39 @@ import (
 
 // paletteMaxRows is how many answers ⌘K shows. Past this the list stops being
 // something the eye scans and becomes something you scroll, which is the thing
-// the palette exists to avoid.
-const paletteMaxRows = 12
+// the palette exists to avoid. It has to stay at or above the verb count, or the
+// last verb is unreachable with an empty query; the verbs rank first and the
+// chats follow, so the field is what shortens the list.
+const paletteMaxRows = 14
 
 // paletteState is the ⌘K palette: one field that either opens a chat or runs a
 // verb. It keeps the query and where the reader is standing, and nothing else —
 // the rows are a function of the window's state and that query, so a chat that
 // arrives while the palette is open is findable at once.
 type paletteState struct {
-	open  bool
+	open bool
+	// mode is which list is showing: the window's verbs and chats (⌘K), or the
+	// checkout's files (⌘P). The two share the field, the keys and the ranker.
+	mode  paletteMode
 	query string
 	// index is the row the reader is standing on. It is clamped on every draw,
 	// because the list shrinks as the query narrows.
 	index int
 }
 
+// paletteMode is which list the dialog is showing.
+type paletteMode int
+
+const (
+	paletteCommands paletteMode = iota
+	paletteFiles
+)
+
 // openPalette arms the palette with an empty query. Every opening starts fresh:
 // a leftover query would hide the verb the reader came for.
 func (a *App) openPalette() {
 	a.palette.open = true
+	a.palette.mode = paletteCommands
 	a.palette.query = ""
 	a.palette.index = 0
 	a.invalidate()
@@ -65,6 +79,9 @@ type paletteRow struct {
 // they answer the query. With no query the verbs keep their order and the most
 // recent chats follow, which is what an empty palette should be.
 func (a *App) paletteRows() []paletteRow {
+	if a.palette.mode == paletteFiles {
+		return a.repoFileRows()
+	}
 	query := strings.TrimSpace(a.palette.query)
 	rows := make([]paletteRow, 0, 24)
 	add := func(row paletteRow) {
@@ -96,6 +113,10 @@ func (a *App) paletteVerbs() []paletteRow {
 		{label: i18n.T("newChat"), alias: i18n.Alt("newChat"), hint: "⌘N", slug: "verb.new", run: a.newChat},
 		{label: i18n.T("findMenu"), alias: i18n.Alt("findMenu"), hint: "⌘F", slug: "verb.find", run: a.ToggleFind},
 		{label: i18n.T("exportMarkdown"), alias: i18n.Alt("exportMarkdown"), hint: "⇧⌘E", slug: "verb.export", run: a.exportMarkdown},
+		{label: i18n.T("shortcuts"), alias: i18n.Alt("shortcuts"), hint: "⌘⇧/", slug: "verb.shortcuts", run: a.toggleCheatsheet},
+		{label: i18n.T("exportHTML"), alias: i18n.Alt("exportHTML"), slug: "verb.html", run: a.exportHTML},
+		{label: i18n.T("railGroupVerb"), alias: i18n.Alt("railGroupVerb"), slug: "verb.group", run: a.toggleRailGroup},
+		{label: i18n.T("gotoFile"), alias: i18n.Alt("gotoFile"), hint: "⌘P", slug: "verb.file", run: a.openFiles},
 		{label: i18n.T("jumpLatest"), alias: i18n.Alt("jumpLatest"), hint: "⌘J", slug: "verb.latest", run: a.scrollToLatest},
 		{label: i18n.T("changesTab"), alias: i18n.Alt("changesTab"), slug: "verb.changes", run: a.toggleChanges},
 		{label: i18n.T("memory"), alias: i18n.Alt("memory"), slug: "verb.memory", run: a.toggleMemory},
@@ -194,10 +215,14 @@ func (a *App) paletteDialog(c *ui.Context, t theme.Tokens) {
 			Background(t.Popover).Border(1, t.Border).
 			Shadow(0, 12, 40, 0, ui.RGBA(0, 0, 0, 0.35)).
 			Children(func() {
+				placeholder := i18n.T("palettePlaceholder")
+				if a.palette.mode == paletteFiles {
+					placeholder = i18n.T("filesPlaceholder")
+				}
 				field := ui.TextInputBase(c, &a.palette.query).
 					Height(34).Padding(0, 10).FontSize(13).Radius(8).
 					Background(t.SidebarAccent).TextColor(t.Foreground).
-					Placeholder(i18n.T("palettePlaceholder"))
+					Placeholder(placeholder)
 				field.AutoFocus()
 				field.OnTextKey(func(k ui.TextKey) bool {
 					switch k.Key {
@@ -218,7 +243,11 @@ func (a *App) paletteDialog(c *ui.Context, t theme.Tokens) {
 				})
 
 				if len(rows) == 0 {
-					ui.Text(c, i18n.T("paletteEmpty")).
+					empty := i18n.T("paletteEmpty")
+					if a.palette.mode == paletteFiles {
+						empty = a.filesEmptyLabel()
+					}
+					ui.Text(c, empty).
 						Padding(8, 10).FontSize(11.5).TextColor(t.MutedFg)
 					return
 				}
@@ -227,7 +256,11 @@ func (a *App) paletteDialog(c *ui.Context, t theme.Tokens) {
 					item := ui.ButtonBase(c).FillWidth().Height(32).Padding(0, 10).Gap(8).
 						Radius(7).AlignItems(ui.Center).Cursor(ui.CursorPointer)
 					if chosen {
-						item = item.Background(t.Secondary)
+						// A tinted row, not a slightly different white: the reader has
+						// to see where ⏎ will land without hunting for it. The theme's
+						// neutral accent is all but invisible on a popover, so the
+						// selection tint carries it.
+						item = item.Background(t.Selection.Alpha(0.45)).Border(1, t.Selection.Alpha(0.7))
 					}
 					item.Children(func() {
 						ui.Text(c, row.label).FontSize(12).MaxLines(1).TextColor(t.Foreground)
@@ -243,7 +276,11 @@ func (a *App) paletteDialog(c *ui.Context, t theme.Tokens) {
 					item.OnClick(func() { run(clicked) })
 				}
 
-				ui.Text(c, i18n.T("paletteHint")).
+				hint := i18n.T("paletteHint")
+				if a.palette.mode == paletteFiles {
+					hint = a.filesHintText()
+				}
+				ui.Text(c, hint).
 					Padding(2, 10).FontSize(10).TextColor(t.MutedFg)
 			})
 	})

@@ -74,9 +74,17 @@ func TestPaletteRowsAnswerWithChatsAndVerbs(t *testing.T) {
 		t.Fatalf("typing the title did not find the chat: %+v", rows)
 	}
 
+	// Two verbs share the word "export" now, so what matters is that the one
+	// being typed for is among the answers, not that it comes first.
 	a.palette.query = "export"
 	rows = a.paletteRows()
-	if len(rows) == 0 || rows[0].slug != "verb.export" {
+	found := false
+	for _, row := range rows {
+		if row.slug == "verb.export" {
+			found = true
+		}
+	}
+	if !found {
 		t.Fatalf("typing the verb did not find it: %+v", rows)
 	}
 
