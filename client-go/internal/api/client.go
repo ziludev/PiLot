@@ -439,26 +439,6 @@ func (c *Client) CommitDiff(ctx context.Context, convID int, hash string) (strin
 	return out.Diff, nil
 }
 
-// BaseResult is what POST /api/git/base answers. A refusal comes back as an
-// error string in the body, so the window can say which branch it would not
-// take instead of naming a status code.
-type BaseResult struct {
-	OK    bool   `json:"ok"`
-	Base  string `json:"base"`
-	Error string `json:"error"`
-}
-
-// SetBase re-points what a chat's work is measured against. It moves the merge
-// target too: a base is where the work is going, not only where it started.
-func (c *Client) SetBase(ctx context.Context, convID int, branch string) (BaseResult, error) {
-	var out BaseResult
-	err := c.doAny(ctx, http.MethodPost, "/api/git/base", struct {
-		ConversationID int    `json:"conversationId"`
-		Base           string `json:"base"`
-	}{ConversationID: convID, Base: branch}, &out)
-	return out, err
-}
-
 // CommitResult is what POST /api/commit answers: the commit it made.
 type CommitResult struct {
 	Head string `json:"head"`

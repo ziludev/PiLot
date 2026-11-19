@@ -266,8 +266,6 @@ const (
 	evProjects
 	evProjectAdd
 	evProjectRemove
-	// The comparison base moved: what the drawer measures from changed.
-	evBase
 )
 
 type event struct {
@@ -654,8 +652,6 @@ func (a *App) apply(ev event) {
 		a.applyProjectAdd(ev.path, ev.text, ev.writeBad)
 	case evProjectRemove:
 		a.applyProjectRemove(ev.text, ev.writeBad)
-	case evBase:
-		a.applyBase(ev.convID, ev.path, ev.text)
 	}
 }
 
@@ -875,7 +871,6 @@ func (a *App) View(c *ui.Context) {
 	a.taskDetailDialog(c, t)
 	a.usageDialog(c, t)
 	a.writeDialog(c, t)
-	a.baseDialog(c, t)
 }
 
 // fingerprint of an entry, for deciding whether a frame carried a new version.

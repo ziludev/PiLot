@@ -51,17 +51,10 @@ type changesPanel struct {
 	// lands, and whether there is anything to push to.
 	base       string
 	remoteKind string
-	// branches is what the base picker offers, and baseOpen/baseBusy/baseErr
-	// are that picker's own state.
-	branches  []protocol.Branch
-	baseList  ui.ListState
-	baseOpen  bool
-	baseBusy  bool
-	baseErr   string
-	workspace string
-	files     []protocol.FileChange
-	patch     string
-	truncated bool
+	workspace  string
+	files      []protocol.FileChange
+	patch      string
+	truncated  bool
 
 	// openFile is the file whose patch fills the drawer, "" for the list.
 	openFile string
@@ -185,7 +178,6 @@ func (a *App) applyGit(convID int, git *protocol.Git, err error) {
 	}
 	a.changes.base = git.Base
 	a.changes.remoteKind = git.Remote.Kind
-	a.changes.branches = git.Branches
 }
 
 // openChangeFile shows one file's patch.
