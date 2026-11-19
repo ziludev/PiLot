@@ -69,6 +69,7 @@ func (s *server) healthz(writer http.ResponseWriter, _ *http.Request) {
 		"uptime":    int64(time.Since(s.state.started).Seconds()),
 		"events":    s.state.events.Load(),
 		"cards":     s.state.cards.Load(),
+		"reactions": s.state.reactions.Load(),
 		"delivered": s.state.delivered.Load(),
 		"dropped":   s.state.dropped.Load(),
 		"lastEvent": s.state.lastEvent.Load(),
