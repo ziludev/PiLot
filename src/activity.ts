@@ -21,6 +21,16 @@ export interface SubAgentActivity {
   tool: string | null;
   /** True while a task in that conversation can still make progress. */
   live: boolean;
+  /** Wall clock (ms) the stage's first task started, null when it has not started. */
+  startedAt: number | null;
+  /** Wall clock (ms) the stage last settled, null while it is still running. */
+  endedAt: number | null;
+  /**
+   * What the row is: a stage that has not begun, one in flight, one that
+   * finished, or one that failed. The card draws the first two differently,
+   * which is the only progress signal a forty-minute pipeline has.
+   */
+  state: "pending" | "live" | "done" | "failed";
 }
 
 /** Roles are written into the child's system prompt as "你的角色：<one line>"; nothing else names them. */
@@ -59,6 +69,28 @@ function lastTool(db: DatabaseSync, conversationId: number): string | null {
   return row?.tool ?? null;
 }
 
+/** A stage's clock: when it first started, when it last settled, whether it failed. */
+function stageClock(
+  db: DatabaseSync,
+  conversationId: number,
+): { startedAt: number | null; endedAt: number | null; failure: boolean } {
+  const row = db
+    .prepare(
+      `select min(json_extract(record, '$.startedAt')) as startedAt,
+              max(json_extract(record, '$.endedAt')) as endedAt,
+              sum(case when json_extract(record, '$.state.outcome.status') in ('failed', 'faulted')
+                       then 1 else 0 end) as failures
+         from tasks
+        where conversation_id = ?`,
+    )
+    .get(conversationId) as
+    | { startedAt?: number | null; endedAt?: number | null; failures?: number | null }
+    | undefined;
+  const startedAt = row?.startedAt ?? null;
+  const endedAt = row?.endedAt ?? null;
+  return { startedAt, endedAt, failure: (row?.failures ?? 0) > 0 };
+}
+
 function isLive(db: DatabaseSync, conversationId: number): boolean {
   const row = db
     .prepare(
@@ -90,12 +122,18 @@ export function subAgentActivity(dbPath: string, taskId: number): SubAgentActivi
     const count = db.prepare(`select count(*) as steps from entries where conversation_id = ?`);
     return children.map((child) => {
       const steps = (count.get(child.id) as { steps?: number } | undefined)?.steps ?? 0;
+      const live = isLive(db, child.id);
+      const clock = stageClock(db, child.id);
+      const state = live ? "live" : clock.failure ? "failed" : clock.startedAt === null ? "pending" : "done";
       return {
         conversationId: child.id,
         role: systemRole(db, child.id),
         steps,
         tool: lastTool(db, child.id),
-        live: isLive(db, child.id),
+        live,
+        startedAt: clock.startedAt,
+        endedAt: live ? null : clock.endedAt,
+        state,
       };
     });
   } catch {
