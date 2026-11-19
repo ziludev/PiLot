@@ -5,6 +5,7 @@ import (
 
 	"pitta/internal/i18n"
 	"pitta/internal/icons"
+	"pitta/internal/protocol"
 	"pitta/internal/theme"
 )
 
@@ -59,6 +60,9 @@ func (a *App) railFilter(c *ui.Context, t theme.Tokens) {
 				Placeholder(i18n.T("filter")).Height(20)
 		})
 	})
+	// What was typed is local filtering first; the bridge is asked a beat
+	// later, so a word typed at speed is one search rather than eight.
+	a.watchSearch()
 }
 
 // railSegments is the 会话 | 任务 switch; it keeps its own state, so the list
@@ -155,11 +159,14 @@ func (a *App) railList(c *ui.Context, t theme.Tokens) {
 	})
 }
 
-// railRowsCached recomputes the rail only when its inputs changed.
+// railRowsCached recomputes the rail only when its inputs changed. The filter
+// is one of them: it moves without a snapshot arriving, and a cached list would
+// keep the search box's results forever out of date.
 func (a *App) railRowsCached() []railRow {
-	if a.vm.railCache == nil || a.vm.railStamp != a.stamp {
+	if a.vm.railCache == nil || a.vm.railStamp != a.stamp || a.vm.railFilter != a.filter {
 		a.vm.railCache = a.railRows()
 		a.vm.railStamp = a.stamp
+		a.vm.railFilter = a.filter
 	}
 	return a.vm.railCache
 }
@@ -175,6 +182,9 @@ func railKey(row railRow) any {
 			return "s" + row.section
 		}
 		return "h" + row.label
+	case railSearchHit:
+		// Two hits can sit in the same chat, so the entry is part of the key.
+		return "r" + itoa(row.convID) + "." + itoa(row.entryID)
 	}
 	return "h" + row.label
 }
@@ -195,6 +205,8 @@ func (a *App) railRow(c *ui.Context, t theme.Tokens, row railRow) {
 		})
 	case railTask:
 		a.railTaskRow(c, t, row)
+	case railSearchHit:
+		a.railSearchRow(c, t, row)
 	default:
 		a.railChatRow(c, t, row)
 	}
@@ -233,6 +245,9 @@ func (a *App) railChatRow(c *ui.Context, t theme.Tokens, row railRow) {
 	if active {
 		item = item.Background(t.SidebarAccent)
 	}
+	// The ⋯ belongs to the chat on screen and to the row under the pointer; its
+	// space is kept either way, so a title never jumps as the pointer crosses.
+	menuShown := active || item.Hovered()
 	item.Children(func() {
 		title := row.conv.Title
 		if title == "" {
@@ -259,8 +274,52 @@ func (a *App) railChatRow(c *ui.Context, t theme.Tokens, row railRow) {
 		if row.unread {
 			ui.Box(c).Size(5, 5).Radius(3).Background(t.Primary)
 		}
+		ui.Box(c).Size(14, 14).Children(func() {
+			if menuShown {
+				a.railChatMenu(c, t, row.conv)
+			}
+		})
 	})
 	item.OnClick(func() { a.selectConversation(row.conv.ConversationID) })
+}
+
+// railChatMenu is the row's ⋯: the two things the rail can write on a chat.
+// The menu is built by the window, so the items take the theme's type and
+// colors; both choices only queue an event, since a menu build must not write.
+func (a *App) railChatMenu(c *ui.Context, t theme.Tokens, conv protocol.Surface) {
+	button := ui.ButtonBase(c).Size(14, 14).Radius(3).Justify(ui.Center).
+		AlignItems(ui.Center).Cursor(ui.CursorPointer).Tooltip(i18n.T("chatMenu"))
+	button.Children(func() {
+		ui.Text(c, "⋯").FontSize(11).FontWeight(600).TextColor(t.MutedFg)
+	})
+	archived := conv.Archived
+	button.Menu(func(m *ui.Menu) {
+		if m.Item(i18n.T("rename")).Chosen() {
+			a.post(event{kind: evRenameChat, convID: conv.ConversationID})
+		}
+		label := i18n.T("archive")
+		if archived {
+			label = i18n.T("unarchive")
+		}
+		if m.Item(label).Chosen() {
+			a.post(event{kind: evArchiveChat, convID: conv.ConversationID, archived: !archived})
+		}
+	})
+}
+
+// railSearchRow is one hit from the bridge: the chat it sits in on the first
+// line, the matched text on the second. A press opens that chat; finding the
+// entry inside it is the chat's own job.
+func (a *App) railSearchRow(c *ui.Context, t theme.Tokens, row railRow) {
+	item := ui.ButtonBase(c).FillWidth().Height(38).Radius(6).Padding(3, 7).
+		Cursor(ui.CursorPointer).AlignItems(ui.Center)
+	item.Children(func() {
+		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(1).Children(func() {
+			ui.Text(c, row.label).FontSize(11).FontWeight(500).TextColor(t.Foreground).MaxLines(1)
+			ui.Text(c, row.snippet).FontSize(9.5).TextColor(t.MutedFg).MaxLines(1)
+		})
+	})
+	item.OnClick(func() { a.selectConversation(row.convID) })
 }
 
 // resizeRail moves the seam by dx, and writes the width down when the pointer
