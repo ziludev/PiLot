@@ -170,8 +170,9 @@ TS 侧
 - gw 的 HTTP API 用 `x-pilot-token`（`FEISHU_GW_TOKEN`）鉴权，转发到桥接层时带
   `Authorization: Bearer $AGENT_HTTP_TOKEN`——桥接层的 API 本来就拒绝陌生请求，这一层不另开口子。
 - `im.message.get` 对 app 发的消息返回 `sender.id = cli_...`（app_id），`open_id` 为空；
-  对人是 `id = ou_...`。所以“这条引用是不是我们自己写的”只能按 `sender_type === "app"` 加 app_id 判，
-  现在桥接层比的是 `sender.id === botOpenId`，实际一直为 false（历史 bug，未在 P2 里改）。
+  对人是 `id = ou_...`。所以“这条引用是不是我们自己写的”只能按 `sender_type === "app"` 加 app_id 判；
+  桥接层原先比的是 `sender.id === botOpenId`，实际恒为 false（历史 bug），已随本次改动修为
+  `writtenByApp(sender, appId, botOpenId)`（见 `src/feishu.ts`，有单测）。
 - 桥接层保留一个 SDK client：`im.message.list`（线程历史/摘要）不在 gw 的五个操作里，仍走 SDK。
 - 守护：`launchd/feishu-gw.plist.tmpl` + `agentctl install-gateway`，`KeepAlive` 常驻；
   `agentctl install` 只在 `FEISHU_TRANSPORT=go` 时才装它——两条连接并存会让每条消息被回答两次。
