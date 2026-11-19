@@ -307,7 +307,7 @@ func (a *App) liveRowView(c *ui.Context, t theme.Tokens, row threadRow) {
 		a.avatarView(c, avatarSize)
 		ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
 			if row.liveStep != "" {
-				ui.Text(c, i18n.TF("runningStep", map[string]any{"name": row.liveStep})).
+				ui.Text(c, i18n.TF("runningStep", map[string]any{"name": liveStepName(row.liveStep, row.liveHint)})).
 					FontSize(11).TextColor(t.MutedFg)
 			}
 			if row.text != "" {
@@ -349,11 +349,14 @@ func (a *App) liveRow() (threadRow, bool) {
 	// its calls up front, so the earlier ones read pending or done.
 	for _, raw := range th.live.Tools {
 		var slot struct {
-			Name   string `json:"name"`
-			Status string `json:"status"`
+			Name    string          `json:"name"`
+			Status  string          `json:"status"`
+			Output  string          `json:"output"`
+			Details json.RawMessage `json:"details"`
 		}
 		if json.Unmarshal(raw, &slot) == nil && slot.Status == "running" && slot.Name != "" {
 			row.liveStep = slot.Name
+			row.liveHint = liveStepHint(slot.Output, slot.Details)
 		}
 	}
 	if row.text == "" && row.liveStep == "" {
@@ -361,6 +364,46 @@ func (a *App) liveRow() (threadRow, bool) {
 	}
 	return row, true
 }
+
+// liveStepName is the tool's own name plus what it is doing, kept to one line.
+// The tool keeps its name untranslated; the hint is what tells two `bash` calls
+// apart.
+func liveStepName(name, hint string) string {
+	if hint == "" {
+		return name
+	}
+	return name + " · " + hint
+}
+
+// liveStepHint reads what the running call is up to: the command or path it
+// reports, else the tail of the output it has streamed so far. Nothing is
+// guessed when both are empty, so a bare tool name stays a bare tool name.
+func liveStepHint(output string, details json.RawMessage) string {
+	if len(details) > 0 {
+		var object map[string]any
+		if json.Unmarshal(details, &object) == nil {
+			for _, key := range []string{"command", "path", "file", "query", "url"} {
+				if text, ok := object[key].(string); ok {
+					if hint := oneLine(text); hint != "" {
+						return clip(hint, liveHintRunes)
+					}
+				}
+			}
+		}
+	}
+	// Output streams a chunk at a time; the last line drawn is the newest.
+	lines := strings.Split(output, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if hint := oneLine(lines[i]); hint != "" {
+			return clip(hint, liveHintRunes)
+		}
+	}
+	return ""
+}
+
+// liveHintRunes is the room a hint gets on the row before it would crowd out
+// the answer being written below it.
+const liveHintRunes = 60
 
 // images draws thumbnails; a pick that will not decode is skipped rather than
 // leaving a hole.
