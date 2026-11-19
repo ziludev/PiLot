@@ -21,6 +21,7 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { ChatMemory, GlobalMemory, WorkMemory } from "./memory.ts";
 import { healthReport } from "./health.ts";
+import { topicTitle, type ThreadInfo } from "./threads.ts";
 
 /**
  * Local HTTP + WebSocket bridge so a desktop client is just another watcher.
@@ -221,6 +222,36 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         return { cost, tokens };
       };
 
+      /**
+       * A topic's name, for a fork made before topics were named at the fork: the latest ask.
+       * A long tool loop can put it dozens of entries behind the newest page, so page back
+       * for it; the answer is cached because the client asks every five seconds.
+       */
+      const askTitles = new Map<number, { title: string; at: number }>();
+      const latestAsk = async (conversationId: number, conversation: Conversation): Promise<string> => {
+        const cached = askTitles.get(conversationId);
+        if (cached !== undefined && Date.now() - cached.at < 60 * 60_000) return cached.title;
+        let cursor: unknown;
+        let title = "";
+        // Bounded: the worst fork in the log was 599 entries behind, and a topic that never
+        // asked anything keeps its hex fallback rather than being walked to the parent's start.
+        for (let page = 0; page < 20; page += 1) {
+          const result = await conversation
+            .entries({ order: "descending" }, 100, cursor as never, context)
+            .catch(() => undefined);
+          if (result === undefined) break;
+          const last = result.items.find((entry) => entry.kind === "pi.user");
+          if (last !== undefined) {
+            title = topicTitle(entryText(last.model));
+            break;
+          }
+          cursor = result.next;
+          if (cursor === undefined) break;
+        }
+        askTitles.set(conversationId, { title, at: Date.now() });
+        return title;
+      };
+
       if (req.method === "GET" && path === "/api/state") {
         const [inspection, usage, projects] = await Promise.all([
           runtime.harness.inspect(context),
@@ -234,7 +265,6 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
           runtime.harness,
           context,
         ).catch(() => ({}));
-        type ThreadInfo = { key: string; parent?: number; surfaceId?: string };
         const threads: Record<string, ThreadInfo> = await runtime.threads().catch((error: unknown) => {
           logError("server", "could not read thread index", error);
           return {} as Record<string, ThreadInfo>;
@@ -260,10 +290,7 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
                     .entries({ order: "ascending" }, 12, undefined, context)
                     .then((page) => {
                       const first = page.items.find((entry) => entry.kind === "pi.user");
-                      const text = first === undefined ? "" : entryText(first.model);
-                      // A title, not a transcript: collapse whitespace, drop a leading
-                      // mention, and cut where a human would still recognise it.
-                      return text.replace(/\s+/g, " ").replace(/^@\s*/, "").trim().slice(0, 32);
+                      return first === undefined ? "" : topicTitle(entryText(first.model));
                     })
                     .catch(() => "");
             const own = meta[surfaceId];
@@ -296,16 +323,10 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
             .conversation(conversationId as never, context)
             .catch(() => undefined);
           if (conversation === undefined) continue;
-          // A topic inherits its chat's history, so its first user message is the parent's
-          // question. Title it by the latest ask instead, which is what the topic is about.
-          const title = await conversation
-            .entries({ order: "descending" }, 40, undefined, context)
-            .then((page) => {
-              const last = page.items.find((entry) => entry.kind === "pi.user");
-              const text = last === undefined ? "" : entryText(last.model);
-              return text.replace(/\s+/g, " ").replace(/^@\s*/, "").trim().slice(0, 32);
-            })
-            .catch(() => "");
+          // A topic is named by the message that opened it, recorded when it forked. Forks made
+          // before that fall back to their latest ask: a topic inherits its chat's history, so
+          // its first user message would be the parent's question, not this topic's.
+          const title = info.title ?? (await latestAsk(conversationId, conversation));
           const spend = await usageOf(conversationId).catch(() => ({ cost: 0, tokens: 0 }));
           const own = meta[info.surfaceId];
           surfaces.push({

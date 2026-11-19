@@ -67,7 +67,14 @@ import {
   type Project,
 } from "./projects.ts";
 import { setHarnessRef, setSessionContext } from "./runtime-ref.ts";
-import { forkAt, lookupMessage, lookupThread, recordMessage, recordThread, threadIndex } from "./threads.ts";
+import {
+  forkAt,
+  lookupMessage,
+  lookupThread,
+  recordMessage,
+  recordThread,
+  threadIndex,
+} from "./threads.ts";
 import { config } from "./config.ts";
 
 export const context = BACKGROUND_CONTEXT;
@@ -133,7 +140,7 @@ export type AgentRuntime = {
   /** Reply/thread conversation: forked at the answered message, or the chat itself. */
   conversationForThread(
     surfaceId: string,
-    options: { threadKey?: string; parentMessageId?: string },
+    options: { threadKey?: string; parentMessageId?: string; title?: string },
   ): Promise<Conversation>;
   recordMessage(messageId: string, conversation: Conversation, entryId: number): Promise<void>;
   /**
@@ -466,18 +473,24 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
 
   async function conversationForThread(
     surfaceId: string,
-    options: { threadKey?: string; parentMessageId?: string },
+    options: { threadKey?: string; parentMessageId?: string; title?: string },
   ): Promise<Conversation> {
     const threadKey = options.threadKey ?? options.parentMessageId;
     if (threadKey !== undefined) {
       const known = await lookupThread(harness, context, threadKey);
       if (known !== undefined) {
         const existing = await harness.conversation(
-          known as unknown as Parameters<typeof harness.conversation>[0],
+          known.conversationId as unknown as Parameters<typeof harness.conversation>[0],
           context,
         );
         if (existing !== undefined) {
           rememberSurface(existing.id as unknown as number, surfaceId);
+          // A fork made before topics were named takes one from its next message, once.
+          if (options.title !== undefined && known.title === undefined) {
+            await recordThread(harness, context, threadKey, known.conversationId, undefined, surfaceId, options.title).catch(
+              () => undefined,
+            );
+          }
           return existing;
         }
       }
@@ -502,6 +515,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
             forked.id as unknown as number,
             parent.id as unknown as number,
             surfaceId,
+            options.title,
           );
           rememberSurface(forked.id as unknown as number, surfaceId);
           console.log(`[agent] forked conversation ${forked.id} from ${parent.id} at entry ${anchor.entryId}`);
