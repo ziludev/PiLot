@@ -20,26 +20,34 @@
 | tool_search + `modelTools` 延迟加载 | `src/deferred.ts` |
 | usage / 花费 | `src/budget.ts:47`、`src/server.ts:252` |
 | 实时视图 `conversation.watch()`（卡片靠它画） | `src/live.ts:105` |
+| 长期在岗的具名 agent（ownerless 会话 + 后台投递任务） | `src/agents.ts` |
+| `onReport` → 飞书报警 | `src/alerts.ts` |
 | 图片输入（飞书图片直接进模型，最多 3 张） | `src/feishu.ts:3223` |
 
-## 没用上的，按值不值得做排序
+## 已经补上的
 
-1. **持久子 agent（pattern 22）**：能 spawn、steer 中途改方向、stop、list，答完主动回报父会话。
-   我们现在只有「同步等结果」的 `delegate` 和「跑完发条消息」的流水线，中间插不上话，也看不见它
-   在干什么。这是从「派活」到「带团队」的那一步。
-2. **`onReport` 报警**：现在只写日志（`src/harness.ts:266`）。钩子抛错、任务 faulted、存储失败、
-   扩展没装上导致任务一直 blocked，全都不出声——这类故障要靠 alex 觉得「怎么没动静」才发现。
-   做法：错误分类，storage/task faulted 立刻推一条飞书消息。
-3. **子任务并行 + `waiting` + `policy: failFast`**：`build_feature` 现在是顺序 await，designer 与
-   reviewer、多份测试本可以并行；用子任务模型还能拿到「失败自动 abort 其他分支」和重启续跑。
-4. **`watchTaskGraph` / `inspect()`**：任务面板靠轮询库表画，「哪些任务等谁」「哪个被卡住」得自己算；
+- **持久子 agent**：`spawn_agent` / `tell_agent` / `list_agents` / `stop_agent`（`src/agents.ts`）。
+  会话 ownerless，所以没有回合能 abort 掉它；每条消息由一个 `app.agent-turn` 后台任务投递并
+  等答复，父会话说完话就闲下来，重启也能接着等。
+- **静默故障**：`onReport` 里 `storage_failed` / `task_faulted` / `extension_error` 这类
+  「不修就一直坏」的报告直接发飞书，同一故障 10 分钟只说一次。
+- **评审阶段**：`build_feature` 末尾加 reviewer，直接读 diff（也看 tester 的结论）。
+
+## 看完决定不做
+
+- **`beforeCompact` 自定义摘要**：这个钩子只能「自己给一段摘要」或「拒绝压缩」，改不了压缩提示词；
+  再跑一遍模型写摘要等于把压缩的成本翻倍。
+- **`control: { terminate: true }`**：唯一想用的地方是 `report_done`，但终止会连带吞掉它后面的那句
+  人话，而那句话正是 alex 在聊天里看到的结论。
+- **`onYield`**：它是在模型给出答案的那一刻插话继续跑，跟我们「别反复催模型」的取向冲突；步数上限
+  后的续跑已经能用了。
+
+## 还没接的，按值不值得做排序
+
+1. **`watchTaskGraph` / `inspect()`**：任务面板靠轮询库表画，「哪些任务等谁」「哪个被卡住」得自己算；
    库里直接给一张实时图。
-5. **`CompactionTask.beforeCompact`**：自动摘要用的是通用提示词；我们的记忆规则（alex 的偏好、
-   分支红线）比通用摘要更该被保留，可以让它按我们的模板写摘要。
-6. **`control: { terminate: true }`**：工具直接结束这一轮，省一次模型请求。`report_done`、后台
-   `build_feature` 这种「说完就没别的事」的场景正合适。
-7. **`afterTools` / `onYield`**：现在是「撞上限 → 结算 → 我们提交 continue」，库里可以在钩子里就
-   接着跑，少一次状态往返、也少一个 `turn_limit` 的中间态。
+2. **`afterTools`**：一轮结束后一次，适合放「这一轮要不要提醒他」这类聚合判断；现在分散在
+   `afterTool` 里，每条工具调用都算一遍。
 
 ## 看了但决定不用
 
