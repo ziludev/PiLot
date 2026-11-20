@@ -41,8 +41,9 @@ import (
 // two that say a stopped task is not a lost one, and six for the step list a
 // task's dialog turns into a timeline: its header, the hint, the overflow count,
 // the "what it did" label, and the two lines about the stop; and the commit
-// dialog's placeholder, which the key audit found missing since it was written.
-const maxKeys = 256
+// dialog's placeholder, which the key audit found missing since it was written;
+// and the "started from" label on the one row that began a task.
+const maxKeys = 257
 
 func TestDictionariesMatch(t *testing.T) {
 	keys := Keys()

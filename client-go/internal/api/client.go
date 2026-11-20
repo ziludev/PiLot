@@ -541,11 +541,14 @@ type TaskLogStep struct {
 // TaskLogStage is one conversation's part of a run: the task's own turn when it
 // spawned nothing, each child when it did.
 type TaskLogStage struct {
-	ConversationID int           `json:"conversationId"`
-	Parent         bool          `json:"parent"`
-	Role           string        `json:"role"`
-	Steps          []TaskLogStep `json:"steps"`
-	More           int           `json:"more"`
+	ConversationID int  `json:"conversationId"`
+	Parent         bool `json:"parent"`
+	// Start marks the one row that began the task: the call that made it. It
+	// belongs to the turn above, not to the task, so it is its own stage.
+	Start bool          `json:"start"`
+	Role  string        `json:"role"`
+	Steps []TaskLogStep `json:"steps"`
+	More  int           `json:"more"`
 }
 
 // TaskLog reads what the task did, stage by stage. A task that ran for hours can

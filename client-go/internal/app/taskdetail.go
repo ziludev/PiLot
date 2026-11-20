@@ -296,6 +296,9 @@ type taskStageRow struct {
 	steps []api.TaskLogStep
 	more  int
 	open  bool
+	// inline rows have nowhere to open to: they are one step, and hiding it
+	// behind a click would cost the answer more than it saves the dialog.
+	inline bool
 }
 
 // taskStages reads the run as a timeline. The child list said how far each stage
@@ -309,13 +312,13 @@ func (a *App) taskStages(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
 	ui.Column(c).FillWidth().Gap(3).Children(func() {
 		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, i18n.T("taskSteps")).FontSize(10.5).TextColor(t.MutedFg).Grow(1)
-			if a.anySteps(rows) {
+			if a.anyClickable(rows) {
 				ui.Text(c, i18n.T("taskStepsHint")).FontSize(9.5).TextColor(t.MutedFg).MaxLines(1)
 			}
 		})
 		for i := range rows {
 			row := rows[i]
-			clickable := len(row.steps) > 0 && row.conv != 0
+			clickable := len(row.steps) > 0 && row.conv != 0 && !row.inline
 			line := ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).Height(20).Radius(4).Padding(0, 4)
 			if clickable {
 				line = line.Cursor(ui.CursorPointer)
@@ -349,7 +352,7 @@ func (a *App) taskStages(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
 					ui.Text(c, "✗ "+itoa(failures)).FontSize(9.5).TextColor(t.Destructive).MaxLines(1)
 				}
 			})
-			if row.open {
+			if row.open || row.inline {
 				a.taskStepList(c, t, row.steps, row.more)
 			}
 		}
@@ -360,8 +363,21 @@ func (a *App) taskStages(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
 // through them — that is where a pipeline's work happens. A task without them
 // is its own transcript, which is every ordinary turn.
 func (a *App) stageRows(task *api.TaskDetail) []taskStageRow {
+	rows := []taskStageRow{}
+	// The row that started the task comes first, above its stages: "this ran
+	// because the agent picked the delegate skill" is the sentence a step list
+	// without it cannot say.
+	for _, stage := range a.detail.log {
+		if !stage.Start || len(stage.Steps) == 0 {
+			continue
+		}
+		rows = append(rows, taskStageRow{
+			title:  i18n.T("taskStartedFrom"),
+			steps:  stage.Steps,
+			inline: true,
+		})
+	}
 	if len(task.SubAgents) > 0 {
-		rows := make([]taskStageRow, 0, len(task.SubAgents))
 		for _, child := range task.SubAgents {
 			row := taskStageRow{conv: child.ConversationID, title: child.Title, state: taskStateText(child.State)}
 			if stage := a.stageOf(child.ConversationID); stage != nil {
@@ -379,19 +395,19 @@ func (a *App) stageRows(task *api.TaskDetail) []taskStageRow {
 		return rows
 	}
 	for _, stage := range a.detail.log {
-		if !stage.Parent {
+		if !stage.Parent || stage.Start {
 			continue
 		}
-		return []taskStageRow{{
+		rows = append(rows, taskStageRow{
 			conv:  stage.ConversationID,
 			title: i18n.T("taskDid"),
 			state: taskStateText(task.Status),
 			steps: stage.Steps,
 			more:  stage.More,
 			open:  a.detail.expanded == stage.ConversationID,
-		}}
+		})
 	}
-	return nil
+	return rows
 }
 
 // stageOf is a conversation's part of the run, once the log has arrived.
@@ -404,9 +420,11 @@ func (a *App) stageOf(conv int) *api.TaskLogStage {
 	return nil
 }
 
-func (a *App) anySteps(rows []taskStageRow) bool {
+// anyClickable is whether the hint under the header is true: a list of inline
+// rows has nothing to open.
+func (a *App) anyClickable(rows []taskStageRow) bool {
 	for _, row := range rows {
-		if len(row.steps) > 0 {
+		if len(row.steps) > 0 && !row.inline {
 			return true
 		}
 	}
