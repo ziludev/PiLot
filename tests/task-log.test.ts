@@ -54,10 +54,10 @@ class Store {
   }
 
   /** A task in a conversation, returning the id the store gave it. */
-  task(conversationId: number): number {
+  task(conversationId: number, record: Row = {}): number {
     const info = this.db
-      .prepare("insert into tasks (conversation_id, status, record) values (?, 'terminal', '{}')")
-      .run(conversationId);
+      .prepare("insert into tasks (conversation_id, status, record) values (?, 'terminal', ?)")
+      .run(conversationId, JSON.stringify(record));
     return Number(info.lastInsertRowid);
   }
 
@@ -174,4 +174,44 @@ test("a task with nothing recorded says nothing rather than guessing", () => {
 
 test("a missing store is an empty answer, not a throw", () => {
   assert.deepEqual(taskLog(join(tmpdir(), "no-such-store", "agent.sqlite"), 1, 1), []);
+});
+
+test("the call that started the task comes first, with the task's own verdict", () => {
+  const store = new Store();
+  // The turn above made the call; the task it started points back at that turn
+  // with `owner` and at the call with `callId`. That is the only way to say
+  // "this ran because the agent picked delegate", which the task's own rows
+  // cannot say — they start after the decision.
+  const turn = store.task(9);
+  const task = store.task(9, {
+    conversationId: 9,
+    input: { callId: "c1" },
+    owner: turn,
+    state: { status: "terminal", outcome: { status: "completed" } },
+  });
+  store.child(2, task);
+  store.rows(9, turn, [call("c1", "delegate", { task: "write the tests for the drawer" })]);
+  store.rows(2, store.task(2), [call("inner", "bash", { command: "go test ./..." })]);
+
+  const stages = taskLog(store.path, task, 9);
+  store.close();
+
+  assert.equal(stages.length, 2, "the start row and one stage");
+  const start = stages[0];
+  assert.equal(start?.start, true);
+  assert.equal(start?.steps[0]?.tool, "delegate");
+  assert.equal(start?.steps[0]?.label, "write the tests for the drawer");
+  assert.equal(start?.steps[0]?.state, "ok", "a finished task's call is not still running");
+});
+
+test("a task nobody called — a routine — has no start row", () => {
+  const store = new Store();
+  const task = store.task(9, { conversationId: 9, state: { status: "terminal", outcome: { status: "completed" } } });
+  store.rows(9, task, [call("c1", "bash", { command: "git log" })]);
+
+  const stages = taskLog(store.path, task, 9);
+  store.close();
+
+  assert.equal(stages.length, 1);
+  assert.equal(stages[0]?.start, undefined);
 });

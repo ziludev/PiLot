@@ -242,12 +242,16 @@ export interface TaskLogStep {
   state: "ok" | "failed" | "running";
   /** For "say": the reply, cut to a paragraph. */
   text?: string;
+  /** The provider's id for this call, which is how the task that came out of it is matched back. */
+  call?: string;
 }
 
 export interface TaskLogStage {
   conversationId: number;
   /** True for the task's own turn, the stage that started the others. */
   parent: boolean;
+  /** True for the one row that started the task: the call that created it. */
+  start?: boolean;
   role: string | null;
   steps: TaskLogStep[];
   /** Steps left out because the stage was longer than a dialog row count. */
@@ -377,6 +381,7 @@ export function stepsFromTranscript(rows: RawRow[]): TaskLogStep[] {
           tool: block.name,
           label: argumentLabel(block.arguments),
           state: "running",
+          call: typeof block.id === "string" ? block.id : undefined,
         };
         steps.push(step);
         if (typeof block.id === "string") byCall.set(block.id, step);
@@ -386,6 +391,48 @@ export function stepsFromTranscript(rows: RawRow[]): TaskLogStep[] {
     }
   }
   return steps;
+}
+
+/**
+ * The call that started a task: a skill, a delegation, a whole pipeline.
+ *
+ * It is not in the task's own rows — it belongs to the turn above, which is where the task's `owner`
+ * points and where its `callId` comes from. Leaving it out made a pipeline look like it began with
+ * `bash`: the one row that says "this ran because the agent picked the 写测试 skill" was the only row
+ * missing.
+ */
+function startStage(db: DatabaseSync, taskId: number): TaskLogStage | null {
+  const row = db.prepare(`select conversation_id as conversationId, record from tasks where id = ?`).get(taskId) as
+    | { conversationId: number | null; record: string | null }
+    | undefined;
+  if (row === undefined || row.record === null || row.conversationId === null) return null;
+  let record: {
+    input?: { callId?: unknown };
+    owner?: unknown;
+    state?: { status?: string; outcome?: { status?: string } };
+  };
+  try {
+    record = JSON.parse(row.record) as typeof record;
+  } catch {
+    return null;
+  }
+  const callId = record.input?.callId;
+  const owner = record.owner;
+  if (typeof callId !== "string" || typeof owner !== "number") return null;
+  // The owner's rows in the same conversation hold the call; the conversation id alone would scan
+  // years of turns for one id.
+  const steps = stepsFromTranscript(
+    transcript(db, row.conversationId, owner),
+  );
+  const step = steps.find((candidate) => candidate.call === callId);
+  if (step === undefined) return null;
+  // The call's verdict is the task's: a delegation's result row is written in the parent turn
+  // minutes later, and the task's own outcome already says whether it worked. Reading "running"
+  // for a task that finished an hour ago would be the dialog lying about the one row it added.
+  if (record.state?.status === "terminal") {
+    step.state = record.state.outcome?.status === "completed" ? "ok" : "failed";
+  }
+  return { conversationId: row.conversationId, parent: true, start: true, role: null, steps: [step], more: 0 };
 }
 
 /** One stage, trimmed to the tail a dialog can hold. */
@@ -416,6 +463,8 @@ export function taskLog(dbPath: string, taskId: number, conversationId: number |
   }
   try {
     const stages: TaskLogStage[] = [];
+    const started = startStage(db, taskId);
+    if (started !== null) stages.push(started);
     const children = db
       .prepare(`select id from conversations where owner_task_id = ? order by id`)
       .all(taskId) as Array<{ id: number }>;

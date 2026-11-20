@@ -219,9 +219,14 @@ func TestAStoppedTaskSaysWhatSurvives(t *testing.T) {
 
 // detailWithLog puts a task and its step list into the dialog the way the frame
 // loop does, so these tests can talk about what is drawn.
-func detailWithLog(t *testing.T, a *App, task api.TaskDetail, stages []api.TaskLogStage) {
+func detailWithLog(t *testing.T, a *App, tt *ui.Tester, task api.TaskDetail, stages []api.TaskLogStage) {
 	t.Helper()
 	a.openTaskDetail(task.ID)
+	// Let the dialog's own reads land first: they answer the same question from
+	// the stub bridge, and whichever arrives last is what the dialog shows. The
+	// frame after this is the one under test.
+	tt.Frame()
+	tt.Frame()
 	a.applyTaskDetail(task.ID, a.detail.seq, &task, nil)
 	a.applyTaskLog(task.ID, a.detail.seq, stages, nil)
 }
@@ -232,7 +237,8 @@ func detailWithLog(t *testing.T, a *App, task api.TaskDetail, stages []api.TaskL
 func TestAStageOpensOntoItsSteps(t *testing.T) {
 	i18n.Set(i18n.ZH)
 	a := fixtureApp(t, false)
-	detailWithLog(t, a, api.TaskDetail{
+	tt := ui.NewTester(a.View, 1180, 820)
+	detailWithLog(t, a, tt, api.TaskDetail{
 		ID: 9, Kind: "pi.generation", ConversationID: 11, Status: "running", Title: "Fix the build",
 		SubAgents: []api.TaskSubAgent{{ID: "s1", Kind: "pi.explore", Title: "扫日志", State: "running", ConversationID: 42}},
 	}, []api.TaskLogStage{{
@@ -243,7 +249,6 @@ func TestAStageOpensOntoItsSteps(t *testing.T) {
 		},
 	}})
 
-	tt := ui.NewTester(a.View, 1180, 820)
 	tt.Frame()
 	if tt.HasText("go test ./...") {
 		t.Fatal("the steps were open before anyone asked")
@@ -279,7 +284,8 @@ func TestAStageOpensOntoItsSteps(t *testing.T) {
 func TestATaskWithNoChildrenShowsItsOwnTurn(t *testing.T) {
 	i18n.Set(i18n.ZH)
 	a := fixtureApp(t, false)
-	detailWithLog(t, a, api.TaskDetail{
+	tt := ui.NewTester(a.View, 1180, 820)
+	detailWithLog(t, a, tt, api.TaskDetail{
 		ID: 9, Kind: "pi.generation", ConversationID: 11, Status: "terminal", Title: "Why is the sky blue",
 	}, []api.TaskLogStage{{
 		ConversationID: 11,
@@ -287,7 +293,6 @@ func TestATaskWithNoChildrenShowsItsOwnTurn(t *testing.T) {
 		Steps:          []api.TaskLogStep{{ID: 1, Kind: "tool", Tool: "bash", Label: "go build ./...", State: "ok"}},
 	}})
 
-	tt := ui.NewTester(a.View, 1180, 820)
 	tt.Frame()
 	if !tt.HasText(i18n.T("taskDid")) {
 		t.Fatalf("a task with no children did not offer its own steps; drew %v", tt.Texts())
@@ -310,11 +315,11 @@ func TestTheStepListKeepsItsTail(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		steps = append(steps, api.TaskLogStep{ID: i, Kind: "tool", Tool: "bash", Label: "step " + itoa(i), State: "ok"})
 	}
-	detailWithLog(t, a, api.TaskDetail{
+	tt := ui.NewTester(a.View, 1180, 820)
+	detailWithLog(t, a, tt, api.TaskDetail{
 		ID: 9, Kind: "pi.generation", ConversationID: 11, Status: "terminal", Title: "Long one",
 	}, []api.TaskLogStage{{ConversationID: 11, Parent: true, Steps: steps, More: 5}})
 
-	tt := ui.NewTester(a.View, 1180, 820)
 	tt.Frame()
 	if err := tt.Click(i18n.T("taskDid")); err != nil {
 		t.Fatal(err)
@@ -325,5 +330,40 @@ func TestTheStepListKeepsItsTail(t *testing.T) {
 	}
 	if !tt.HasText("还有 15 步") {
 		t.Fatalf("the rows left out were not counted; drew %v", tt.Texts())
+	}
+}
+
+// TestTheRowThatStartedTheTaskIsNotABash: a pipeline's own rows begin after the
+// decision to run it, so a step list built only from those starts at "bash" and
+// never says the agent picked a skill. The call belongs to the turn above, and
+// it is the row that explains the rest.
+func TestTheRowThatStartedTheTaskIsNotABash(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	tt := ui.NewTester(a.View, 1180, 820)
+	detailWithLog(t, a, tt, api.TaskDetail{
+		ID: 9, Kind: "app.feature", ConversationID: 11, Status: "terminal", Title: "Add a step list",
+		SubAgents: []api.TaskSubAgent{{ID: "s1", Kind: "pi.generation", Title: "写设计文档", State: "terminal", ConversationID: 42}},
+	}, []api.TaskLogStage{
+		{ConversationID: 11, Parent: true, Start: true, Steps: []api.TaskLogStep{
+			{ID: 1, Kind: "tool", Tool: "delegate", Label: "写测试并把失败的补上", State: "ok"},
+		}},
+		{ConversationID: 42, Steps: []api.TaskLogStep{
+			{ID: 2, Kind: "tool", Tool: "bash", Label: "go test ./...", State: "ok"},
+		}},
+	})
+
+	tt.Frame()
+	writePNG(t, "/tmp/task-start.png", tt.Image())
+	if !tt.HasText(i18n.T("taskStartedFrom")) {
+		t.Fatalf("the start row is missing; drew %v", tt.Texts())
+	}
+	// Open without a click: one row is an answer, not a place to explore.
+	if !tt.HasText("delegate") || !tt.HasText("写测试并把失败的补上") {
+		t.Fatalf("the start row does not say what started it; drew %v", tt.Texts())
+	}
+	// And the stages stay shut until asked, so the dialog is still a summary.
+	if tt.HasText("go test ./...") {
+		t.Fatal("a stage opened itself")
 	}
 }
