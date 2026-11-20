@@ -39,6 +39,19 @@ test("the card line carries tools, tokens, money and the model", () => {
   assert.equal(line, "✅ · 14 个工具 · 12.3k tokens · $0.0312 · deepseek-flash · thinking high");
 });
 
+test("a group card shows the tick and nothing else", () => {
+  // 同事要的是答案，不是账单：把 tokens 和 $0.29 摆在群里，看起来就像机器人自言自语。
+  const line = turnMeta({
+    tools: 14,
+    tokens: 12_345,
+    costUsd: 0.0312,
+    model: "deepseek-flash",
+    thinking: "high",
+    quiet: true,
+  });
+  assert.equal(line, "✅");
+});
+
 test("a turn that spent nothing still shows the tick", () => {
   const line = turnMeta({ tools: 0, tokens: 0, costUsd: 0, model: "", thinking: "" });
   assert.equal(line, "✅");
