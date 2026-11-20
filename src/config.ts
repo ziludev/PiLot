@@ -104,9 +104,18 @@ export const config = {
     | "max",
   workspace: path("AGENT_WORKSPACE", "./workspace"),
   dbPath: path("AGENT_DB", "./.data/agent.sqlite"),
-  /** Tool-call turns one submission may take. A whole diagnosis (logs, DB, source) fits in 80; 40 cut real work off. */
-  maxTurns: num("AGENT_MAX_TURNS", 80),
-  /** USD per day; 0 or less means unlimited. */
+  /**
+   * Tool-call turns one submission may take.
+   *
+   * This is a runaway guard, not a size limit: its job is to stop a model that is stuck in a loop,
+   * and a loop shows up as hundreds of identical calls within minutes, not as eighty. Twice it was
+   * mistaken for a budget — 40 then 80 — and both times it cut off ordinary work (a diagnosis that
+   * had to read three systems; a refactor that had to edit, build and test in a circle). The real
+   * work here runs 100-150 calls, so the ceiling sits well above it and money is handled by
+   * `dailyBudgetUsd` instead.
+   */
+  maxTurns: num("AGENT_MAX_TURNS", 240),
+  /** USD per day across every chat; 0 or less means unlimited. The turn ceiling is not a money guard. */
   dailyBudgetUsd: num("AGENT_DAILY_BUDGET_USD", 0),
   /**
    * Per-request provider settings, 0 = leave the provider's default. A flaky gateway is a reason to

@@ -21,6 +21,7 @@ import { openTelemetry } from "./telemetry.ts";
 import { chooseName } from "./identity.ts";
 import { titleExtension } from "./title.ts";
 import { contextGuardExtension } from "./context-guard.ts";
+import { stallExtension } from "./stall.ts";
 import { ChatMemory, GlobalMemory, memoryExtension, type Note } from "./memory.ts";
 import { stepHint, type ToolStep } from "./details.ts";
 import { answerBlocksInTx, answerTextInTx, type AnswerBlock } from "./answer.ts";
@@ -226,6 +227,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   registry.install(codemodeExtension);
   registry.install(titleExtension);
   registry.install(contextGuardExtension);
+  registry.install(stallExtension);
   registry.install(subagentExtension);
   registry.install(projectExtension);
   registry.install(doneExtension);
