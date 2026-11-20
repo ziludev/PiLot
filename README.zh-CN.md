@@ -143,7 +143,8 @@
 |---|---|
 | Skills | 扫描 `./.pi/skills`、`./.agents/skills`、`~/.pi/agent/skills`、`~/.agents/skills`、`~/.claude/skills`（与 pi 一致，另加 Claude Code 目录）。prompt 只放名字，`skill` 工具按需取全文 |
 | MCP | `mcp.json` 里的 servers（stdio / streamable HTTP）启动时连接，工具注册为 `mcp__<server>__<tool>` |
-| 多角色 | `delegate` / `delegate_parallel` / `build_feature`；每个子 agent 是 task-owned conversation，崩了续跑、abort 级联、只允许一层 |
+| 多角色 | `delegate` / `delegate_parallel` / `build_feature`（末尾有 reviewer 直接读 diff）；每个子 agent 是 task-owned conversation，崩了续跑、abort 级联、只允许一层 |
+| 长期 agent | `spawn_agent` / `tell_agent` / `list_agents` / `stop_agent`：有名字的 ownerless 会话，记得上下文，能中途改方向，答复作为消息发回来 |
 | 飞书原生 | 走本机已登录的 `lark-cli`（你的用户身份）：`feishu_agenda` 日历、`feishu_tasks` 待办、`feishu_create_task`、`feishu_doc_read` |
 
 ---
@@ -282,6 +283,7 @@ src/
   personal.ts      人设 / 时间 / 工作区 section
   roles.ts         子 agent 角色：指令 + 工具白名单 + 轮次上限
   subagents.ts     delegate / delegate_parallel / build_feature（durable 子会话）
+  agents.ts        长期在岗的具名 agent：spawn_agent / tell_agent / list_agents / stop_agent
   settle.ts        任务收尾：写终态时把「已经是终态 / 已被中止 / session 已关」当成正常，别的错照样抛
   memory.ts        global / chat / work 三层记忆 doc、remember/forget/recall
   curator.ts       手动整理：读会话 → 只产出建议

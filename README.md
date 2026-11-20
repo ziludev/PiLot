@@ -151,7 +151,7 @@ There is no in-process implementation left and no fallback: a toolbox that canno
 
 ### Extensions
 
-Skills are scanned from `./.pi/skills`, `./.agents/skills`, `~/.pi/agent/skills`, `~/.agents/skills`, `~/.claude/skills`; only names go into the prompt and the `skill` tool fetches a body on demand. MCP servers from `mcp.json` (stdio or streamable HTTP) are connected at startup and their tools registered as `mcp__<server>__<tool>`. `delegate`, `delegate_parallel` and `build_feature` run sub-agents as task-owned conversations: they resume after a crash, abort in cascade, and nest one level. Feishu-native tools (`feishu_agenda`, `feishu_tasks`, `feishu_create_task`, `feishu_doc_read`) go through a locally logged-in `lark-cli`, so they act as you.
+Skills are scanned from `./.pi/skills`, `./.agents/skills`, `~/.pi/agent/skills`, `~/.agents/skills`, `~/.claude/skills`; only names go into the prompt and the `skill` tool fetches a body on demand. MCP servers from `mcp.json` (stdio or streamable HTTP) are connected at startup and their tools registered as `mcp__<server>__<tool>`. `delegate`, `delegate_parallel` and `build_feature` run sub-agents as task-owned conversations: they resume after a crash, abort in cascade, and nest one level. `build_feature` ends with a reviewer that reads the diff, not the reports. `spawn_agent` / `tell_agent` / `list_agents` / `stop_agent` are the other shape of delegation: a named, ownerless conversation that keeps its context, can be redirected mid-run, and answers back as a message — one level of nesting too. Feishu-native tools (`feishu_agenda`, `feishu_tasks`, `feishu_create_task`, `feishu_doc_read`) go through a locally logged-in `lark-cli`, so they act as you.
 
 ## Configuration
 
@@ -307,6 +307,7 @@ src/
   git-info.ts      commits, a single patch, push, PR/MR links
   changes.ts       workspace status, unified diff, commit
   subagents.ts     delegate / delegate_parallel / build_feature
+  agents.ts        named long-lived agents: spawn_agent / tell_agent / list_agents / stop_agent
   diagnostics.ts   the read-only tools guests get: project_search (rg, project scope), logs_query, db_query
   audit.ts         the ring of permission decisions (app.audit)
   digest.ts        the once-a-day message built from verdicts + audit, and its sleeping task
