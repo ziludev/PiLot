@@ -1,5 +1,6 @@
 import { basename, isAbsolute, relative, resolve } from "node:path";
 import { defineExtension, hook, ToolTask } from "@earendil-works/pi-durable";
+import { ChatPolicy } from "./access.ts";
 import { config } from "./config.ts";
 import { requestApproval, surfaceForConversation } from "./channel.ts";
 import { hasGrant } from "./grants.ts";
@@ -32,6 +33,58 @@ const RISKY: Array<{ pattern: RegExp; reason: string; key: string }> = [
 ];
 
 const WRITE_TOOLS = new Set(["write", "edit"]);
+
+/**
+ * 群成员的写操作：拒绝，不弹卡。
+ *
+ * 审批卡是「alex 不在场时替他按一下确认」用的；同事要改代码，得他自己决定，一张卡放在群里
+ * 只会让所有人等十分钟然后超时。密钥更要紧：配置文件里的 key 一旦被读进群聊就是泄露，
+ * 没法撤回。所以这一档是硬拒绝，不是审批——代价是偶尔误判（同事跑了个带重定向的读命令），
+ * 那时他会一句话让 alex 来做，比泄露便宜。
+ */
+const WRITE_COMMANDS: Array<{ pattern: RegExp; reason: string }> = [
+  { pattern: /\b(rm|rmdir|mv|cp|mkdir|touch|chmod|chown|ln|truncate|tee|dd)\b/, reason: "改文件" },
+  { pattern: /\bsed\s+-i/, reason: "就地改文件" },
+  { pattern: /\bgit\s+(add|commit|push|pull|fetch|merge|rebase|reset|checkout|switch|restore|stash|tag|cherry-pick|clean|rm|mv|apply|am|init|clone)\b/, reason: "改仓库" },
+  { pattern: /\b(npm|pnpm|yarn|bun)\s+(i|install|add|remove|uninstall|publish|link|update)\b/, reason: "装依赖/发包" },
+  { pattern: /\b(pip|pip3|python3?\s+-m\s+pip)\s+install\b/, reason: "装依赖" },
+  { pattern: /\bgo\s+(get|install|mod\s+tidy)\b/, reason: "装依赖" },
+  { pattern: /\b(curl|wget)\b[^|;&]*\s(-o\s|-O\b|--output)/, reason: "往磁盘写文件" },
+  { pattern: /\b(mysql|psql|sqlite3)\b[^|;&]*\b(insert|update|delete|drop|alter|create|replace|vacuum)\b/i, reason: "改数据库" },
+  { pattern: /\b(kubectl|helm)\b[^|;&]*\b(apply|delete|patch|edit|scale|rollout|upgrade|install)\b/, reason: "动集群" },
+  { pattern: /\b(docker|docker-compose)\b[^|;&]*\b(rm|stop|kill|down|up|run|build|push)\b/, reason: "动容器" },
+  { pattern: /\b(kill|killall|pkill)\b/, reason: "停进程" },
+  // 重定向写文件；`2>/dev/null` 和 `&>` 里那个 `>` 前面是数字或 &，不算写。
+  { pattern: /(?<![\d&])>{1,2}\s*(?!\/dev\/null\b|&)[^\s|;&]+/, reason: "写文件" },
+];
+
+/** 库里的列名：password / api_key 这类查出来就等于公开了。 */
+const SECRET_COLUMN = /(password|passwd|secret|api[_-]?key|private[_-]?key|access[_-]?key|credential|token_secret)/i;
+
+/** 密钥、凭据、记忆库：看路径就能判定的那些，读也不行。 */
+export const SECRET_PATH =
+  /(^|[\s"'=:(/,])(\.env(\.[\w-]+)?|\.npmrc|\.netrc|\.git-credentials|\.ssh|id_(rsa|dsa|ecdsa|ed25519)|[^\s/]*\.(pem|key|p12|pfx|keystore)|credentials(\.json)?|secrets?\.(json|ya?ml|toml)|agent\.sqlite)(?=$|[\s"'),;|&])/i;
+
+/** Why a member's call is refused outright — no card, no waiting. */
+export function memberBlock(tool: string, args: Record<string, unknown>): string | undefined {
+  const path = typeof args["path"] === "string" ? args["path"] : "";
+  if (path.length > 0 && SECRET_PATH.test(path)) return "这个文件里有密钥";
+  if (WRITE_TOOLS.has(tool)) return `改文件（${path.length > 0 ? path : tool}）`;
+  if (EXTERNAL_WRITES.has(tool)) return "写飞书";
+  // 库里的密码列：查得出来的和说出来的是一回事。
+  if (tool === "db_query" && typeof args["sql"] === "string" && SECRET_COLUMN.test(args["sql"])) {
+    return "查密钥字段";
+  }
+  if (tool !== "bash") return undefined;
+  const command = typeof args["command"] === "string" ? args["command"] : "";
+  if (command.length === 0) return undefined;
+  if (SECRET_PATH.test(command)) return "这个命令会碰到密钥文件";
+  for (const rule of WRITE_COMMANDS) {
+    const hit = rule.pattern.exec(command);
+    if (hit !== null) return `${rule.reason}（${hit[0].trim().slice(0, 40)}）`;
+  }
+  return undefined;
+}
 
 /** Tools that change something outside the workspace, in someone else's system. */
 const EXTERNAL_WRITES = new Set(["feishu_create_task"]);
@@ -117,6 +170,16 @@ export function approvalReason(tool: string, args: Record<string, unknown>): App
   return undefined;
 }
 
+/**
+ * 成员轮的完整规则：上面那些硬拒绝，加上「本来要人力确认的也一律不批」——群里没人会去点卡，
+ * 弹出来只是让同事等十分钟然后失败。
+ */
+export function memberRefusal(tool: string, args: Record<string, unknown>): string | undefined {
+  const blocked = memberBlock(tool, args);
+  if (blocked !== undefined) return blocked;
+  return approvalReason(tool, args)?.reason;
+}
+
 /** Long enough to answer from a meeting; the run is blocked either way. */
 const APPROVAL_TIMEOUT_MS = 600_000;
 
@@ -126,9 +189,28 @@ export const guardExtension = defineExtension({
     hook(ToolTask, {
       beforeTool: async (call, api, context) => {
         const args = (call.arguments ?? {}) as Record<string, unknown>;
-        // One surface for everyone: who is asking no longer changes what may run. What a call
-        // *does* still matters, so the risk list below (and the approval card it triggers) is
-        // the only gate — the owner's own turns go through exactly the same one.
+        // 群里的人查得到东西，但改不了东西：写操作和密钥一律当场拒绝，不弹卡。
+        // 缺省（没写过 turn 的会话，比如客户端里的）不按成员处理——宁可放过，也不能让 alex
+        // 自己在客户端里被挡在门外。
+        const policy = await api.snapshot(ChatPolicy, api.conversationId, context).catch(() => undefined);
+        if (policy?.turn === "member") {
+          const denied = memberRefusal(call.name, args);
+          if (denied !== undefined) {
+            const owner = config.feishu.ownerName;
+            console.log(`[guard] refused on a member turn: ${call.name} ${denied}`);
+            void noteTaskEvent(
+              getHarness(),
+              getSessionContext(),
+              api.conversationId as unknown as number,
+              api.taskId as unknown as number,
+              APPROVAL_EVENT,
+              `${call.name}：${denied} → 已拒绝（群里不批写操作）`,
+            );
+            return { block: `${denied}——这一步只有 ${owner} 能做。跟提问的人说一句就好，不要绕过。` };
+          }
+        }
+        // One surface the rest of the way: what a call *does* matters, so the risk list below
+        // (and the approval card it triggers) is the gate — the owner's own turns go through it.
         const need = approvalReason(call.name, args);
         if (need === undefined) return undefined;
         const { reason, key } = need;

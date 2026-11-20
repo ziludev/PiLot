@@ -92,10 +92,10 @@ test("levelOf: a stored level wins, `.env` is the fallback, everything else is c
   assert.equal(levelOf("oc_env", { ...access, oc_env: "group" }, ["oc_env"]), "group");
 });
 
-// A group has one instruction text, because it has one tool surface: alex asking in his own group
-// and a colleague asking in the same group are told the same thing. What differs is the memory
-// boundary, and that lives in the policy doc, not in the prompt.
-test("a shared group is told it has the owner's tools, and that the old rule is dead", async () => {
+// A group has one instruction text: alex asking in his own group and a colleague asking in the
+// same group are told the same thing. What differs is the memory boundary (policy doc) and the
+// write rule, and the write rule is enforced in the guard, not promised in the prompt.
+test("a shared group is told it can read everything and write nothing, and that the old rule is dead", async () => {
   const { groupInstructions } = await import("../src/feishu.ts");
   const { config } = await import("../src/config.ts");
   const text = groupInstructions();
@@ -103,7 +103,8 @@ test("a shared group is told it has the owner's tools, and that the old rule is 
   assert.match(text, /改文件/);
   assert.match(text, new RegExp(`不要透露 ${config.feishu.ownerName}`), "the memory rule stays");
   assert.match(text, /旧规则已作废/, "the earlier read-only answer has to be superseded explicitly");
-  assert.match(text, /对群里所有人一样/, "no per-person surface any more");
+  assert.match(text, /群里是只读的/, "one text for everyone, and it says reads are open");
+  assert.doesNotMatch(text, /弹审批卡/, "members are refused outright, not queued for a card");
   assert.match(groupInstructions("只回答本群主题"), /只回答本群主题/, "/open keeps its topic rule");
   assert.match(text, /方括号是网关标注的说话人/, "the bracket convention is explained");
 });

@@ -188,9 +188,10 @@ test("the workspace edge is decided by the resolved path, in both directions", (
 
 test("the group instructions describe one tool surface and keep the apology rule", () => {
   const text = groupInstructions();
-  assert.match(text, /工具面对群里所有人一样/);
-  assert.match(text, /read \/ project_search \/ logs_query \/ db_query \/ bash \/ write \/ edit/);
-  assert.match(text, /审批卡/);
+  assert.match(text, /群里是只读的/);
+  assert.match(text, /查代码、查 test\/prod 的日志和库/);
+  assert.match(text, /会被当场拒绝/);
+  assert.match(text, /这一步得/);
   assert.match(text, /群成员/, "the bracket convention still says member, not guest");
   assert.match(text, /旧规则已作废/, "without the auto-correct this paragraph is the only brake");
   assert.doesNotMatch(text, /访客/);
