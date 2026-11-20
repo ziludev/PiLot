@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -52,14 +53,19 @@ func TestTaskRowOpensItsDetail(t *testing.T) {
 	}
 
 	a.openTaskDetail(id)
-	task, err := a.api.Task(t.Context(), id)
-	if err != nil {
-		t.Fatalf("task: %v", err)
+	// Let the dialog's own read land and settle, then hand it the body the stub
+	// was given: the stub answers the detail and the step list, and which of the
+	// two arrives last is not this test's business.
+	tt.Frame()
+	tt.Frame()
+	var task api.TaskDetail
+	if err := json.Unmarshal([]byte(body), &task); err != nil {
+		t.Fatalf("fixture body: %v", err)
 	}
-	a.applyTaskDetail(id, 0, &task, nil)
+	a.applyTaskDetail(id, a.detail.seq, &task, nil)
 	tt.Frame()
 
-	for _, want := range []string{"Follow up on the review thread", "运行中", "输入", "子任务", "扫日志", "停止任务", "关闭"} {
+	for _, want := range []string{"Follow up on the review thread", "运行中", "输入", "步骤", "扫日志", "停止任务", "关闭"} {
 		if !tt.HasText(want) {
 			t.Errorf("the dialog does not say %q; drew %v", want, tt.Texts())
 		}
@@ -204,7 +210,120 @@ func TestAStoppedTaskSaysWhatSurvives(t *testing.T) {
 
 	tt := ui.NewTester(a.View, 1180, 820)
 	tt.Frame()
-	if !tt.HasText(i18n.T("taskStopLeaves")) {
+	// The words, not the key: i18n.T("taskStopLeaves") would pass even if the
+	// table had no such entry, because T falls back to the key it was given.
+	if !tt.HasText("接着说一句就能续") {
 		t.Fatalf("a stopped task did not say what survives; drew %v", tt.Texts())
+	}
+}
+
+// detailWithLog puts a task and its step list into the dialog the way the frame
+// loop does, so these tests can talk about what is drawn.
+func detailWithLog(t *testing.T, a *App, task api.TaskDetail, stages []api.TaskLogStage) {
+	t.Helper()
+	a.openTaskDetail(task.ID)
+	a.applyTaskDetail(task.ID, a.detail.seq, &task, nil)
+	a.applyTaskLog(task.ID, a.detail.seq, stages, nil)
+}
+
+// TestAStageOpensOntoItsSteps: the child list used to say "跑了 · 2 步" and leave
+// the rest to a chat the rail does not even list. A click has to turn that row
+// into the calls it made — which command, and whether it went red.
+func TestAStageOpensOntoItsSteps(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	detailWithLog(t, a, api.TaskDetail{
+		ID: 9, Kind: "pi.generation", ConversationID: 11, Status: "running", Title: "Fix the build",
+		SubAgents: []api.TaskSubAgent{{ID: "s1", Kind: "pi.explore", Title: "扫日志", State: "running", ConversationID: 42}},
+	}, []api.TaskLogStage{{
+		ConversationID: 42,
+		Steps: []api.TaskLogStep{
+			{ID: 1, Kind: "tool", Tool: "bash", Label: "go test ./...", State: "failed"},
+			{ID: 2, Kind: "say", Text: "The build is red in internal/app.", State: "ok"},
+		},
+	}})
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	if tt.HasText("go test ./...") {
+		t.Fatal("the steps were open before anyone asked")
+	}
+	if !tt.HasText("扫日志") {
+		t.Fatalf("the stage row is not drawn; drew %v", tt.Texts())
+	}
+
+	if err := tt.Click("扫日志"); err != nil {
+		t.Fatalf("the stage row was not clickable: %v", err)
+	}
+	tt.Frame()
+	writePNG(t, "/tmp/task-steps.png", tt.Image())
+	for _, want := range []string{"bash", "go test ./...", "✗ 1"} {
+		if !tt.HasText(want) {
+			t.Errorf("the open stage does not show %q; drew %v", want, tt.Texts())
+		}
+	}
+
+	// A second click closes it: one open stage at a time, and none when the user
+	// is done reading.
+	if err := tt.Click("扫日志"); err != nil {
+		t.Fatalf("the open row was not clickable: %v", err)
+	}
+	tt.Frame()
+	if tt.HasText("go test ./...") {
+		t.Fatal("the steps stayed open after a second click")
+	}
+}
+
+// TestATaskWithNoChildrenShowsItsOwnTurn: a pipeline is read through its stages;
+// an ordinary turn is its own stage, and that is where its steps come from.
+func TestATaskWithNoChildrenShowsItsOwnTurn(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	detailWithLog(t, a, api.TaskDetail{
+		ID: 9, Kind: "pi.generation", ConversationID: 11, Status: "terminal", Title: "Why is the sky blue",
+	}, []api.TaskLogStage{{
+		ConversationID: 11,
+		Parent:         true,
+		Steps:          []api.TaskLogStep{{ID: 1, Kind: "tool", Tool: "bash", Label: "go build ./...", State: "ok"}},
+	}})
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	if !tt.HasText(i18n.T("taskDid")) {
+		t.Fatalf("a task with no children did not offer its own steps; drew %v", tt.Texts())
+	}
+	if err := tt.Click(i18n.T("taskDid")); err != nil {
+		t.Fatalf("its own stage was not clickable: %v", err)
+	}
+	tt.Frame()
+	if !tt.HasText("go build ./...") {
+		t.Fatalf("its own steps did not open; drew %v", tt.Texts())
+	}
+}
+
+// TestTheStepListKeepsItsTail: a long stage is cut to what a dialog holds, and it
+// is the end of the run that survives — that is where a run stops or breaks.
+func TestTheStepListKeepsItsTail(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	steps := make([]api.TaskLogStep, 0, 30)
+	for i := 0; i < 30; i++ {
+		steps = append(steps, api.TaskLogStep{ID: i, Kind: "tool", Tool: "bash", Label: "step " + itoa(i), State: "ok"})
+	}
+	detailWithLog(t, a, api.TaskDetail{
+		ID: 9, Kind: "pi.generation", ConversationID: 11, Status: "terminal", Title: "Long one",
+	}, []api.TaskLogStage{{ConversationID: 11, Parent: true, Steps: steps, More: 5}})
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	if err := tt.Click(i18n.T("taskDid")); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("step 29") {
+		t.Fatalf("the tail was cut instead of the head; drew %v", tt.Texts())
+	}
+	if !tt.HasText("还有 15 步") {
+		t.Fatalf("the rows left out were not counted; drew %v", tt.Texts())
 	}
 }

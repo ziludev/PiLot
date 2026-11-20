@@ -35,6 +35,12 @@ type taskDetailPanel struct {
 	// stopping is set between the click and the bridge's answer, so the button
 	// cannot be pressed twice for the same task.
 	stopping bool
+	// log is what the task did, stage by stage: the task's own turn when it
+	// spawned nothing, one stage per child when it did.
+	log []api.TaskLogStage
+	// expanded is the stage whose steps are open, by conversation id; 0 is none.
+	// One at a time — two open stages on a phone-sized dialog is a transcript.
+	expanded int
 }
 
 // openTaskDetail shows the dialog for id and asks the bridge about it.
@@ -52,6 +58,14 @@ func (a *App) loadTaskDetail(id int) {
 		defer cancel()
 		task, err := a.api.Task(ctx, id)
 		a.post(event{kind: evTaskDetail, taskID: id, seq: seq, task: &task, err: err})
+	}()
+	// The steps come from the store, not from the task record, and they are a
+	// transcript's worth of rows: a slow one must not hold up the header.
+	go func() {
+		ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
+		defer cancel()
+		stages, err := a.api.TaskLog(ctx, id)
+		a.post(event{kind: evTaskLog, taskID: id, seq: seq, stages: stages, err: err})
 	}()
 }
 
@@ -71,6 +85,18 @@ func (a *App) applyTaskDetail(id, seq int, task *api.TaskDetail, err error) {
 	a.detail.task = task
 	// The bridge's list rows carry the same fields the dialog does; a task that
 	// finished while the dialog was open says so without a second click.
+	a.invalidate()
+}
+
+// applyTaskLog fills in the step list. A log that fails to arrive is not the
+// dialog's failure: the task's own fields already answered everything it was
+// asked except "what did it do", and a red line for a missing bonus row would
+// read as the task itself being broken.
+func (a *App) applyTaskLog(id, seq int, stages []api.TaskLogStage, err error) {
+	if !a.detail.open || a.detail.seq != seq || a.detail.id != id || err != nil {
+		return
+	}
+	a.detail.log = stages
 	a.invalidate()
 }
 
@@ -138,7 +164,7 @@ func (a *App) taskDetailDialog(c *ui.Context, t theme.Tokens) {
 				a.taskFacts(c, t, task)
 				a.taskInput(c, t, task)
 				a.taskOutcome(c, t, task)
-				a.taskChildren(c, t, task)
+				a.taskStages(c, t, task)
 			}
 			ui.Row(c).FillWidth().Justify(ui.End).Gap(8).Children(func() {
 				if a.canStop() {
@@ -261,22 +287,177 @@ func (a *App) taskOutcome(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
 	})
 }
 
-// taskChildren names the sub-agents a task spawned: a running task's work is in
-// its children, not in its own record.
-func (a *App) taskChildren(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
-	if len(task.SubAgents) == 0 {
+// taskStageRow is one line of the run as the dialog draws it: a child, or the
+// task's own turn when it spawned nothing.
+type taskStageRow struct {
+	conv  int
+	title string
+	state string
+	steps []api.TaskLogStep
+	more  int
+	open  bool
+}
+
+// taskStages reads the run as a timeline. The child list said how far each stage
+// got; these rows say what it did, because "写测试 · 跑了 · 2 步" never told
+// anyone which command went red at 03:40.
+func (a *App) taskStages(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
+	rows := a.stageRows(task)
+	if len(rows) == 0 {
 		return
 	}
 	ui.Column(c).FillWidth().Gap(3).Children(func() {
-		ui.Text(c, i18n.T("taskChildren")).FontSize(10.5).TextColor(t.MutedFg)
-		for _, child := range task.SubAgents {
-			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, taskKindLabel(child.Kind)).FontSize(10.5).
-					TextColor(t.Foreground).MaxLines(1)
-				ui.Text(c, child.Title).FontSize(10.5).TextColor(t.MutedFg).
-					MaxLines(1).Grow(1)
-				ui.Text(c, taskStateText(child.State)).FontSize(9.5).TextColor(t.MutedFg)
+		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, i18n.T("taskSteps")).FontSize(10.5).TextColor(t.MutedFg).Grow(1)
+			if a.anySteps(rows) {
+				ui.Text(c, i18n.T("taskStepsHint")).FontSize(9.5).TextColor(t.MutedFg).MaxLines(1)
+			}
+		})
+		for i := range rows {
+			row := rows[i]
+			clickable := len(row.steps) > 0 && row.conv != 0
+			line := ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).Height(20).Radius(4).Padding(0, 4)
+			if clickable {
+				line = line.Cursor(ui.CursorPointer)
+				if row.open {
+					line = line.Background(t.SidebarAccent)
+				}
+				conv := row.conv
+				line.OnClick(func() {
+					if a.detail.expanded == conv {
+						a.detail.expanded = 0
+					} else {
+						a.detail.expanded = conv
+					}
+					a.invalidate()
+				})
+			}
+			line.Children(func() {
+				glyph := " "
+				if clickable {
+					glyph = "▸"
+					if row.open {
+						glyph = "▾"
+					}
+				}
+				ui.Text(c, glyph).FontSize(9).TextColor(t.MutedFg).Width(8)
+				ui.Text(c, row.title).FontSize(10.5).TextColor(t.Foreground).MaxLines(1).Grow(1)
+				if row.state != "" {
+					ui.Text(c, row.state).FontSize(9.5).TextColor(t.MutedFg).MaxLines(1)
+				}
+				if failures := failedSteps(row.steps); failures > 0 {
+					ui.Text(c, "✗ "+itoa(failures)).FontSize(9.5).TextColor(t.Destructive).MaxLines(1)
+				}
 			})
+			if row.open {
+				a.taskStepList(c, t, row.steps, row.more)
+			}
+		}
+	})
+}
+
+// stageRows is the list a task's dialog draws. A task with children is read
+// through them — that is where a pipeline's work happens. A task without them
+// is its own transcript, which is every ordinary turn.
+func (a *App) stageRows(task *api.TaskDetail) []taskStageRow {
+	if len(task.SubAgents) > 0 {
+		rows := make([]taskStageRow, 0, len(task.SubAgents))
+		for _, child := range task.SubAgents {
+			row := taskStageRow{conv: child.ConversationID, title: child.Title, state: taskStateText(child.State)}
+			if stage := a.stageOf(child.ConversationID); stage != nil {
+				row.steps, row.more = stage.Steps, stage.More
+				if row.title == "" {
+					row.title = stage.Role
+				}
+			}
+			if row.title == "" {
+				row.title = i18n.T("taskKind")
+			}
+			row.open = row.conv != 0 && a.detail.expanded == row.conv
+			rows = append(rows, row)
+		}
+		return rows
+	}
+	for _, stage := range a.detail.log {
+		if !stage.Parent {
+			continue
+		}
+		return []taskStageRow{{
+			conv:  stage.ConversationID,
+			title: i18n.T("taskDid"),
+			state: taskStateText(task.Status),
+			steps: stage.Steps,
+			more:  stage.More,
+			open:  a.detail.expanded == stage.ConversationID,
+		}}
+	}
+	return nil
+}
+
+// stageOf is a conversation's part of the run, once the log has arrived.
+func (a *App) stageOf(conv int) *api.TaskLogStage {
+	for i := range a.detail.log {
+		if a.detail.log[i].ConversationID == conv {
+			return &a.detail.log[i]
+		}
+	}
+	return nil
+}
+
+func (a *App) anySteps(rows []taskStageRow) bool {
+	for _, row := range rows {
+		if len(row.steps) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func failedSteps(steps []api.TaskLogStep) int {
+	n := 0
+	for _, step := range steps {
+		if step.State == "failed" {
+			n++
+		}
+	}
+	return n
+}
+
+// taskStepList is one stage's calls, indented under its row. Twenty is the most
+// a dialog can hold beside everything else; the tail is what survives, because a
+// run ends where the trouble is.
+func (a *App) taskStepList(c *ui.Context, t theme.Tokens, steps []api.TaskLogStep, more int) {
+	const shown = 20
+	kept := steps
+	if len(kept) > shown {
+		more += len(kept) - shown
+		kept = kept[len(kept)-shown:]
+	}
+	ui.Column(c).FillWidth().Gap(2).Padding(0, 0, 0, 18).Children(func() {
+		for _, step := range kept {
+			ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Start).Children(func() {
+				glyph, color := "✓", t.MutedFg
+				switch step.State {
+				case "failed":
+					glyph, color = "✗", t.Destructive
+				case "running":
+					glyph, color = "·", t.Warning
+				}
+				ui.Text(c, glyph).FontSize(9.5).TextColor(color).Width(10)
+				if step.Kind == "say" {
+					ui.Text(c, step.Text).FontSize(10).TextColor(t.MutedFg).MaxLines(2).Grow(1)
+					return
+				}
+				ui.Text(c, step.Tool).Font(monoFont).FontSize(9.5).TextColor(t.Foreground).MaxLines(1)
+				if step.Label != "" {
+					ui.Text(c, step.Label).Font(monoFont).FontSize(9.5).
+						TextColor(t.MutedFg).MaxLines(1).Grow(1)
+				}
+			})
+		}
+		if more > 0 {
+			ui.Text(c, i18n.TF("taskStepMore", map[string]any{"n": more})).
+				FontSize(9.5).TextColor(t.MutedFg)
 		}
 	})
 }
