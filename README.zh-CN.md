@@ -165,8 +165,7 @@
 | `MAGPIE_BASE_URL`、`MAGPIE_API_KEY` | `AGENT_PROVIDER=magpie` 时的本机代理地址与 key |
 | `AGENT_WORKSPACE`、`AGENT_DB` | 工具能碰的目录，和那个 SQLite 文件 |
 | `AGENT_MAX_TURNS` | 一轮多少步工具调用后停住并给出「继续」（240，防跑飞不是预算） |
-| `AGENT_DAILY_BUDGET_USD` | 每天所有对话加起来的美元上限，0 = 不限（这里是 200） |
-| `AGENT_DAILY_BUDGET_USD` | 每日花费上限，`0` 不限 |
+| `AGENT_DAILY_BUDGET_USD` | 每天所有对话加起来的美元上限，`0` 不限（现在是 0） |
 | `AGENT_WORKTREE`、`AGENT_SKILLS_DIRS`、`AGENT_MCP_CONFIG` | worktree 模式、skill 目录、MCP 配置 |
 | `AGENT_HTTP_PORT`、`AGENT_HTTP_HOST`、`AGENT_HTTP_TOKEN` | 客户端与 CLI 用的本机桥；`0` 关闭 |
 | `SLS_LOGSTORE_PREFIX` | `logs_query` 的 logstore 名是 `<prefix>-<env>-stdout` |
@@ -362,7 +361,7 @@ npm run eval -- --json        # 一个 envelope，给脚本读
 
 - Go 客户端这一版只有 rail / transcript / composer / 审批。上一版客户端里的改动、提交、文件、记忆整理面板都还没有搬回来——桥上的接口还在，少的只是按钮
 - 测试覆盖的是纯逻辑 + 契约（记忆去重、审批注册表、diff 采集、远端链接、危险命令判定、文档与配置对齐），不是端到端；`npm test` 和 `npm run eval` 都是秒级
-- 一轮最多 240 步工具调用（`AGENT_MAX_TURNS`）。它是防跑飞的护栏，不是预算：这里的正常活是 100~150 步，跑飞起来是几分钟几百步。钱由 `AGENT_DAILY_BUDGET_USD` 守。到上限不是出错：卡片会写「跑到 N 步上限」并提示回「继续」，transcript 都在，接着说就行。历史上它被当成预算用过两次（40、80 步），两次都截断了正常的活。另外连续 40 步没改任何东西，会有一条提醒挂在工具结果后面（`src/stall.ts`）
+- 一轮最多 240 步工具调用（`AGENT_MAX_TURNS`）。它是防跑飞的护栏，不是预算：这里的正常活是 100~150 步，跑飞起来是几分钟几百步。钱本来由 `AGENT_DAILY_BUDGET_USD` 守，现在是 0（不限）。到上限不是出错：卡片会写「跑到 N 步上限」并提示回「继续」，transcript 都在，接着说就行。历史上它被当成预算用过两次（40、80 步），两次都截断了正常的活。另外连续 40 步没改任何东西，会有一条提醒挂在工具结果后面（`src/stall.ts`）
 - Pi Durable 是 **experimental**，1.x 之间 API 会变；升级前先 `npm run typecheck`。注意 pi-durable 会连带锁死 chord 版本：1.5.1 起 chord v2 成为包根，`Context` 只在 `@earendil-works/chord/context`，从包根 import 会编译失败
 - SQLite 用 `synchronous=NORMAL`：进程崩不丢，掉电可能丢最后一个 commit
 - `bash` 理论上能 `cd` 出工作区；靠 guard hook 兜危险性，不是沙箱
