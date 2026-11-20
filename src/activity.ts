@@ -216,3 +216,224 @@ export function subAgentStagesSince(
     db.close();
   }
 }
+
+/**
+ * The steps one task actually took, stage by stage, read from the store.
+ *
+ * A task's dialog had everything except the work: the brief it was given, the outcome if it
+ * finished, and one line per child saying how far it got. "How far" is not "what happened" — when a
+ * pipeline fails at 03:40 the only way to see which command went red was to open the child's chat
+ * and scroll, and the child's chat is not in the rail.
+ *
+ * Entries carry `byTaskId`, so a task's own turn and each stage's transcript are a query away. Only
+ * the blocks worth drawing are read (a tool call's name and first argument, a reply's text, a
+ * result's verdict); a transcript is mostly model prose and reading all of it to draw forty rows
+ * would make the dialog as slow as the run it describes.
+ */
+export interface TaskLogStep {
+  id: number;
+  /** "tool" for a call, "say" for a reply in words. */
+  kind: "tool" | "say";
+  at: number;
+  tool?: string;
+  /** One line of what the tool was told: the command, the path, the pattern. */
+  label?: string;
+  /** "ok", "failed", or "running" — a call with no result yet is still going. */
+  state: "ok" | "failed" | "running";
+  /** For "say": the reply, cut to a paragraph. */
+  text?: string;
+}
+
+export interface TaskLogStage {
+  conversationId: number;
+  /** True for the task's own turn, the stage that started the others. */
+  parent: boolean;
+  role: string | null;
+  steps: TaskLogStep[];
+  /** Steps left out because the stage was longer than a dialog row count. */
+  more: number;
+}
+
+/** Steps a stage keeps: the tail is where a run ends, which is where the trouble is. */
+const STAGE_STEPS = 40;
+const TOOL_LABEL = 90;
+const SAY_TEXT = 280;
+
+/** Arguments worth putting on a row, in the order they read best. */
+const ARG_KEYS = ["command", "path", "pattern", "query", "url", "file", "id", "task", "name", "model", "text"];
+
+function oneLine(text: string, limit: number): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length <= limit ? flat : `${flat.slice(0, limit)}…`;
+}
+
+/** What a tool call was told, as one line. A row says "bash · go test ./…", not a JSON blob. */
+export function argumentLabel(args: unknown): string {
+  if (typeof args !== "object" || args === null) return typeof args === "string" ? oneLine(args, TOOL_LABEL) : "";
+  const record = args as Record<string, unknown>;
+  for (const key of ARG_KEYS) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim() !== "") return oneLine(value, TOOL_LABEL);
+    if (typeof value === "number") return String(value);
+  }
+  for (const value of Object.values(record)) {
+    if (typeof value === "string" && value.trim() !== "") return oneLine(value, TOOL_LABEL);
+  }
+  return "";
+}
+
+interface Block {
+  type?: string;
+  text?: string;
+  name?: string;
+  id?: string;
+  arguments?: unknown;
+}
+
+/** One row of a transcript, reduced to the part the dialog draws. */
+interface RawRow {
+  id: number;
+  kind: string;
+  at: number;
+  content: Block[];
+  /** On a tool result: the call it answers, and whether it broke. */
+  callId: string | null;
+  isError: boolean;
+}
+
+/**
+ * One conversation's rows for one task, or for every task the conversation has run.
+ *
+ * A stage is a conversation plus the tasks it ran: filtering on the conversation alone would report
+ * every earlier turn of it (the parent chat has years of them), and filtering on the task alone
+ * would cross conversations when ids collide.
+ */
+function transcript(db: DatabaseSync, conversationId: number, taskId: number | "any"): RawRow[] {
+  const where = taskId === "any"
+    ? `json_extract(record, '$.byTaskId') in (select id from tasks where conversation_id = ?)`
+    : `json_extract(record, '$.byTaskId') = ?`;
+  const rows = db
+    .prepare(
+      `select id,
+              json_extract(record, '$.kind') as kind,
+              json_extract(record, '$.model[0].timestamp') as at,
+              json_extract(record, '$.model[0].content') as content,
+              json_extract(record, '$.model[0].toolCallId') as callId,
+              json_extract(record, '$.model[0].isError') as isError
+         from entries
+        where conversation_id = ?
+          and ${where}
+        order by id`,
+    )
+    .all(conversationId, taskId === "any" ? conversationId : taskId) as Array<{
+    id: number;
+    kind?: string;
+    at?: number | null;
+    content?: string | null;
+    callId?: string | null;
+    isError?: number | null;
+  }>;
+  const out: RawRow[] = [];
+  for (const row of rows) {
+    if (row.content === null || row.content === undefined) continue;
+    let content: Block[];
+    try {
+      const parsed: unknown = JSON.parse(row.content);
+      if (!Array.isArray(parsed)) continue;
+      content = parsed as Block[];
+    } catch {
+      continue;
+    }
+    out.push({
+      id: row.id,
+      kind: row.kind ?? "",
+      at: row.at ?? 0,
+      content,
+      callId: row.callId ?? null,
+      isError: row.isError === 1,
+    });
+  }
+  return out;
+}
+
+/** The rows a stage gets: calls paired with their results, replies in words, thinking dropped. */
+export function stepsFromTranscript(rows: RawRow[]): TaskLogStep[] {
+  const steps: TaskLogStep[] = [];
+  const byCall = new Map<string, TaskLogStep>();
+  for (const row of rows) {
+    // A result row carries its verdict on the row, not in a block, and it carries nothing else worth
+    // drawing: the tool already has a step, this just closes it.
+    if (row.kind === "pi.tool-result" && row.callId !== null) {
+      const step = byCall.get(row.callId);
+      if (step !== undefined) step.state = row.isError ? "failed" : "ok";
+      continue;
+    }
+    for (const block of row.content) {
+      if (row.kind === "pi.assistant" && block.type === "toolCall" && typeof block.name === "string") {
+        const step: TaskLogStep = {
+          id: row.id,
+          kind: "tool",
+          at: row.at,
+          tool: block.name,
+          label: argumentLabel(block.arguments),
+          state: "running",
+        };
+        steps.push(step);
+        if (typeof block.id === "string") byCall.set(block.id, step);
+      } else if (row.kind === "pi.assistant" && block.type === "text" && typeof block.text === "string" && block.text.trim() !== "") {
+        steps.push({ id: row.id, kind: "say", at: row.at, state: "ok", text: oneLine(block.text, SAY_TEXT) });
+      }
+    }
+  }
+  return steps;
+}
+
+/** One stage, trimmed to the tail a dialog can hold. */
+function stageSteps(
+  db: DatabaseSync,
+  conversationId: number,
+  taskId: number | "any",
+): { steps: TaskLogStep[]; more: number } {
+  const steps = stepsFromTranscript(transcript(db, conversationId, taskId));
+  if (steps.length <= STAGE_STEPS) return { steps, more: 0 };
+  return { steps: steps.slice(-STAGE_STEPS), more: steps.length - STAGE_STEPS };
+}
+
+/**
+ * Every stage of a task's run: what each child did, or — for a task with no children, which is every
+ * ordinary turn — what the task itself did.
+ *
+ * The parent stage is left out once children exist: a pipeline's own record is the one tool call
+ * that started it, and the dialog already shows that as the task's input. The children are where
+ * the work is.
+ */
+export function taskLog(dbPath: string, taskId: number, conversationId: number | null): TaskLogStage[] {
+  let db: DatabaseSync;
+  try {
+    db = new DatabaseSync(dbPath, { readOnly: true });
+  } catch {
+    return [];
+  }
+  try {
+    const stages: TaskLogStage[] = [];
+    const children = db
+      .prepare(`select id from conversations where owner_task_id = ? order by id`)
+      .all(taskId) as Array<{ id: number }>;
+    for (const child of children) {
+      const { steps, more } = stageSteps(db, child.id, "any");
+      if (steps.length === 0) continue;
+      stages.push({ conversationId: child.id, parent: false, role: systemRole(db, child.id), steps, more });
+    }
+    if (stages.length === 0 && conversationId !== null) {
+      const { steps, more } = stageSteps(db, conversationId, taskId);
+      if (steps.length > 0) {
+        stages.push({ conversationId, parent: true, role: null, steps, more });
+      }
+    }
+    return stages;
+  } catch {
+    return [];
+  } finally {
+    db.close();
+  }
+}
