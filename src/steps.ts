@@ -9,7 +9,7 @@
 
 import type { LiveSnapshot } from "./live.ts";
 
-export type Round = { label: string; ms: number; tail?: string };
+export type Round = { label: string; ms: number; tail?: string; hint?: string };
 
 export type Trail = {
   /** Rounds that ended, oldest first. */
@@ -18,6 +18,8 @@ export type Trail = {
   key?: string;
   /** What that round is called on the card. */
   label?: string;
+  /** The running round's first argument line ("git log --oneline -3"), the only way two `bash` differ. */
+  hint?: string;
   since: number;
   /** Last activity line seen in this round; the only thing a hanging round says. */
   tail?: string;
@@ -42,13 +44,23 @@ function labelOf(live: LiveSnapshot): string {
 }
 
 /** Folds one snapshot into the trail: a changed identity ends the previous round. */
-export function advance(trail: Trail, live: LiveSnapshot, now: number): Trail {
+export function advance(trail: Trail, live: LiveSnapshot, now: number, hint?: string): Trail {
   const key = identity(live);
   const next: Trail = { ...trail, key, label: labelOf(live), turn: live.turns ?? trail.turn };
+  if (hint !== undefined && hint.length > 0) next.hint = hint;
+  else delete next.hint;
   if (key !== trail.key) {
     const finished = trail.key !== undefined && trail.key.length > 0 && trail.label !== undefined;
     if (finished) {
-      next.rounds = [...trail.rounds, { label: trail.label ?? "", ms: now - trail.since, ...(trail.tail === undefined ? {} : { tail: trail.tail }) }];
+      next.rounds = [
+        ...trail.rounds,
+        {
+          label: trail.label ?? "",
+          ms: now - trail.since,
+          ...(trail.tail === undefined ? {} : { tail: trail.tail }),
+          ...(trail.hint === undefined ? {} : { hint: trail.hint }),
+        },
+      ];
       if (next.rounds.length > MAX_ROUNDS) next.rounds = next.rounds.slice(next.rounds.length - MAX_ROUNDS);
     }
     next.since = now;
@@ -104,9 +116,49 @@ const TOOL_ICONS: Record<string, string> = {
   open_project: "📂",
 };
 
-export function toolIcon(name: string): string {
+/**
+ * What a shell command actually was, when the tool name says nothing.
+ *
+ * `bash` is not one thing: it is the web (curl), the repo (git), the tests (go test), the database
+ * (psql), a file (cat). On this agent nearly every call is `bash`, so an icon that only looked at
+ * the tool name put a keyboard on every line and the emoji explained nothing.
+ */
+function commandIcon(command: string): string | undefined {
+  // Leading `cd … &&` is bookkeeping; the verb that follows is the thing being done.
+  let head = command.trim();
+  for (let i = 0; i < 3; i += 1) head = head.replace(/^cd\s+[^&;|]+(&&|;)\s*/, "");
+  const verb = head.split(/[\s|;&<>]+/)[0]?.toLowerCase() ?? "";
+  if (verb === "") return undefined;
+  const table: Record<string, string> = {
+    curl: "🌐", wget: "🌐", http: "🌐", https: "🌐", ping: "🌐",
+    git: "🌿",
+    go: "🧪", npm: "🧪", pnpm: "🧪", yarn: "🧪", cargo: "🧪", make: "🧪", pytest: "🧪", vitest: "🧪", jest: "🧪",
+    npx: "🧪", tsc: "🧪", bun: "🧪",
+    psql: "🗄️", mysql: "🗄️", sqlite3: "🗄️", "redis-cli": "🗄️",
+    grep: "🔍", rg: "🔍", ag: "🔍", awk: "🔍", jq: "🔍",
+    cat: "📄", head: "📄", tail: "📄", sed: "📄", ls: "📄", wc: "📄", less: "📄",
+    find: "📂", tree: "📂", open: "📂",
+    lark: "💬", feishu: "💬",
+    docker: "📦", kubectl: "📦",
+    python: "🐍", python3: "🐍", node: "🟩",
+  };
+  // `npm test`, `go build`: the sub-verb is what the icon should say.
+  const rest = head.split(/\s+/).slice(1);
+  for (const word of rest.slice(0, 3)) {
+    const icon = table[word.toLowerCase()];
+    if (icon !== undefined && word.startsWith("-") === false) return icon;
+  }
+  return table[verb];
+}
+
+export function toolIcon(name: string, hint?: string): string {
   const key = name.toLowerCase();
   const icon = TOOL_ICONS[key];
+  // The shell's category is in its command, not in its name.
+  if ((key === "bash" || key === "shell" || key === "exec") && hint !== undefined) {
+    const fromCommand = commandIcon(hint);
+    if (fromCommand !== undefined) return fromCommand;
+  }
   if (icon !== undefined) return icon;
   // The owner's tools speak Feishu and talk to MCP servers: chat, whatever the integration.
   if (key.startsWith("feishu_") || key.startsWith("lark_") || key.startsWith("mcp_")) return "💬";
@@ -114,12 +166,24 @@ export function toolIcon(name: string): string {
 }
 
 /** `bash · read` → `⌨️ bash · 📄 read`: the same names, with a category in front of each. */
-export function withIcons(label: string): string {
+export function withIcons(label: string, hint?: string): string {
   return label
     .split(" · ")
     .filter((name) => name.length > 0)
-    .map((name) => `${toolIcon(name)} ${name}`)
+    .map((name) => `${toolIcon(name, hint)} ${name}`)
     .join(" · ");
+}
+
+/**
+ * The argument line as the card prints it: one line, clipped, no backticks to break the span.
+ *
+ * Cut from the back, not the front: a command's verb is its first word, and `…commit -m "docs: …"`
+ * says less than `git commit -m "docs: …"`. Output tails keep their end; arguments keep their start.
+ */
+export function hintLine(hint: string | undefined, limit = 46): string {
+  const flat = (hint ?? "").replace(/\s+/g, " ").replace(/`/g, "'").trim();
+  if (flat.length === 0) return "";
+  return flat.length > limit ? `${flat.slice(0, limit - 1).trimEnd()}…` : flat;
 }
 
 function seconds(ms: number): string {
@@ -135,12 +199,19 @@ export function renderSteps(trail: Trail, now: number, options: { limit?: number
   const hidden = Math.max(0, trail.rounds.length - limit);
   if (hidden > 0) lines.push(`⋯ 前面还有 ${hidden} 步`);
   for (const round of trail.rounds.slice(hidden)) {
-    lines.push(`✓ ${withIcons(round.label)} · ${seconds(round.ms)}${round.tail === undefined ? "" : ` · ${round.tail}`}`);
+    lines.push(`✓ ${stepLine(round.label, round.hint, seconds(round.ms), round.tail)}`);
   }
   if (trail.key !== undefined && trail.key.length > 0 && (trail.label ?? "").length > 0) {
-    lines.push(`▸ ${withIcons(trail.label ?? "")} · ${seconds(now - trail.since)}`);
+    lines.push(`▸ ${stepLine(trail.label ?? "", trail.hint, seconds(now - trail.since))}`);
   }
   return lines.join("\n");
+}
+
+/** `🌿 bash \`git log --oneline -3\` · 2s`: the name, what it ran, how long, and the last thing it said. */
+function stepLine(label: string, hint: string | undefined, elapsed: string, tail?: string): string {
+  const what = hintLine(hint);
+  const head = `${withIcons(label, hint)}${what.length === 0 ? "" : ` \`${what}\``}`;
+  return `${head} · ${elapsed}${tail === undefined ? "" : ` · ${tail}`}`;
 }
 
 /** How many steps to report: rounds that ended, and whether one is running. */
