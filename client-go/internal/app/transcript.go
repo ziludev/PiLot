@@ -230,26 +230,128 @@ func (a *App) stepsRow(c *ui.Context, t theme.Tokens, row threadRow) {
 	if !open {
 		return
 	}
+	groups := groupSteps(row.steps)
 	ui.Column(c).FillWidth().Padding(0, 0, 2, 18).Gap(3).Children(func() {
-		for _, step := range row.steps {
+		// Four calls read at a glance and a table of contents for them is noise.
+		// Past that the run opens on what it used, because `bash ×16` says more
+		// than the sixteen calls under it do — and the last tool keeps its calls
+		// unfolded, since it is the one that just answered the question.
+		if len(row.steps) <= stepGroupThreshold {
+			a.stepLines(c, t, row.steps)
+			return
+		}
+		for i, group := range groups {
+			gkey := key + "/" + group.label
+			unfolded, seen := a.vm.groups[gkey]
+			if !seen {
+				unfolded = i == len(groups)-1
+			}
+			label := stepGroupLabel(group)
+			head := ui.ButtonBase(c).FillWidth().Height(22).Radius(5).Padding(0, 4).
+				Cursor(ui.CursorPointer).Gap(4).AlignItems(ui.Center).Label(label)
+			head.Children(func() {
+				if unfolded {
+					ui.Icon(c, icons.ChevronDown).Size(10, 10).TextColor(t.MutedFg)
+				} else {
+					ui.Icon(c, icons.ChevronRight).Size(10, 10).TextColor(t.MutedFg)
+				}
+				ui.Text(c, label).FontSize(10.5).FontWeight(500).TextColor(t.MutedFg).MaxLines(1)
+			})
+			head.OnClick(func() {
+				a.vm.groups[gkey] = !unfolded
+				a.invalidate()
+			})
+			if unfolded {
+				a.stepLines(c, t, group.steps)
+			}
+		}
+	})
+}
+
+// stepGroupThreshold is how many calls a run can have before they are listed by
+// tool instead of one per line.
+const stepGroupThreshold = 4
+
+// stepGroup is one tool's calls within a run. A turn runs bash a dozen times to
+// answer a question that bash itself is not the answer to, so the count is kept
+// and the calls are put behind it.
+type stepGroup struct {
+	label string
+	steps []step
+}
+
+// groupSteps folds a run's steps by tool name, in the order each tool first
+// appeared: the reader's question is "what did it touch", and that reads better
+// as a list of tools than as a list of calls.
+func groupSteps(steps []step) []stepGroup {
+	groups := make([]stepGroup, 0, len(steps))
+	at := map[string]int{}
+	for _, s := range steps {
+		if i, ok := at[s.label]; ok {
+			groups[i].steps = append(groups[i].steps, s)
+			continue
+		}
+		at[s.label] = len(groups)
+		groups = append(groups, stepGroup{label: s.label, steps: []step{s}})
+	}
+	return groups
+}
+
+// stepGroupLabel is the tool and how many times it ran: the count is what the
+// group is for.
+func stepGroupLabel(g stepGroup) string {
+	return g.label + " ×" + itoa(len(g.steps))
+}
+
+// stepLines draws each call, and under it what came back.
+func (a *App) stepLines(c *ui.Context, t theme.Tokens, steps []step) {
+	ui.Column(c).FillWidth().Gap(3).Children(func() {
+		for _, step := range steps {
 			ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Start).Children(func() {
 				ui.Text(c, step.label).FontSize(10.5).FontWeight(500).
 					TextColor(t.MutedFg).MaxLines(1).MaxWidth(160)
 				ui.Text(c, step.body).Grow(1).FontSize(10.5).
 					TextColor(t.MutedFg).MaxLines(2)
 			})
-			// The result, as the thing it is: a diff, a log, a stack trace,
-			// a document. This is what was being asked for when the fold was
-			// opened, so it is not summarized again here.
-			if step.out != "" {
-				ui.Column(c).FillWidth().Gap(1).Padding(5, 7).Radius(5).
-					Background(t.Muted).Children(func() {
-					for _, line := range outputLines(step.out, maxOutputLines) {
-						ui.Text(c, line.text).Font("SF Mono, Menlo, monospace").
-							FontSize(10).TextColor(outputColor(t, line.kind)).MaxLines(2)
-					}
-				})
-			}
+			a.stepOutput(c, t, step)
+		}
+	})
+}
+
+// stepOutput is what the tool gave back, as the thing it is: a diff, a log, a
+// stack trace, a document. This is what was being asked for when the fold was
+// opened, so it is not summarized again here.
+//
+// It carries its own copy button: the stack or the JSON a reader wants is one
+// paragraph of a whole message, and the message's copy takes all of it with the
+// answer attached.
+func (a *App) stepOutput(c *ui.Context, t theme.Tokens, step step) {
+	if step.out == "" {
+		return
+	}
+	box := ui.Column(c).FillWidth().Gap(1).Padding(5, 7).Radius(5).Background(t.Muted)
+	hovered := box.Hovered()
+	box.Children(func() {
+		// Held at the corner rather than in the flow: a copy button that takes a
+		// line of its own would be bigger than most outputs here.
+		copyBtn := ui.ButtonBase(c).Absolute().Top(3).Right(4).Width(18).Height(18).
+			Radius(4).Cursor(ui.CursorPointer).Tooltip(i18n.T("copy")).
+			Label(i18n.T("copy") + " " + step.label)
+		if hovered {
+			copyBtn = copyBtn.Opacity(1)
+		} else {
+			copyBtn = copyBtn.Opacity(0.4)
+		}
+		copyBtn.OnClick(func() { a.copyText(c, step.out) })
+		copyBtn.Children(func() {
+			ui.Icon(c, icons.Copy).Size(10.5, 10.5).TextColor(t.MutedFg)
+		})
+		// The right padding is the button's column, so a long line ends before
+		// the icon rather than under it.
+		for _, line := range outputLines(step.out, maxOutputLines) {
+			ui.Text(c, line.text).Font("SF Mono, Menlo, monospace").
+				FontSize(10).TextColor(outputColor(t, line.kind)).MaxLines(2).
+				Padding(0, 22, 0, 0)
 		}
 	})
 }
