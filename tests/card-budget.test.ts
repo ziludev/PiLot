@@ -1,0 +1,84 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { card, CARD_BUDGET_BYTES, CARD_PANEL_STEPS, chunkMarkdown, MAX_MARKDOWN_CHARS } from "../src/feishu.ts";
+import type { TurnDetails } from "../src/feishu.ts";
+
+const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value), "utf8");
+
+function steps(count: number): TurnDetails["steps"] {
+  return Array.from({ length: count }, (_, index) => ({
+    name: "bash",
+    hint: `git status --short --branch 第 ${index} 次`,
+    ok: index % 3 !== 0,
+    preview: "输出行 ".repeat(120),
+    seconds: 1,
+  }));
+}
+
+function details(count: number): Omit<TurnDetails, "at"> {
+  return { steps: steps(count), seconds: 42, costUsd: 0.01, decisions: [] };
+}
+
+test("a paragraph longer than one markdown element is cut, not truncated by the client", () => {
+  const paragraph = Array.from({ length: 400 }, (_, index) => `第 ${index} 行，说一件小事。`).join("\n");
+  const pieces = chunkMarkdown(paragraph);
+  assert.ok(pieces.length > 1);
+  for (const piece of pieces) assert.ok(piece.length <= MAX_MARKDOWN_CHARS, `piece ${piece.length}`);
+  // Nothing is lost and no line is broken in half: the pieces join back into the original.
+  assert.equal(pieces.join("\n"), paragraph);
+});
+
+test("a cut inside a code fence closes it and reopens it, so the rest stays code", () => {
+  const body = Array.from({ length: 300 }, (_, index) => `const line${index} = ${index};`);
+  const fence = ["```ts", ...body, "```"].join("\n");
+  const pieces = chunkMarkdown(fence);
+  assert.ok(pieces.length > 1);
+  // Every piece but the last is closed, and every piece but the first is reopened.
+  for (const piece of pieces.slice(0, -1)) assert.match(piece, /\n```$/);
+  for (const piece of pieces.slice(1)) assert.match(piece, /^```ts\n/);
+  const kept = pieces.join("\n").split("\n").filter((line) => line !== "```ts" && line !== "```");
+  assert.deepEqual(kept, body);
+});
+
+test("one line too long to cut anywhere is cut mid-line", () => {
+  const line = "x".repeat(7_000);
+  const pieces = chunkMarkdown(line);
+  assert.ok(pieces.length >= 3);
+  for (const piece of pieces) assert.ok(piece.length <= MAX_MARKDOWN_CHARS);
+  assert.equal(pieces.join(""), line);
+});
+
+test("a short answer stays one element", () => {
+  assert.deepEqual(chunkMarkdown("三行\n就够了\n真的"), ["三行\n就够了\n真的"]);
+});
+
+test("a card with a huge step panel still fits under the limit and keeps the answer", () => {
+  const answer = "结论在这里。".repeat(300);
+  const built = card(answer, "1m12s · 0.01 美元", undefined, undefined, details(200));
+  assert.ok(bytes(built) <= CARD_BUDGET_BYTES, `card was ${bytes(built)} bytes`);
+  const flat = JSON.stringify(built);
+  assert.ok(flat.includes(answer.slice(0, 60)), "the answer survives when the panel is what gets cut");
+});
+
+test("a card too big even without its panel arrives shorter instead of not at all", () => {
+  // 9000 CJK characters are 27KB of JSON before a single element wrapper is added.
+  const answer = "很长的回答。".repeat(2_000);
+  assert.ok(Buffer.byteLength(answer, "utf8") > CARD_BUDGET_BYTES);
+  const built = card(answer);
+  assert.ok(bytes(built) <= CARD_BUDGET_BYTES, `card was ${bytes(built)} bytes`);
+  assert.match(JSON.stringify(built), /截掉了/);
+});
+
+test("a shortened panel keeps the newest steps and drops the output", () => {
+  const built = JSON.stringify(card("结论。", undefined, undefined, undefined, details(60)));
+  assert.ok(built.includes("第 5 次"));
+  assert.equal((built.match(/输出行/g) ?? []).length, 0);
+  assert.ok(CARD_PANEL_STEPS > 0);
+});
+
+test("the chat list shows the header, or the first line of the answer", () => {
+  const withHeader = card("正文", undefined, undefined, { template: "green", title: "✅ 目标达成" });
+  assert.deepEqual((withHeader.config as Record<string, unknown>).summary, { content: "✅ 目标达成" });
+  const bare = card("## 先说结论\n\n然后是细节。");
+  assert.deepEqual((bare.config as Record<string, unknown>).summary, { content: "先说结论" });
+});
