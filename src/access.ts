@@ -10,11 +10,11 @@ import { record } from "./audit.ts";
  *
  * - `closed` — nobody; a chat the bot was added to, or a person it has never met.
  * - `owner`  — only the owner. A chat listed in `.env`, and the owner's own DM.
- * - `group`  — everyone in it, with the guest tool surface and the group's own memory.
+ * - `group`  — everyone in it, with the same tool surface as the owner and the group's own memory.
  *
- * Gate, guest policy, tool surface and `/allow` all read this one value. Before, three docs
- * (`.env` chat list, `app.allowed-chats`, `app.guest-chats`) and a derived rule answered the
- * same question, and which one won depended on where you looked.
+ * Gate, isolation and `/allow` all read this one value. Before, three docs (`.env` chat list,
+ * `app.allowed-chats`, `app.guest-chats`) and a derived rule answered the same question, and
+ * which one won depended on where you looked.
  */
 export type ChatLevel = "closed" | "owner" | "group";
 
@@ -33,16 +33,12 @@ export function levelOf(chatId: string, access: Record<string, ChatLevel>, envCh
   return envChatIds.includes(chatId) ? "owner" : "closed";
 }
 
-export function isGuestLevel(level: ChatLevel): boolean {
-  return level === "group";
-}
-
 /**
- * What a guest may read: the agent's own workspace, plus the repository this conversation is
+ * What a tool may read: the agent's own workspace, plus the repository this conversation is
  * about. Without the project root a question like "why does this check fail" could not read the
- * code it asks about — the chats bound to ~/work/example-service were unreadable for guests.
+ * code it asks about — the chats bound to ~/work/example-service were unreadable.
  *
- * Shared by the guard hook and the read-only tools, so "where am I allowed to look" has one answer.
+ * One answer for "where am I allowed to look", used by `project_search`.
  */
 export async function readRoots(
   read: DocumentReader,
@@ -56,24 +52,6 @@ export async function readRoots(
   const projects = (await read.snapshot(ProjectsDoc, context).catch(() => undefined))?.projects ?? [];
   const project = projects.find((candidate) => candidate.id === projectId);
   if (project !== undefined) roots.push(project.path);
-  return roots;
-}
-
-/**
- * Roots a guest may read. A group member asking about Flicker cannot be expected to know which
- * repo the chat happens to be linked to, so every project alex registered is in scope; the
- * secrets list still applies inside each of them.
- */
-export async function guestRoots(
-  read: DocumentReader,
-  conversationId: number,
-  context: Context,
-): Promise<string[]> {
-  const roots = await readRoots(read, conversationId, context);
-  const projects = (await read.snapshot(ProjectsDoc, context).catch(() => undefined))?.projects ?? [];
-  for (const project of projects) {
-    if (!roots.includes(project.path)) roots.push(project.path);
-  }
   return roots;
 }
 
@@ -130,7 +108,7 @@ export async function adoptChatLevels(
     changed.push(chatId);
   };
 
-  // `/allow` and `/open` both opened a group before; both were guest by the end.
+  // `/allow` and `/open` both opened a group before; the two legacy lists end up as groups.
   const legacyGuests = (await harness.snapshot(LegacyGuestChats, context).catch(() => undefined))?.ids ?? [];
   const legacyAllowed = (await harness.snapshot(LegacyAllowedChats, context).catch(() => undefined))?.extra ?? [];
   for (const chatId of [...legacyGuests, ...legacyAllowed]) adopt(chatId, "group", groups);
@@ -153,37 +131,66 @@ export async function adoptChatLevels(
   return next;
 }
 
-/** Per-conversation policy: guest conversations never see the owner's memory. */
-export const ChatPolicy = defineDoc<{ guest: boolean; topic?: string; turn?: "owner" | "guest" }>({
+/**
+ * Per-conversation policy.
+ *
+ * `isolated` means this conversation runs on its own chat memory: nothing it learns is written
+ * to the shared memories the owner's chats read. It is a memory boundary, not a permission —
+ * a group member gets the same tools as the owner.
+ *
+ * `guest` is the same flag under its old name, read for docs written before the rename;
+ * `isIsolatedPolicy` is the only place that looks at it, and nothing writes it any more.
+ * `turn` used to be `"guest"`; only `"owner"` is ever matched, so an old value reads as a
+ * member turn without a migration.
+ */
+export const ChatPolicy = defineDoc<{
+  isolated?: boolean;
+  /** Legacy spelling of `isolated`; read-only. */
+  guest?: boolean;
+  topic?: string;
+  turn?: "owner" | "member";
+}>({
   kind: "app.chat-policy",
   version: 1,
   scope: "conversation",
   history: "latest",
   fork: "current",
-  initial: () => ({ guest: false }),
+  initial: () => ({ isolated: false }),
   checkpointWhen: () => false,
 });
 
-export async function setGuestPolicy(
+/**
+ * The one compatibility read: new docs say `isolated`, docs written before the rename say
+ * `guest`. A predicate, so callers that also read `policy.turn` get a non-undefined value.
+ */
+export function isIsolatedPolicy<T extends { isolated?: boolean; guest?: boolean }>(
+  policy: T | undefined,
+): policy is T {
+  return policy !== undefined && (policy.isolated === true || policy.guest === true);
+}
+
+export async function setIsolatedPolicy(
   harness: Harness,
   context: Context,
   conversationId: number,
 ): Promise<void> {
   await harness.commit(async (tx) => {
     const doc = await tx.doc(ChatPolicy, conversationId as never);
-    doc.guest = true;
+    doc.isolated = true;
+    // Drop the old spelling on write: one flag, one name, and a migrated doc reads the same.
+    delete doc.guest;
   }, context);
 }
 
 /**
- * Marks whose turn the conversation is about to run, so the guard hook can decide the tool
- * surface without trusting a prompt. Absent means guest: a resumed turn defaults to the safe side.
+ * Marks whose turn the conversation is about to run. The tool surface no longer depends on it —
+ * the audit trail and the memory rule still do. Absent reads as a member turn.
  */
 export async function setChatTurn(
   harness: Harness,
   context: Context,
   conversationId: number,
-  turn: "owner" | "guest",
+  turn: "owner" | "member",
 ): Promise<void> {
   await harness.commit(async (tx) => {
     const doc = await tx.doc(ChatPolicy, conversationId as never);

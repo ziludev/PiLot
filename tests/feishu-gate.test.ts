@@ -6,9 +6,9 @@ import { mentionsUs, rejectionReason, threadDigest, type Gate } from "../src/fei
 
 /**
  * One level per chat decides who gets an answer: `closed` answers nobody, `owner` answers only
- * the owner, `group` answers everyone (as a guest unless it is the owner). Before, the same
- * question was answered by two allowlists and a derived rule, and the first version let an
- * authorized group card every member separately.
+ * the owner, `group` answers everyone with the owner's tools. Before, the same question was
+ * answered by two allowlists and a derived rule, and the first version let an authorized group
+ * card every member separately.
  */
 const policy: Gate = { mentionsOnly: true };
 
@@ -46,7 +46,7 @@ test("an opened group answers every member, no per-person authorization", () => 
   assert.equal(rejectionReason(event("oc_group", "ou_colleague"), parsed, "group", false, policy), undefined);
 });
 
-test("a guest group still requires the @", () => {
+test("a shared group still requires the @", () => {
   const without = event("oc_group", "ou_colleague", { chatType: "group" });
   assert.equal(rejectionReason(without, parsed, "group", false, policy), "group-message-without-mention");
 });
@@ -92,30 +92,24 @@ test("levelOf: a stored level wins, `.env` is the fallback, everything else is c
   assert.equal(levelOf("oc_env", { ...access, oc_env: "group" }, ["oc_env"]), "group");
 });
 
-// alex asking in his own group is still the owner: /allow opened the group to other people, it did
-// not demote him. Memory stays off for the conversation either way.
-test("a shared group tells alex he may change files, and a guest that he may not", async () => {
+// A group has one instruction text, because it has one tool surface: alex asking in his own group
+// and a colleague asking in the same group are told the same thing. What differs is the memory
+// boundary, and that lives in the policy doc, not in the prompt.
+test("a shared group is told it has the owner's tools, and that the old rule is dead", async () => {
   const { groupInstructions } = await import("../src/feishu.ts");
   const { config } = await import("../src/config.ts");
-  const owner = groupInstructions("owner");
-  const guest = groupInstructions("guest");
+  const text = groupInstructions();
 
-  assert.match(owner, /改文件/);
-  assert.doesNotMatch(owner, /只读（read/);
-  assert.match(owner, /旧规则已作废/, "the earlier read-only answer has to be superseded explicitly");
-  assert.match(guest, /只读/);
-  assert.doesNotMatch(guest, /按他说的改文件/);
-  assert.doesNotMatch(guest, /旧规则已作废/);
-  for (const text of [owner, guest]) {
-    assert.match(text, new RegExp(`不要透露 ${config.feishu.ownerName}`), "memory rule is the same for both");
-  }
-  assert.match(groupInstructions("guest", "只回答本群主题"), /只回答本群主题/, "/open keeps its topic rule");
-  assert.match(groupInstructions("owner"), /方括号是网关标注的说话人/, "the bracket convention is explained");
+  assert.match(text, /改文件/);
+  assert.match(text, new RegExp(`不要透露 ${config.feishu.ownerName}`), "the memory rule stays");
+  assert.match(text, /旧规则已作废/, "the earlier read-only answer has to be superseded explicitly");
+  assert.match(text, /对群里所有人一样/, "no per-person surface any more");
+  assert.match(groupInstructions("只回答本群主题"), /只回答本群主题/, "/open keeps its topic rule");
+  assert.match(text, /方括号是网关标注的说话人/, "the bracket convention is explained");
 });
 
 // The model does not trust an identity claim in the instructions; it reads the speaker on the
-// message. Verified against the real model: a guest turn refused and left the file alone, then
-// an owner turn in the same conversation changed it.
+// message — which now only feeds the audit trail, since the tools no longer depend on it.
 test("each group message carries who is speaking", async () => {
   const { speakerTag } = await import("../src/feishu.ts");
   const owner = "ou_0123456789abcdef0123456789abcdef";
@@ -126,29 +120,6 @@ test("each group message carries who is speaking", async () => {
   assert.match(speakerTag(false, "ou_9abc1a2b3c4d"), /^\[群成员 ou_9abc1\]/);
   assert.match(speakerTag(false, "ou_9abc1a2b3c4d", ""), /^\[群成员 ou_9abc1\]/);
   assert.doesNotMatch(speakerTag(false, "ou_9abc1a2b3c4d", "张三"), /本人|ou_9abc1/);
-});
-
-// What the model actually said in the group, and what must not be mistaken for a refusal.
-test("a read-only refusal is recognised, a normal answer is not", async () => {
-  const { looksLikeReadOnlyRefusal } = await import("../src/feishu.ts");
-  const refusals = [
-    "这轮我在这个共享群里是只读的（不改工作区文件、不推分支），所以没法直接写进去。",
-    "这个群在会话初始化时就把写权限关闭了，并非我不愿意执行；即便你本人要求，我这轮也只能只读。",
-    "还是不能改：这个群会话被设成只读，我不能改文件，即使是你本人在这里发也一样。",
-    "当前这个群会话的权限被固定为只读，写文件会被拦截，我没法绕过。",
-    "bash 在这个群仍然被拦着，因为群是 guest 模式，我无法执行命令。",
-    "你可以这样做：把下面这段粘贴到终端运行。",
-  ];
-  for (const text of refusals) assert.equal(looksLikeReadOnlyRefusal(text), true, text.slice(0, 30));
-
-  const answers = [
-    "改好了：a.txt 里的 foo 已经换成 bar。",
-    "已经改完并提交：commit 4f2a1c，MR 链接贴在下面。",
-    "worker 日志不再报 missing required param businessId，重提一次后 user_license_verify 变成 VERIFIED。",
-    // A real approval card is not a false refusal: the tool really is waiting for a human.
-    "rm -rf 这条被拦下来等你确认了，允许后我继续。",
-  ];
-  for (const text of answers) assert.equal(looksLikeReadOnlyRefusal(text), false, text.slice(0, 30));
 });
 
 // Threading rule, which has flip-flopped: an @ in a group is one person's question, so

@@ -1,7 +1,7 @@
 import type { Harness } from "@earendil-works/pi-durable";
 import type { Context } from "@earendil-works/chord/context";
 import { ChatMemory, GlobalMemory, MemoryTombstones, WorkMemory, type Note } from "./memory.ts";
-import { ChatPolicy } from "./access.ts";
+import { ChatPolicy, isIsolatedPolicy } from "./access.ts";
 import { log, logError } from "./log.ts";
 import { isDuplicate } from "./similar.ts";
 import { config } from "./config.ts";
@@ -59,7 +59,7 @@ function textOfEntry(model: unknown): string {
   return parts.join("\n");
 }
 
-/** Recent conversations as plain text, skipping guest chats (no shared memory there). */
+/** Recent conversations as plain text, skipping isolated chats (no shared memory there). */
 async function digests(harness: Harness, context: Context, hours: number) {
   const since = Date.now() - hours * 3600_000;
   const blocks: string[] = [];
@@ -73,7 +73,7 @@ async function digests(harness: Harness, context: Context, hours: number) {
   for (const id of conversations) {
     if (scanned >= MAX_CONVERSATIONS) break;
     const policy = await harness.snapshot(ChatPolicy, id as never, context).catch(() => undefined);
-    if (policy?.guest === true) continue;
+    if (isIsolatedPolicy(policy)) continue;
     const conversation = await harness.conversation(id as never, context);
     if (conversation === undefined) continue;
     const page = await conversation.entries({ order: "descending" }, MAX_ENTRIES, undefined, context).catch(() => undefined);
