@@ -235,6 +235,31 @@ export async function ownerChatId(harness: Harness, context: Context): Promise<s
   return cachedOwnerChat;
 }
 
+/**
+ * Where a finished background task reports.
+ *
+ * The work was asked for in a chat, but the report is not chat material: it names branches, file
+ * paths and what the reviewer found, and a group timeline is the wrong shelf for it — the owner
+ * said so after one 「🧩 需求做完了」 landed in the middle of a conversation. A chat id that is not
+ * the owner's own DM is therefore redirected to their DM. Anything that is not a Feishu chat at
+ * all (the desktop client, the CLI) keeps its own surface: those notifiers know where to draw.
+ */
+export function pickReportSurface(origin: string, ownerChat: string | undefined): string {
+  if (!origin.startsWith("oc_")) return origin;
+  if (ownerChat === undefined || ownerChat.length === 0) return origin;
+  return ownerChat;
+}
+
+export async function reportSurface(
+  reader: DocumentReader,
+  context: Context,
+  origin: string,
+): Promise<string> {
+  // A background task holds the document reader, not the harness: same doc, no cache to warm.
+  const owner = await reader.snapshot(OwnerChat, context).catch(() => undefined);
+  return pickReportSurface(origin, owner?.chatId);
+}
+
 export async function rememberOwnerChat(harness: Harness, context: Context, chatId: string): Promise<void> {
   if (cachedOwnerChat === chatId) return;
   cachedOwnerChat = chatId;

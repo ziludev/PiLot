@@ -23,6 +23,7 @@ import type { Context } from "@earendil-works/chord/context";
 import { obj, opt, str } from "@earendil-works/pi-schema";
 import { answerTextInTx } from "./answer.ts";
 import { notify, surfaceForConversation } from "./channel.ts";
+import { reportSurface } from "./access.ts";
 import { config } from "./config.ts";
 import { log, logError } from "./log.ts";
 import { ROLES, toolsFor, type RoleName } from "./roles.ts";
@@ -200,7 +201,9 @@ async function finish(
     });
     return undefined;
   }, context);
-  const surfaceId = surfaceForConversation(task.input.parentConversationId) ?? "";
+  const origin = surfaceForConversation(task.input.parentConversationId) ?? "";
+  // Same rule as the feature pipeline: a group gets the work, the owner gets the report.
+  const surfaceId = origin.length === 0 ? "" : await reportSurface(runtime, context, origin);
   if (surfaceId.length > 0) {
     await notify(surfaceId, text).catch((error) => logError("agent", "could not notify", error));
   }

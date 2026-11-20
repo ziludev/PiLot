@@ -13,6 +13,7 @@ import { answerTextInTx } from "./answer.ts";
 import type { TaskRuntime, ToolExecutionApi } from "@earendil-works/pi-durable";
 import { ROLES, toolsFor, type RoleName } from "./roles.ts";
 import { notify, surfaceForConversation } from "./channel.ts";
+import { reportSurface } from "./access.ts";
 import { getHarness } from "./runtime-ref.ts";
 import { log, logError } from "./log.ts";
 import { AGENT_TASKS, AGENT_TOOLS, setAgentBoundary } from "./agents.ts";
@@ -383,7 +384,9 @@ async function report(
     });
     return undefined;
   }, context);
-  const surfaceId = surfaceForConversation(task.input.parentConversationId) ?? task.input.surfaceId;
+  const origin = surfaceForConversation(task.input.parentConversationId) ?? task.input.surfaceId;
+  // A group asked for the work; the report goes to the owner's DM all the same.
+  const surfaceId = await reportSurface(runtime, context, origin);
   const headline = text.startsWith("❌") ? "🧩 需求没做完" : "🧩 需求做完了";
   if (surfaceId.length > 0) {
     await notify(surfaceId, `${headline}\n\n${cutAtLine(text, 3000)}`).catch((error) =>
