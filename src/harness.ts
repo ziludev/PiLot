@@ -22,6 +22,8 @@ import { chooseName } from "./identity.ts";
 import { titleExtension } from "./title.ts";
 import { contextGuardExtension } from "./context-guard.ts";
 import { stallExtension } from "./stall.ts";
+import { alertReport } from "./alerts.ts";
+import { notify } from "./channel.ts";
 import { ChatMemory, GlobalMemory, memoryExtension, type Note } from "./memory.ts";
 import { stepHint, type ToolStep } from "./details.ts";
 import { answerBlocksInTx, answerTextInTx, type AnswerBlock } from "./answer.ts";
@@ -268,6 +270,9 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
         // Timestamped: doctor treats an error older than a day as history, not a problem.
         const stamp = new Date().toISOString();
         console.error(`[report] ${stamp} ${report.kind}`, JSON.stringify(report).slice(0, 800));
+        // A failure that keeps the assistant from working goes to the chat too: a silent break looks
+        // like an idle assistant, and the owner finds out by waiting for nothing.
+        void alertReport(report, notify, config.feishu.allowedChatIds[0]);
       },
     },
     context,
