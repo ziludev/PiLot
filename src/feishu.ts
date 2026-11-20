@@ -9,7 +9,7 @@ import { markTree, touchedSince } from "./changes.ts";
 import { gatewayClient, gatewayEndpoint, type FeishuIm, type ImResponse } from "./feishu-gw.ts";
 import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
 import { runInFlight, watchLive, type LiveSnapshot } from "./live.ts";
-import { advance, renderSteps, stepCount, toolIcon, withIcons, type Trail } from "./steps.ts";
+import { advance, renderSteps, skillOf, stepCount, toolIcon, withIcons, type Trail } from "./steps.ts";
 import { answerHead, composeAnswer, type AnswerBlock } from "./answer.ts";
 import { setApprovalDecider, setNotifier, setTurnStarter, type ApprovalRequest } from "./channel.ts";
 import { log, logError } from "./log.ts";
@@ -211,7 +211,7 @@ function standaloneHeader(reason: string | undefined): CardHeader {
 /** `**bash** \`git status\``: the tool keeps its own name, the hint is what tells two rows apart.
  *  A backtick in the command would end the inline code span early, so it becomes a quote. */
 export function stepHeadline(step: { name: string; hint?: string }): string {
-  const hint = (step.hint ?? "").replace(/`/g, "'").trim();
+  const hint = (skillOf(step.hint) ?? (step.hint ?? "").replace(/`/g, "'")).trim();
   return hint.length === 0 ? `${toolIcon(step.name)} **${step.name}**` : `${toolIcon(step.name, hint)} **${step.name}** \`${hint}\``;
 }
 
