@@ -2,7 +2,7 @@ import { defineDoc, defineExtension, defineTool, section } from "@earendil-works
 import { obj, opt, str } from "@earendil-works/pi-schema";
 import type { Harness } from "@earendil-works/pi-durable";
 import type { Context } from "@earendil-works/chord/context";
-import { ChatPolicy } from "./access.ts";
+import { ChatPolicy, isIsolatedPolicy } from "./access.ts";
 
 /**
  * One remembered line, plus where it came from. The receipt matters: a fact the
@@ -84,11 +84,12 @@ const remember = defineTool({
   execute: async (args, api, context) => {
     const at = new Date().toISOString();
     const text = args.text.trim();
-    // In a guest conversation nothing may be written to the shared memories.
+    // An isolated conversation (a shared group) writes to its own chat memory only: what a
+    // colleague tells the bot is not the owner's shared memory to inherit.
     const policy = await api.snapshot(ChatPolicy, api.conversationId, context).catch(() => undefined);
-    const guest = policy?.guest === true;
+    const isolated = isIsolatedPolicy(policy);
     const requested = args.scope === "chat" ? "chat" : args.scope === "work" ? "work" : "global";
-    const scope = guest && requested !== "chat" ? "chat" : requested;
+    const scope = isolated && requested !== "chat" ? "chat" : requested;
     if (scope === "global" && text.length > HARD_LIMIT) {
       return {
         output: [
@@ -192,12 +193,12 @@ const forget = defineTool({
   parameters: obj({ keyword: str({ description: "要删除内容里的关键词" }) }),
   execute: async (args, api, context) => {
     const removed: string[] = [];
-    // Same rule as remember: a guest conversation owns its notes and nothing else.
+    // Same rule as remember: an isolated conversation owns its notes and nothing else.
     const policy = await api.snapshot(ChatPolicy, api.conversationId, context).catch(() => undefined);
-    const guest = policy?.guest === true;
+    const isolated = isIsolatedPolicy(policy);
     await api.commit(async (tx) => {
       const chat = await tx.doc(ChatMemory, api.conversationId);
-      const docs = guest
+      const docs = isolated
         ? [chat]
         : [await tx.doc(GlobalMemory), chat, await tx.doc(WorkMemory)];
       for (const doc of docs) {
@@ -245,12 +246,12 @@ const recall = defineTool({
     const global = await api.snapshot(GlobalMemory, context);
     const chat = await api.snapshot(ChatMemory, api.conversationId, context);
     const work = await api.snapshot(WorkMemory, context);
-    // A guest conversation may search its own notes only: the owner's memories are not
+    // An isolated conversation may search its own notes only: the owner's memories are not
     // injected there, so letting recall read them would reopen the same door.
     const policy = await api.snapshot(ChatPolicy, api.conversationId, context).catch(() => undefined);
-    const guest = policy?.guest === true;
+    const isolated = isIsolatedPolicy(policy);
     const hits: string[] = [];
-    const searched = guest
+    const searched = isolated
       ? ([['本对话', chat?.notes ?? []]] as const)
       : ([
           ['全局', global?.notes ?? []],
@@ -288,9 +289,9 @@ function renderNotes(notes: Note[] | undefined, limit: number): string | undefin
 /** Memory sections + tools, ready for the personal extension. */
 const memorySections = [
   section("global_memory", async (input, context) => {
-    // Guest conversations (shared groups) must never see the owner's memory.
+    // Isolated conversations (shared groups) must never see the owner's memory.
     const policy = await input.read.snapshot(ChatPolicy, input.conversationId, context).catch(() => undefined);
-    if (policy?.guest === true) return undefined;
+    if (isIsolatedPolicy(policy)) return undefined;
     const doc = await input.read.snapshot(GlobalMemory, context);
     return renderNotes(doc?.notes, MAX_GLOBAL_NOTES);
   }),

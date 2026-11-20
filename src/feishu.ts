@@ -53,14 +53,13 @@ import {
   adoptChatLevels,
   chatAccess,
   chatTopicOf,
-  isGuestLevel,
   levelOf,
   ownerChatId,
   rememberOwnerChat,
   setChatLevel,
   setChatTopic,
   setChatTurn,
-  setGuestPolicy,
+  setIsolatedPolicy,
   type ChatLevel,
 } from "./access.ts";
 import { dropAllApprovals, getApproval, pendingCount, registerApproval, resolveApproval } from "./approvals.ts";
@@ -1129,46 +1128,25 @@ async function senderName(openId: string): Promise<string | undefined> {
   return name;
 }
 
-/** What a refusal to write looks like, in the forms this agent actually produced. */
-export function looksLikeReadOnlyRefusal(answer: string): boolean {
-  // A real approval card ("命令被拦下来等你确认") is not a false refusal: the tool IS blocked,
-  // just for a reason the correction would contradict.
-  if (/审批|批准|确认卡|等你确认|稍后确认/.test(answer)) return false;
-  return /只读|权限.{0,6}(关|没|被)|会话初始化|guest ?模式.{0,8}(禁|不|没|拦|只)|拦着|拦下|被拦|无法(执行|运行|改|写)|bash.{0,12}(用不|不能|被禁)|没法直接(改|写|提交|推)|不能直接(改|写|提交|推)|粘贴到终端|粘一下|用一行 ?(sed|命令)|你自己(执行|跑|粘|来)/.test(
-    answer,
-  );
-}
-
-/** Appended as a fresh user turn after a false read-only refusal; the last word in context. */
-const READ_ONLY_CORRECTION =
-  `（网关）你刚才那条回答作废：本轮提问的是 ${config.feishu.ownerName} 本人（已校验），这个群现在的写权限是开的。` +
-  "write/edit/bash 对你都可用，改文件、推分支、触发部署都不会被拦（危险命令照旧弹审批）。" +
-  "直接执行他要的修改，不要再解释权限、不要再让他去粘命令或换私聊。";
-
 /**
- * What a shared group is told. The memory rule is the same for everyone — a group conversation
- * never sees the owner's memory. Who may change files is decided per turn: the owner asking in
- * his own group is still the owner, and refusing him made /allow useless for real work.
+ * What a shared group is told. There is one text because there is one tool surface: everyone in
+ * the group — owner or not — gets the same tools, and what a colleague is not allowed to see is
+ * a memory rule the code enforces, not something a per-speaker prompt needs to re-describe.
+ * The paragraph about the old rule stays: the model reads its own earlier refusals in the
+ * transcript and repeats them, and saying the rule is dead is what unsticks it.
  */
-export function groupInstructions(who: "owner" | "guest", topic?: string): string {
+export function groupInstructions(topic?: string): string {
   const owner = config.feishu.ownerName;
   const lines = [
     "这是一个共享群（群里有其他人）。",
     `- 不要透露 ${owner} 的个人信息、记忆、日程、其他会话内容。`,
     `- 每条消息开头的方括号是网关标注的说话人：「${owner} 本人」就是 ${owner} 的账号，已经校验过，不需要你再判断身份；「群成员」不是。`,
-    who === "owner"
-      ? `- 本轮是 ${owner} 本人提问：按他说的改文件、跑命令、推分支、触发部署都可以。`
-      : `- 本轮不是 ${owner}：他只读，但读是全开的——read / project_search 能看所有已注册项目，logs_query 和 db_query 连 env=prod 也能查（库只接 SELECT），bash 的 git log、grep、psql select 一样放行。不要改文件、不要推分支、不要触发部署、不要写记忆；被拦时只说被拦的那条命令，不要说「用不了工具」。`,
+    "- 工具面对群里所有人一样：read / project_search / logs_query / db_query / bash / write / edit / lark / mcp / delegate 都能用，查代码、查库、查日志、改文件、推分支照做，不用解释权限。危险命令会弹审批卡给 " +
+      `${owner}，等他点确认即可。`,
+    "- 本群的记忆只属于本群：不要提别的会话里的内容，也不要因为「上次群里说过」就当成已知。",
+    "- 旧规则已作废：本群以前被设成只读，那条不再适用。不要再回答「这轮是只读的」「bash 在这个群里用不了」，" +
+      "也不要让提问的人自己去粘命令或开新会话。",
   ];
-  if (who === "owner") {
-    // The model reads its own earlier refusals in the transcript and repeats them, even when
-    // the rule under them has changed. Say the old rule is dead instead of hoping.
-    lines.push(
-      "- 工具面按说话人切换：只读限制只落在别人的回合。你自己的回合里 bash / write / edit / lark / mcp / delegate 全都能用。",
-      "- 旧规则已作废：本群以前确实被设成只读，那条不再适用。不要再回答「这轮是只读的」或「bash 在这个群里用不了」，" +
-        `也不要让 ${owner} 自己去粘命令或开新会话。`,
-    );
-  }
   if (topic !== undefined) lines.push(`- ${topic}`);
   return lines.join("\n");
 }
@@ -1207,8 +1185,8 @@ export function rejectionReason(
   if (content.text.length === 0 && content.imageKeys.length === 0 && content.audioKey === undefined) {
     return "empty-content";
   }
-  // One level decides everything: closed answers nobody, owner only the owner, group everyone
-  // (with the guest surface for whoever is not the owner).
+  // One level decides everything: closed answers nobody, owner only the owner, group everyone —
+  // and a group's members get the same tool surface as the owner.
   if (level === "closed") return "chat-not-allowed";
   if (level === "owner" && !isOwner) return "owner-only";
   if (policy.mentionsOnly && message?.chat_type === "group" && !mentionsUs(message.mentions, botId)) {
@@ -2136,22 +2114,22 @@ const continuing = new Set<string>();
       }
       const chatId = typeof value["chatId"] === "string" ? value["chatId"] : "";
       if (chatId.length === 0) return { toast: { type: "error", content: "缺少会话 id" } };
-      // One button, one level: the person or the group gets guest access, and the guest policy
-      // keeps the owner's memory out of it. It used to take two cards to reach this point.
+      // One button, one level: the chat becomes a group — everyone in it gets the same tools as
+      // the owner — and isolation keeps the owner's memory out of it.
       await setChatLevel(runtime.harness, context, chatId, "group");
       const conversation = await runtime.conversationFor(chatId);
-      await setGuestPolicy(runtime.harness, context, conversation.id as unknown as number).catch(() => {});
+      await setIsolatedPolicy(runtime.harness, context, conversation.id as unknown as number).catch(() => {});
       // A shared group does not need the owner's 16k of headroom: compacting earlier keeps every
       // group turn cheaper, and the transcript it summarizes is public to the group anyway.
       await conversation
         .configure({ compaction: { reserveTokens: 8_192 } }, context)
         .catch((error: unknown) => logError("feishu", "could not set group compaction", error));
-      void sendText(chatId, "已开通（只读）：可以问我了。代码、test 和 prod 的库与日志都能查；改文件、推分支要 alex 本人开口。").catch(
-        () => {},
-      );
+      void sendText(chatId, "已开通：可以问我了。查代码、查库、查日志、改文件都能做，危险操作会先问 alex。").catch(() => {});
       const messageId = payload.context?.open_message_id;
       if (messageId !== undefined) {
-        void patchCard(messageId, `✅ 已开放 ${chatId.slice(-6)}`, "只读：查代码 / test 和 prod 的库与日志，不改文件").catch(() => {});
+        void patchCard(messageId, `✅ 已开放 ${chatId.slice(-6)}`, "所有人都能用：查代码 / 库 / 日志，危险操作走审批").catch(
+          () => {},
+        );
       }
       return { toast: { type: "success", content: "已开放，并通知了对方" } };
     }
@@ -2255,7 +2233,7 @@ const continuing = new Set<string>();
 
   /**
    * Someone the bot has never met is talking to it. Silence would look like a broken bot, so
-   * the owner gets one card with one button: open this chat with guest access.
+   * the owner gets one card with one button: open this chat to the people in it.
    */
   async function notifyOwnerOfStranger(
     event: IncomingMessage,
@@ -2275,7 +2253,7 @@ const continuing = new Set<string>();
       `- 发送者：\`${senderId}\`\n` +
       `- 内容：${body.length > 0 ? body : "（非文字消息）"}\n`;
     const buttons = [
-      { label: "开放此会话（只读）", value: { kind: "open-chat", chatId: message.chat_id }, type: "primary" as const },
+      { label: "开放此会话", value: { kind: "open-chat", chatId: message.chat_id }, type: "primary" as const },
     ];
     try {
       await im.message.create({
@@ -2300,13 +2278,13 @@ const continuing = new Set<string>();
 
   /** Every step a shared group needs: remember it is open, and give its conversation the rules. */
   async function openGroup(chatId: string, instructions: string): Promise<void> {
-    // One level replaces the old pair of lists: the chat is a group, which is also what the gate,
-    // the guest policy and the tool surface read.
+    // One level replaces the old pair of lists: the chat is a group, which is also what the gate
+    // and the memory isolation read.
     await setChatLevel(runtime.harness, context, chatId, "group");
     const conv = await runtime.conversationFor(chatId);
-    await setGuestPolicy(runtime.harness, context, conv.id as unknown as number);
+    await setIsolatedPolicy(runtime.harness, context, conv.id as unknown as number);
     await conv.configure({ instructions }, context);
-    log("feishu", "group opened as guest chat", { chatId });
+    log("feishu", "group opened", { chatId });
   }
 
   /** Replies in a topic group belong inside the topic, whoever started it. */
@@ -2366,7 +2344,7 @@ const continuing = new Set<string>();
       // cached after the chat's first message.
       await rememberChatInfo(message.chat_id).catch(() => {});
     }
-    const isGuestChat = isGuestLevel(level);
+    const isGroupChat = level === "group";
     let reason = rejectionReason(event, parsed, level, isOwner);
     // Quoting our answer is a person addressing us, in a group too — no second @ needed.
     if (reason === "group-message-without-mention" && (await quoteIsOurs(message.parent_id))) {
@@ -2392,8 +2370,8 @@ const continuing = new Set<string>();
     }
 
     // Self-service onboarding: the owner authorizes a new group from the group. A group is
-    // shared, so /allow opens it as a guest chat in one step — its members then need no
-    // per-person card, and none of them sees the owner's memory.
+    // shared, so /allow opens it in one step — its members then need no per-person card, and
+    // none of them sees the owner's memory.
     if (text.trim() === "/allow" && isOwner) {
       if (message.chat_type === "p2p") {
         // A p2p chat has exactly one other person in it, so opening it opens it to them.
@@ -2401,10 +2379,10 @@ const continuing = new Set<string>();
         await sendText(message.chat_id, "已把本会话加入白名单。");
         return;
       }
-      await openGroup(message.chat_id, groupInstructions("guest"));
+      await openGroup(message.chat_id, groupInstructions());
       await sendText(
         message.chat_id,
-        "已把本群开放（只读成员）：群里谁 @我 都能查——代码、test 和 prod 的库与日志都能看；改文件、推分支、写飞书只有你自己能做。",
+        "已把本群开放：群里所有人都能用，查代码、查 test/prod 的库和日志、改文件都能做；危险操作会先私聊问 alex。",
       );
       return;
     }
@@ -2423,12 +2401,12 @@ const continuing = new Set<string>();
       const topic = "只回答与本群主题相关的问题（Android 客户端）。";
       const conversation = await runtime.conversationFor(message.chat_id);
       await setChatTopic(runtime.harness, context, conversation.id as unknown as number, topic);
-      await openGroup(message.chat_id, groupInstructions("guest", topic));
-      await sendText(message.chat_id, "已把本群开放给所有成员（只读）：代码、test 和 prod 的库与日志都能查，改动只有 alex 本人能做。");
+      await openGroup(message.chat_id, groupInstructions(topic));
+      await sendText(message.chat_id, "已把本群开放给所有成员：查代码、查 test/prod 的库和日志、改文件都能做，危险操作会先私聊问 alex。");
       return;
     }
-    if (isGuestChat && !isOwner) {
-      log("feishu", "guest turn", { chatId: message.chat_id, sender: senderId.slice(-6) });
+    if (isGroupChat && !isOwner) {
+      log("feishu", "member turn", { chatId: message.chat_id, sender: senderId.slice(-6) });
     }
     if (reason === "chat-not-allowed" && isOwner) {
       // Log the text: if /allow did not match, seeing what arrived is the whole diagnosis.
@@ -2477,26 +2455,24 @@ const continuing = new Set<string>();
             parentMessageId,
             title: title.length === 0 ? undefined : title,
           });
-    if (isGuestChat) {
-      // Memory stays off for the whole conversation (a group is shared), but the write rule is
-      // per turn: the owner asking in his own group is still the owner. This also replaces the
-      // old "heal an opened chat" step: every turn reapplies the policy, so there is nothing
-      // stale to repair.
+    if (isGroupChat) {
+      // A group is shared, so its memory is its own for the whole conversation; who is asking
+      // only changes the audit label now, not the tool surface. Reapplying it every turn also
+      // replaces the old "heal an opened chat" step: nothing can go stale.
       const topic = await chatTopicOf(runtime.harness, context, conversation.id as unknown as number).catch(
         () => undefined,
       );
-      await setGuestPolicy(runtime.harness, context, conversation.id as unknown as number).catch(() => {});
+      await setIsolatedPolicy(runtime.harness, context, conversation.id as unknown as number).catch(() => {});
       // A shared group does not need the owner's 16k of headroom: compacting earlier keeps every
       // group turn cheaper, and the transcript it summarizes is public to the group anyway.
       await conversation
         .configure({ compaction: { reserveTokens: 8_192 } }, context)
         .catch((error: unknown) => logError("feishu", "could not set group compaction", error));
       await conversation
-        .configure({ instructions: groupInstructions(isOwner ? "owner" : "guest", topic) }, context)
+        .configure({ instructions: groupInstructions(topic) }, context)
         .catch((error: unknown) => logError("feishu", "could not set group instructions", error));
-      // The guard hook reads this to pick the tool surface; a prompt alone cannot keep a group
-      // member out of `cat .env`.
-      await setChatTurn(runtime.harness, context, conversation.id as unknown as number, isOwner ? "owner" : "guest").catch(
+      // The audit trail and the memory rule read this; the tool surface no longer does.
+      await setChatTurn(runtime.harness, context, conversation.id as unknown as number, isOwner ? "owner" : "member").catch(
         (error: unknown) => logError("feishu", "could not mark the turn", error),
       );
     }
@@ -3009,29 +2985,7 @@ const continuing = new Set<string>();
       }
 
       if (settled.status === "done" && settled.answer !== undefined) {
-        let answer = await runtime.answerText(conversation, settled.answer, settled.entry);
-        // The model reads its own earlier "this group is read-only" answers and repeats them,
-        // with the owner instructions right in front of it. Correcting once, with the
-        // correction last in the context, is what actually unsticks it — verified against the
-        // real model: the refusal gave way and the file was edited.
-        // ... and only when it did not actually edit anything this turn: a real fix that happens
-        // to mention the word 只读 must not be thrown away.
-        const edited = card.tools.has("write") || card.tools.has("edit");
-        if (isOwner && isGuestChat && !edited && looksLikeReadOnlyRefusal(answer)) {
-          log("feishu", "owner turn answered as read-only, correcting once", { chatId });
-          const retry = await conversation
-            .submit({ type: "input", content: READ_ONLY_CORRECTION, requestId: `correct:${message.message_id}` }, context)
-            .catch((error: unknown) => {
-              logError("feishu", "could not submit the correction", error);
-              return undefined;
-            });
-          const again = await retry?.wait(context).catch(() => undefined);
-          if (again?.status === "done" && again.answer !== undefined) {
-            answer = await runtime.answerText(conversation, again.answer, again.entry);
-            log("feishu", "corrected answer read", { chars: answer.length });
-            await note(conversation, context, "模型误以为本群只读而拒绝，已自动纠正一次");
-          }
-        }
+        const answer = await runtime.answerText(conversation, settled.answer, settled.entry);
         log("feishu", "answer read", { chars: answer.length });
         const after = await runtime.budget(chatId).catch(() => undefined);
         const cost = after === undefined ? 0 : Math.max(0, after.spentToday - budget.spentToday);

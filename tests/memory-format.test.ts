@@ -15,7 +15,7 @@ import { CURATOR_PROMPT } from "../src/curator.ts";
 
 type Notes = { global: Note[]; chat: Note[]; work: Note[] };
 
-function fakeApi(notes: Notes, guest = false) {
+function fakeApi(notes: Notes, isolated = false) {
   const docOf = (doc: unknown): { notes: Note[] } => {
     if (doc === GlobalMemory) return { notes: notes.global };
     if (doc === ChatMemory) return { notes: notes.chat };
@@ -24,7 +24,7 @@ function fakeApi(notes: Notes, guest = false) {
   };
   return {
     conversationId: 1,
-    snapshot: async (doc: unknown) => (doc === ChatPolicy ? { guest } : docOf(doc)),
+    snapshot: async (doc: unknown) => (doc === ChatPolicy ? { isolated } : docOf(doc)),
     commit: async (body: (tx: { doc: (doc: unknown) => { notes: Note[] } }) => Promise<void>) => {
       await body({ doc: docOf });
     },

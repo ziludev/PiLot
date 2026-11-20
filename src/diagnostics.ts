@@ -5,7 +5,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { num, obj, opt, str } from "@earendil-works/pi-schema";
-import { ChatPolicy, readRoots } from "./access.ts";
+import { ChatPolicy, isIsolatedPolicy, readRoots } from "./access.ts";
 import { config } from "./config.ts";
 import { log, logError } from "./log.ts";
 import { record } from "./audit.ts";
@@ -91,11 +91,11 @@ export function parseLogsQuery(args: Record<string, unknown>): LogsQuery | strin
 }
 
 /**
- * Production logs are the owner's call. A guest turn is not refused outright — it asks, and the
- * card goes to the owner's DM, so a colleague diagnosing a prod problem does not have to
- * interrupt the conversation to get a human to type the query.
+ * Production logs are the owner's call. A group member's turn is not refused outright — it
+ * asks, and the card goes to the owner's DM, so a colleague diagnosing a prod problem does not
+ * have to interrupt the conversation to get a human to type the query.
  */
-/** Where `project_search` may look: the same roots a guest read uses. */
+/** Where `project_search` may look: the workspace plus the project this chat is bound to. */
 export function searchRoot(
   args: Record<string, unknown>,
   roots: readonly string[],
@@ -127,6 +127,17 @@ function formatLogItems(items: readonly Record<string, unknown>[]): string {
 }
 
 /** A result set as `a | b` rows: enough to read a balance or a call record off a phone screen. */
+/**
+ * The audit label for a query on this conversation: `"member"` when a colleague in a shared group
+ * asked, absent for the owner's own turn. Both are read from the policy doc, so a doc written
+ * before the rename (`guest: true`, `turn: "guest"`) still labels the same way.
+ */
+export function queryWho(
+  policy: { isolated?: boolean; guest?: boolean; turn?: string } | undefined,
+): "member" | undefined {
+  return isIsolatedPolicy(policy) && policy.turn !== "owner" ? "member" : undefined;
+}
+
 function formatRows(columns: readonly string[], items: readonly Record<string, unknown>[]): string {
   if (columns.length === 0) return "(没有列)";
   const header = columns.join(" | ");
@@ -137,7 +148,7 @@ function formatRows(columns: readonly string[], items: readonly Record<string, u
 const logsQuery = defineTool({
   name: "logs_query",
   description:
-    "查阿里云 SLS 日志（只读）。env 选 dev 或 prod，logstore 默认 <prefix>-<env>-stdout（prefix 取 SLS_LOGSTORE_PREFIX，兜底 app），query 用 SLS 查询语法（如 '\"2100083235\"' 或 'severity: ERROR and service: gateway'），minutes 是时间窗口（默认 60）。生产日志也能查：只读，写操作另有代码拦截。",
+    "查阿里云 SLS 日志（只读）。env 选 dev 或 prod，logstore 默认 <prefix>-<env>-stdout（prefix 取 SLS_LOGSTORE_PREFIX，兜底 app），query 用 SLS 查询语法（如 '\"2100083235\"' 或 'severity: ERROR and service: gateway'），minutes 是时间窗口（默认 60）。生产日志也能查（只读查询）。",
   parameters: obj({
     query: str({ description: "SLS 查询语句" }),
     env: opt(str({ description: "dev 或 prod，默认 dev" })),
@@ -150,14 +161,14 @@ const logsQuery = defineTool({
     const parsed = parseLogsQuery(args as Record<string, unknown>);
     if (typeof parsed === "string") return { output: [{ type: "text" as const, text: parsed }] };
     const policy = await api.snapshot(ChatPolicy, api.conversationId, context).catch(() => undefined);
-    const guestTurn = policy?.guest === true && policy.turn !== "owner";
+    const who = queryWho(policy);
     log("logs", "sls query", { env: parsed.env, logstore: parsed.logstore, minutes: parsed.minutes, query: parsed.query });
     // Anyone in a shared group can read prod logs now, so this record stands in for the approval
     // that used to be asked: who asked, which logstore, what they were looking for. One line.
     await record(api, context, {
       kind: "query",
       tool: "logs_query",
-      ...(guestTurn ? { who: "guest" } : {}),
+      ...(who === undefined ? {} : { who }),
       detail: `env=${parsed.env} logstore=${parsed.logstore} ${parsed.minutes}m ${parsed.query.slice(0, 160)}`,
     });
     const header = `[sls] env=${parsed.env} logstore=${parsed.logstore} 近 ${parsed.minutes} 分钟 query=${parsed.query}`;
@@ -241,13 +252,13 @@ const dbQuery = defineTool({
     const parsed = parseDbQuery(args as Record<string, unknown>);
     if (typeof parsed === "string") return { output: [{ type: "text" as const, text: parsed }] };
     const policy = await api.snapshot(ChatPolicy, api.conversationId, context).catch(() => undefined);
-    const guestTurn = policy?.guest === true && policy.turn !== "owner";
+    const who = queryWho(policy);
     log("db", "pg query", { env: parsed.cliEnv, source: parsed.source, chars: parsed.sql.length });
     // One line per query: who asked, where, and what they were looking for.
     await record(api, context, {
       kind: "query",
       tool: "db_query",
-      ...(guestTurn ? { who: "guest" } : {}),
+      ...(who === undefined ? {} : { who }),
       detail: `env=${parsed.env} source=${parsed.source} ${parsed.sql.slice(0, 200)}`,
     });
     const header = `[db] env=${parsed.env} source=${parsed.source} SQL: ${parsed.sql.slice(0, 200)}`;
