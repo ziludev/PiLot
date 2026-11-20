@@ -341,21 +341,6 @@ func TestGitReadsTheCommitsAndTheCompareURL(t *testing.T) {
 	}
 }
 
-func TestCommitDiffSendsTheHashEscaped(t *testing.T) {
-	var got capture
-	client := serve(t, `{"hash":"abc","diff":"@@ -1 +1 @@"}`, &got)
-	diff, err := client.CommitDiff(context.Background(), 7, "abc")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.path != "/api/git/diff?conversationId=7&hash=abc" {
-		t.Fatalf("path %s", got.path)
-	}
-	if diff != "@@ -1 +1 @@" {
-		t.Fatalf("diff %q", diff)
-	}
-}
-
 func TestTaskReadsOneDetail(t *testing.T) {
 	var got capture
 	client := serve(t, `{"id":7,"kind":"agent.run","conversationId":2,"owner":"cli","background":true,`+

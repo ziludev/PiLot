@@ -141,8 +141,7 @@ func (a *App) applyWrite(convID int, kind writeKind, text string, bad bool) {
 	a.write.conv = convID
 	a.write.result, a.write.bad = text, bad
 	if !bad && kind != writePush {
-		// The branch's commits changed with the commit, not before it.
-		a.changes.commits = nil
+		// The patch that was committed is gone from the worktree now.
 		a.refreshChanges()
 	}
 }

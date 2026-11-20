@@ -14,7 +14,7 @@ import (
 	"pitta/internal/protocol"
 )
 
-// changesFixture is the drawer with a two-file patch and two commits, opened
+// changesFixture is the drawer with a two-file patch, opened
 // without a network call: the panel reads what the bridge sent, and what the
 // bridge sent is what these tests hand it.
 func changesFixture(t *testing.T) *App {
@@ -43,9 +43,6 @@ func changesFixture(t *testing.T) *App {
 		"@@ -0,0 +1,2 @@\n" +
 		"+first\n" +
 		"+second\n"
-	a.changes.commits = []protocol.Commit{
-		{Hash: "abc1234", Short: "abc1234", Subject: "app: one", Files: 2, Added: 5, Removed: 1},
-	}
 	return a
 }
 
@@ -114,44 +111,6 @@ func TestChangesDrawerSaysWhenTheWorktreeIsClean(t *testing.T) {
 		t.Fatalf("clean worktree said nothing; drew %v", tt.Texts())
 	}
 
-	a.changes.tab = 1
-	tt.Frame()
-	if !tt.HasText("这个分支还没有提交") {
-		t.Fatalf("empty commit list said nothing; drew %v", tt.Texts())
-	}
-}
-
-// TestChangesDrawerShowsACommitPatch: the commits tab lists the log, and a
-// commit's patch arrives from its own request.
-func TestChangesDrawerShowsACommitPatch(t *testing.T) {
-	a := changesFixture(t)
-	a.changes.tab = 1
-	tt := ui.NewTester(a.View, 1180, 820)
-	tt.Frame()
-	for _, want := range []string{"abc1234", "app: one", "2 个文件"} {
-		if !tt.HasText(want) {
-			t.Fatalf("commit list missing %q; drew %v", want, tt.Texts())
-		}
-	}
-
-	a.changes.openCommit = "abc1234"
-	a.applyCommitDiff("abc1234", "diff --git a/x b/x\n+hello\n", nil)
-	tt.Frame()
-	if !tt.HasText("+hello") {
-		t.Fatalf("commit patch did not draw; drew %v", tt.Texts())
-	}
-}
-
-// TestCommitPatchForAClosedCommitIsDropped: a slow reply must not open a commit
-// the reader already left.
-func TestCommitPatchForAClosedCommitIsDropped(t *testing.T) {
-	a := changesFixture(t)
-	a.changes.openCommit = "beef999"
-	a.changes.lines = nil
-	a.applyCommitDiff("abc1234", "+from the other commit\n", nil)
-	if a.changes.lines != nil {
-		t.Fatalf("a stale commit filled the pane: %v", a.changes.lines)
-	}
 }
 
 // TestChangesDrawerFollowsTheChat: the patch belongs to the open chat's worktree,
