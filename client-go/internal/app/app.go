@@ -991,6 +991,7 @@ func (a *App) View(c *ui.Context) {
 	c.OnWindowShortcut(ui.Super|ui.Shift, ui.KeySlash, a.toggleCheatsheet)
 	a.shell(c, t)
 	a.paletteDialog(c, t)
+	a.modelDialog(c, t)
 	a.cheatsheetDialog(c, t)
 	a.renameDialog(c, t)
 	a.settingsDialog(c, t)

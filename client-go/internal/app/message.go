@@ -14,6 +14,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"pitta/internal/i18n"
+	"pitta/internal/icons"
 	"pitta/internal/theme"
 )
 
@@ -28,13 +29,13 @@ func (a *App) messageActions(c *ui.Context, t theme.Tokens, row threadRow, hover
 	bar.Opacity(hoverOpacity(hovered)).IgnoreInput(!hovered)
 	bar.Children(func() {
 		if fromUser {
-			a.messageAction(c, t, i18n.T("editResend"), func() { a.editMessage(row) })
-			a.messageAction(c, t, i18n.T("copy"), func() { a.copyMessage(c, row) })
+			a.messageAction(c, t, icons.Pencil, i18n.T("editResend"), func() { a.editMessage(row) })
+			a.messageAction(c, t, icons.Copy, i18n.T("copy"), func() { a.copyMessage(c, row) })
 			return
 		}
-		a.messageAction(c, t, i18n.T("copy"), func() { a.copyMessage(c, row) })
+		a.messageAction(c, t, icons.Copy, i18n.T("copy"), func() { a.copyMessage(c, row) })
 		if row.turn != 0 && strings.TrimSpace(row.text) != "" {
-			a.messageAction(c, t, i18n.T("regenerate"), func() { a.retryTurn(row.turn) })
+			a.messageAction(c, t, icons.RefreshCw, i18n.T("regenerate"), func() { a.retryTurn(row.turn) })
 		}
 	})
 }
@@ -48,10 +49,15 @@ func hoverOpacity(hovered bool) float32 {
 	return 0
 }
 
-func (a *App) messageAction(c *ui.Context, t theme.Tokens, label string, onClick func()) {
-	btn := ui.ButtonBase(c).Height(20).Radius(4).Padding(0, 6).Cursor(ui.CursorPointer)
+// messageAction is one icon in that bar. The word is in the tooltip rather than
+// on the button: three verbs spelled out under every message is more text than
+// the message has, and the marks (copy, pencil, arrow round a circle) are the
+// ones every editor and mail client already uses for them.
+func (a *App) messageAction(c *ui.Context, t theme.Tokens, icon *ui.SVG, label string, onClick func()) {
+	btn := ui.ButtonBase(c).Height(20).Width(20).Radius(4).
+		Cursor(ui.CursorPointer).Tooltip(label).Label(label)
 	btn.Children(func() {
-		ui.Text(c, label).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
+		ui.Icon(c, icon).Size(11.5, 11.5).TextColor(t.MutedFg)
 	})
 	btn.OnClick(onClick)
 }

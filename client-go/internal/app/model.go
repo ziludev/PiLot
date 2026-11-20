@@ -417,8 +417,15 @@ func (a *App) modelChip(c *ui.Context, t theme.Tokens) {
 	button.OnClick(a.openModelPicker)
 }
 
-// modelPanel is the list above the composer.
-func (a *App) modelPanel(c *ui.Context, t theme.Tokens) {
+// modelDialog is the list of models, asked as a modal. It used to hang above the
+// composer, where the only ways out were Escape and picking a row: someone who
+// opened it by accident had no obvious exit. ui.Modal brings the scrim, the
+// click-anywhere-else dismissal and Escape, the filter keeps the keys, and ⌘K
+// already proves the shape works with a text field inside it.
+func (a *App) modelDialog(c *ui.Context, t theme.Tokens) {
+	if !a.pick.open {
+		return
+	}
 	// A new filter starts at the top of its own results.
 	if a.pick.seen != a.pick.filter {
 		a.pick.seen = a.pick.filter
@@ -428,50 +435,56 @@ func (a *App) modelPanel(c *ui.Context, t theme.Tokens) {
 		// every one of them is open.
 		a.pick.closed = map[string]bool{}
 	}
-	ui.Column(c).Width(380).Padding(8, 8, 8, 8).Radius(10).Gap(4).
-		Border(1, t.Border).Background(t.Card).Children(func() {
-		ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).Children(func() {
-			input := ui.TextInputBase(c, &a.pick.filter).FillWidth().Height(28).
-				FontSize(11.5).Placeholder(i18n.T("modelSearch"))
-			if a.pick.focus {
-				input.AutoFocus()
-				a.pick.focus = false
-			}
-			input.OnTextKey(a.modelKey)
-		})
-		switch {
-		case a.pick.failed:
-			ui.Text(c, i18n.T("modelFailed")).FontSize(11).TextColor(t.Destructive).Padding(4, 0)
-			return
-		case !a.pick.fetched || len(a.pick.catalog) == 0:
-			ui.Text(c, i18n.T("loading")).FontSize(11).TextColor(t.MutedFg).Padding(4, 0)
-			return
-		}
-		matches := a.modelMatches()
-		if len(matches) == 0 {
-			ui.Text(c, i18n.T("noResults")).FontSize(11).TextColor(t.MutedFg).Padding(4, 0)
-			return
-		}
-		if a.pick.sel >= len(matches) {
-			a.pick.sel = len(matches) - 1
-		}
-		// As tall as its rows, up to where the wheel takes over: a panel for
-		// four models should not be a 244pt hole under them.
-		rows := a.pickRows()
-		height := float32(modelPanelHeight)
-		if want := float32(len(rows) * modelRowSpan); want < height {
-			height = want
-		}
-		ui.List(c, &a.pick.list, len(rows), func(i int) {
-			row := rows[i]
-			if row.header {
-				a.pickHeaderRow(c, t, row)
+	ui.DialogBase(c, &a.pick.open, func(backdrop, panel ui.Element) {
+		// A quarter-dark window rather than the modal's 40%: the list is small and the
+		// message behind it is often what the choice is about.
+		backdrop.Background(ui.RGBA(0, 0, 0, 0.28))
+		panel.Width(380).Padding(10).Radius(12).Gap(4).
+			Border(1, t.Border).Background(t.Popover).
+			Shadow(0, 12, 40, 0, ui.RGBA(0, 0, 0, 0.35)).Children(func() {
+			ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).Children(func() {
+				input := ui.TextInputBase(c, &a.pick.filter).FillWidth().Height(28).
+					FontSize(11.5).Placeholder(i18n.T("modelSearch"))
+				if a.pick.focus {
+					input.AutoFocus()
+					a.pick.focus = false
+				}
+				input.OnTextKey(a.modelKey)
+			})
+			switch {
+			case a.pick.failed:
+				ui.Text(c, i18n.T("modelFailed")).FontSize(11).TextColor(t.Destructive).Padding(4, 0)
+				return
+			case !a.pick.fetched || len(a.pick.catalog) == 0:
+				ui.Text(c, i18n.T("loading")).FontSize(11).TextColor(t.MutedFg).Padding(4, 0)
 				return
 			}
-			sel := matches[a.pick.sel]
-			a.modelRow(c, t, row.entry, row.entry.Provider == sel.Provider && row.entry.ID == sel.ID)
-		}).Height(height)
-		a.levelSlider(c, t)
+			matches := a.modelMatches()
+			if len(matches) == 0 {
+				ui.Text(c, i18n.T("noResults")).FontSize(11).TextColor(t.MutedFg).Padding(4, 0)
+				return
+			}
+			if a.pick.sel >= len(matches) {
+				a.pick.sel = len(matches) - 1
+			}
+			// As tall as its rows, up to where the wheel takes over: a panel for
+			// four models should not be a 244pt hole under them.
+			rows := a.pickRows()
+			height := float32(modelPanelHeight)
+			if want := float32(len(rows) * modelRowSpan); want < height {
+				height = want
+			}
+			ui.List(c, &a.pick.list, len(rows), func(i int) {
+				row := rows[i]
+				if row.header {
+					a.pickHeaderRow(c, t, row)
+					return
+				}
+				sel := matches[a.pick.sel]
+				a.modelRow(c, t, row.entry, row.entry.Provider == sel.Provider && row.entry.ID == sel.ID)
+			}).Height(height)
+			a.levelSlider(c, t)
+		})
 	})
 }
 
