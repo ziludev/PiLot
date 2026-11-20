@@ -65,7 +65,12 @@ func (a *App) messageAction(c *ui.Context, t theme.Tokens, icon *ui.SVG, label s
 // copyMessage puts the words on the clipboard and says so: without the toast a
 // copy is indistinguishable from a click that did nothing.
 func (a *App) copyMessage(c *ui.Context, row threadRow) {
-	text := row.text
+	a.copyText(c, row.text)
+}
+
+// copyText puts words on the clipboard and says so. Tool output copies through
+// the same door, so one toast means one thing.
+func (a *App) copyText(c *ui.Context, text string) {
 	if strings.TrimSpace(text) == "" {
 		return
 	}

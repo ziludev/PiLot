@@ -163,7 +163,11 @@ type viewModel struct {
 	newFrom map[int]int
 	// folds is the disclosure state of folded step rows, keyed by
 	// (conversationID, turnID).
-	folds      map[string]bool
+	folds map[string]bool
+	// groups is the disclosure state of a run's per-tool groups, keyed by
+	// (row id, tool name). A group not in the map is closed: the first thing
+	// an opened run shows is what it used, not every call it made.
+	groups     map[string]bool
 	projection map[int]projectionCache
 	railCache  []railRow
 	railStamp  uint64
@@ -225,6 +229,7 @@ func newApp(cfg Config) *App {
 			seen:       map[int]int{},
 			newFrom:    map[int]int{},
 			folds:      map[string]bool{},
+			groups:     map[string]bool{},
 			projection: map[int]projectionCache{},
 		},
 	}
