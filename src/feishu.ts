@@ -10,7 +10,7 @@ import { gatewayClient, gatewayEndpoint, type FeishuIm, type ImResponse } from "
 import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
 import { runInFlight, watchLive, type LiveSnapshot } from "./live.ts";
 import { advance, renderSteps, skillOf, stepCount, toolIcon, withIcons, type Trail } from "./steps.ts";
-import { answerHead, composeAnswer, type AnswerBlock } from "./answer.ts";
+import { composeAnswer, type AnswerBlock } from "./answer.ts";
 import { setApprovalDecider, setNotifier, setTurnStarter, type ApprovalRequest } from "./channel.ts";
 import { log, logError } from "./log.ts";
 import { record } from "./audit.ts";
@@ -906,7 +906,14 @@ export function turnMeta(input: {
   costUsd: number;
   model: string;
   thinking: string;
+  /**
+   * A group card is read by whoever asked, not by the person paying. 十四步、886k tokens、
+   * $0.29、deepseek-flash 这些是账本，同事看到只会觉得「这 bot 在说什么」——所以群里那行
+   * 只留一个勾，账还在下面折叠的「本轮执行详情」里，alex 想查随时能展开。
+   */
+  quiet?: boolean;
 }): string {
+  if (input.quiet === true) return "✅";
   const parts = ["✅"];
   if (input.tools > 0) parts.push(`${input.tools} 个工具`);
   if (input.tokens > 0) parts.push(`${formatTokens(input.tokens)} tokens`);
@@ -1143,6 +1150,8 @@ export function groupInstructions(topic?: string): string {
     `- 每条消息开头的方括号是网关标注的说话人：「${owner} 本人」就是 ${owner} 的账号，已经校验过，不需要你再判断身份；「群成员」不是。`,
     "- 工具面对群里所有人一样：read / project_search / logs_query / db_query / bash / write / edit / lark / mcp / delegate 都能用，查代码、查库、查日志、改文件、推分支照做，不用解释权限。危险命令会弹审批卡给 " +
       `${owner}，等他点确认即可。`,
+    "- 群里回话是给同事看的：第一句就给结论，不要「我这边的情况如下」「首先」这类垫话；不要提步数、token、花费、" +
+      "模型、审批、权限这些内部账本和机制——同事看不懂，只会觉得在答非所问；缺信息就一句话说要什么，然后停下等他给。",
     "- 本群的记忆只属于本群：不要提别的会话里的内容，也不要因为「上次群里说过」就当成已知。",
     "- 旧规则已作废：本群以前被设成只读，那条不再适用。不要再回答「这轮是只读的」「bash 在这个群里用不了」，" +
       "也不要让提问的人自己去粘命令或开新会话。",
@@ -2952,9 +2961,10 @@ const continuing = new Set<string>();
       // Freeze live output first, then write the answer.
       await card.finish();
       // The ping is the only notification Feishu gives: a card patch is silent, and "✅ 答完了 ·
-      // 62s" tells a locked phone that something finished without saying what. So the ping carries
-      // the head of the answer. A group's root message is a broadcast, not somebody waiting, so it
-      // stays silent; a topic thread is somebody watching, so it pings even inside a group.
+      // 62s" tells a locked phone that something finished. It used to carry the head of the answer
+      // too, which in a group read as the same answer twice — and the head is the first line, so
+      // "我这边的情况如下：" was all it ever said. A group's root message is a broadcast, not
+      // somebody waiting, so it stays silent; a topic thread pings even inside a group.
       const ping = async (text: string): Promise<void> => {
         if (seconds < config.feishu.donePingSeconds) return;
         if (replyOptions.thread !== true && message.chat_type === "group") return;
@@ -3011,6 +3021,7 @@ const continuing = new Set<string>();
             costUsd: cost,
             model: modelUsed,
             thinking: String(agentPlan?.thinkingLevel ?? ""),
+            quiet: message.chat_type !== "p2p",
           }),
           touched,
         );
@@ -3035,8 +3046,7 @@ const continuing = new Set<string>();
           claim === undefined ? { template: "green", title: "✅ 答完了" } : doneVerdict(claim),
           steps,
         );
-        const head = answerHead(text);
-        await ping(`✅ 答完了 · ${seconds}s${head === "" ? "" : `\n\n${head}`}`);
+        await ping(`✅ 答完了 · ${seconds}s`);
         // A conversation this long makes every step cost about a minute, and the tokens still fit the
         // window, so threshold compaction never fires. Compact on message count instead, after the
         // answer is out, so the user is not left waiting for the next turn to be slow.
@@ -3078,8 +3088,7 @@ const continuing = new Set<string>();
             undefined,
             claim === undefined ? { template: "green", title: "✅ 答完了（续跑一次）" } : doneVerdict(claim),
           );
-          const head = answerHead(answer);
-          await ping(`✅ 答完了（自动续跑一次） · ${total}s${head === "" ? "" : `\n\n${head}`}`);
+          await ping(`✅ 答完了（自动续跑一次） · ${total}s`);
           await note(conversation, context, `跑到 ${config.maxTurns} 步上限，自动续跑了一次`);
           return;
         }
