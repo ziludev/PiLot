@@ -7,6 +7,7 @@ import { ChatPolicy, guestRoots } from "./access.ts";
 import { log } from "./log.ts";
 import { record } from "./audit.ts";
 import { getHarness, getSessionContext } from "./runtime-ref.ts";
+import { APPROVAL_EVENT, noteTaskEvent } from "./task-events.ts";
 
 /**
  * Commands that can destroy work or reach outside the sandbox. Kept short on purpose.
@@ -309,18 +310,28 @@ export const guardExtension = defineExtension({
 
         const surfaceId = surfaceForConversation(api.conversationId) ?? "";
         console.log(`[guard] asking approval for ${call.name}: ${reason}`);
+        const summary = summarize(call.name, args);
         const approved = await requestApproval({
           callId: call.id,
           conversationId: api.conversationId as unknown as number,
           grantKey: key,
           tool: call.name,
-          summary: summarize(call.name, args),
+          summary,
           reason,
           surfaceId,
           timeoutMs: APPROVAL_TIMEOUT_MS,
         });
         await api.memo(memoKey, approved, context);
         console.log(`[guard] ${call.name} ${approved ? "approved" : "denied"}`);
+        // The card is gone in a day; the task dialog should still say it waited for a yes.
+        void noteTaskEvent(
+          getHarness(),
+          getSessionContext(),
+          api.conversationId as unknown as number,
+          api.taskId as unknown as number,
+          APPROVAL_EVENT,
+          `${call.name}${summary === "" ? "" : `：${summary}`} → ${approved ? "已批准" : "被拒绝"}`,
+        );
         return approved ? undefined : { block: `未获批准（${reason}）` };
       },
     }),
