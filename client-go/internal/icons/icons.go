@@ -38,7 +38,13 @@ var (
 	GitBranch = svg(`<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7"/><path d="M18 10.5v1a4 4 0 0 1-4 4H8.5"/>`)
 	// Code is the editor's two angle brackets: the way out of the diff and into
 	// the files themselves.
-	Code    = svg(`<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>`)
+	Code = svg(`<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>`)
+	// Copy is the action bar's 复制: two sheets, the one in front the copy of the
+	// one behind, which is how clipboards have been drawn since before the SVG.
+	Copy = svg(`<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>`)
+	// Pencil is 编辑重发: the words go back to the composer to be written again,
+	// so the mark is the one every editor puts on "write".
+	Pencil  = svg(`<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>`)
 	PlugZap = svg(`<path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z"/><path d="m2 22 3-3"/><path d="M7.5 13.5 10 11"/><path d="M10.5 16.5 13 14"/><path d="m18 3-4 4h6l-4 4"/>`)
 )
 

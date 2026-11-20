@@ -345,3 +345,31 @@ func TestModelGroupsFoldByProvider(t *testing.T) {
 		t.Fatalf("folding back did not hide the model; texts = %v", tt.Texts())
 	}
 }
+
+// TestModelPickerClickAwayCloses is why the picker is a dialog: it used to hang
+// above the composer, where the only ways out were Escape and picking a row —
+// open it by accident and you had to guess.
+func TestModelPickerClickAwayCloses(t *testing.T) {
+	i18n.Set(i18n.EN)
+	b := newModelBridge(t)
+	a := pickerApp(t, b)
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+
+	if err := tt.Click("Claude Sonnet 4.5"); err != nil {
+		t.Fatalf("chip: %v", err)
+	}
+	tt.Frame()
+	if !a.pick.open {
+		t.Fatal("chip did not open the picker")
+	}
+	// Anywhere else will do: the backdrop covers the window.
+	tt.ClickAt(940, 300)
+	tt.Frame()
+	if a.pick.open {
+		t.Error("a click outside the picker left it open")
+	}
+	if a.model.ModelID != "claude-sonnet-4.5" {
+		t.Errorf("a dismissed picker changed the model: %v", a.model)
+	}
+}
