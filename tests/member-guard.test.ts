@@ -74,3 +74,13 @@ test("missing or odd arguments never decide anything", () => {
   assert.equal(denied("write", { path: 42 }), "改文件（write）");
   assert.equal(denied("mcp_some_tool", { anything: true }), undefined);
 });
+
+test("browser: 看页面随便，动页面不行", () => {
+  assert.equal(denied("mcp__playwright__browser_snapshot", {}), undefined);
+  assert.equal(denied("mcp__playwright__browser_take_screenshot", {}), undefined);
+  assert.equal(denied("mcp__playwright__browser_console_messages", {}), undefined);
+  assert.match(denied("mcp__playwright__browser_navigate", { url: "https://example.com" }) ?? "", /动浏览器/);
+  assert.match(denied("mcp__playwright__browser_click", { element: "按钮" }) ?? "", /动浏览器/);
+  assert.match(denied("mcp__playwright__browser_type", { text: "x" }) ?? "", /动浏览器/);
+  assert.equal(denied("mcp__context7__query_docs", { query: "react hooks" }), undefined, "查文档是读");
+});
