@@ -1142,17 +1142,28 @@ async function senderName(openId: string): Promise<string | undefined> {
  * The paragraph about the old rule stays: the model reads its own earlier refusals in the
  * transcript and repeats them, and saying the rule is dead is what unsticks it.
  */
-export function groupInstructions(topic?: string): string {
+/**
+ * 群里的行为准则。写权限按人分，所以口径也按人分：同一条「群里只读、要改动就找 alex」的话，
+ * 说给同事听是保护，说给 alex 听就是在让主人去找主人——他本人在群里发指令时，不该再被告知
+ * 「这一步得 alex 来做」。
+ */
+export function groupInstructions(topic?: string, viewer: "owner" | "member" = "member"): string {
   const owner = config.feishu.ownerName;
+  const isOwner = viewer === "owner";
   const lines = [
     "这是一个共享群（群里有其他人）。",
     `- 不要透露 ${owner} 的个人信息、记忆、日程、其他会话内容。`,
     `- 每条消息开头的方括号是网关标注的说话人：「${owner} 本人」就是 ${owner} 的账号，已经校验过，不需要你再判断身份；「群成员」不是。`,
-    `- 群里是只读的：查代码、查 test/prod 的日志和库、跑只读命令都照做，不用解释权限。但改文件（write/edit）、` +
-      "bash 里的写命令、看 .env 和密钥，会被当场拒绝——不是卡住等人点，是直接不让做。碰到就一句话说「这一步得 " +
-      `${owner} 来做」，然后接着答能答的部分；不要让提问的人自己动手，也不要说「我没有权限」这种内部话。`,
-    "- 群里回话是给同事看的：第一句就给结论，不要「我这边的情况如下」「首先」这类垫话；不要提步数、token、花费、" +
-      "模型、审批、权限这些内部账本和机制——同事看不懂，只会觉得在答非所问；缺信息就一句话说要什么，然后停下等他给。",
+    isOwner
+      ? `- 这条消息是 ${owner} 本人发的：写操作照做，不用解释权限。但群里还有别人看着，不要把密钥、.env、记忆库内容贴进群。`
+      : `- 群里是只读的：查代码、查 test/prod 的日志和库、跑只读命令都照做，不用解释权限。但改文件（write/edit）、` +
+        "bash 里的写命令、看 .env 和密钥，会被当场拒绝——不是卡住等人点，是直接不让做。碰到就一句话说「这一步得 " +
+        `${owner} 来做」，然后接着答能答的部分；不要让提问的人自己动手，也不要说「我没有权限」这种内部话。`,
+    isOwner
+      ? "- 回话群里所有人都看得见：第一句就给结论，不要「我这边的情况如下」这类垫话；步数、token、花费、模型、" +
+        "审批这些内部账本也别往里写。"
+      : "- 群里回话是给同事看的：第一句就给结论，不要「我这边的情况如下」「首先」这类垫话；不要提步数、token、花费、" +
+        "模型、审批、权限这些内部账本和机制——同事看不懂，只会觉得在答非所问；缺信息就一句话说要什么，然后停下等他给。",
     "- 本群的记忆只属于本群：不要提别的会话里的内容，也不要因为「上次群里说过」就当成已知。",
     "- 旧规则已作废：本群以前被设成只读，那条不再适用。不要再回答「这轮是只读的」「bash 在这个群里用不了」，" +
       "也不要让提问的人自己去粘命令或开新会话。",
@@ -2479,7 +2490,7 @@ const continuing = new Set<string>();
         .configure({ compaction: { reserveTokens: 8_192 } }, context)
         .catch((error: unknown) => logError("feishu", "could not set group compaction", error));
       await conversation
-        .configure({ instructions: groupInstructions(topic) }, context)
+        .configure({ instructions: groupInstructions(topic, isOwner ? "owner" : "member") }, context)
         .catch((error: unknown) => logError("feishu", "could not set group instructions", error));
       // The audit trail and the memory rule read this; the tool surface no longer does.
       await setChatTurn(runtime.harness, context, conversation.id as unknown as number, isOwner ? "owner" : "member").catch(

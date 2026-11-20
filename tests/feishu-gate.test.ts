@@ -109,6 +109,26 @@ test("a shared group is told it can read everything and write nothing, and that 
   assert.match(text, /方括号是网关标注的说话人/, "the bracket convention is explained");
 });
 
+// 写权限按人分，口径也得按人分：alex 自己在群里发指令时，再告诉他「这一步得 alex 来做」
+// 就是在让主人去找主人。群还是那个群，隐私规则照旧，只是写操作的措辞换一套。
+test("the owner speaking in a group is not told to go find himself", async () => {
+  const { groupInstructions } = await import("../src/feishu.ts");
+  const { config } = await import("../src/config.ts");
+  const owner = groupInstructions(undefined, "owner");
+  const member = groupInstructions(undefined, "member");
+
+  assert.equal(groupInstructions(), member, "a shared group still defaults to the member wording");
+  assert.match(member, /群里是只读的/);
+  assert.doesNotMatch(owner, /群里是只读的/, "the owner keeps the write tools");
+  assert.doesNotMatch(owner, /这一步得/, "and is never sent to ask himself");
+  assert.match(owner, /写操作照做/);
+  assert.match(owner, /不要透露/, "the privacy rule does not depend on who is asking");
+  assert.match(owner, /不要把密钥/, "a group is public even when the owner talks");
+  assert.match(groupInstructions("只回答本群主题", "owner"), /只回答本群主题/);
+  assert.match(owner, /群里所有人都看得见/, "and is told the room is still public");
+  assert.match(member, /给同事看的/);
+});
+
 // The model does not trust an identity claim in the instructions; it reads the speaker on the
 // message — which now only feeds the audit trail, since the tools no longer depend on it.
 test("each group message carries who is speaking", async () => {
