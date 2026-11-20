@@ -215,13 +215,39 @@ export function stepHeadline(step: { name: string; hint?: string }): string {
   return hint.length === 0 ? `${toolIcon(step.name)} **${step.name}**` : `${toolIcon(step.name, hint)} **${step.name}** \`${hint}\``;
 }
 
+/** The panel is a footnote, not a second copy of the answer: a 60-step turn shown in full is a
+ *  card nobody scrolls. Past this much output the older steps keep their headline and lose their
+ *  text; past this many steps the oldest ones collapse into a count. */
+export const PANEL_PREVIEW_CHARS = 6_000;
+export const PANEL_MAX_STEPS = 40;
+
+/** `bash ×12、read ×3` — what happened before the part that is still listed. */
+function toolTally(steps: Array<{ name: string }>): string {
+  const counts = new Map<string, number>();
+  for (const step of steps) counts.set(step.name, (counts.get(step.name) ?? 0) + 1);
+  return [...counts].map(([name, count]) => `${name} ×${count}`).join("、");
+}
+
 export function detailPanel(details: Omit<TurnDetails, "at">): Record<string, unknown> {
-  const lines = details.steps.map((step, index) => {
+  const shown = details.steps.slice(-PANEL_MAX_STEPS);
+  const dropped = details.steps.length - shown.length;
+  // Preview budget goes to the newest steps first: the end of a turn is what is being read.
+  const withPreview = new Set<number>();
+  let budget = PANEL_PREVIEW_CHARS;
+  for (let index = shown.length - 1; index >= 0; index -= 1) {
+    const size = (shown[index]?.preview ?? "").length;
+    if (size > budget) continue;
+    budget -= size;
+    withPreview.add(index);
+  }
+  const lines = shown.map((step, index) => {
     const mark = step.ok ? "✅" : "⚠️";
     // A tool's output is whatever the tool printed: aligned columns and pipes included, which the
     // card markdown would flatten. The panel body goes through the same element conversion.
-    return `${index + 1}. ${mark} ${stepHeadline(step)}\n\n${step.preview.length > 0 ? step.preview : "（无输出）"}`;
+    const preview = withPreview.has(index) ? (step.preview.length > 0 ? step.preview : "（无输出）") : "（输出略）";
+    return `${dropped + index + 1}. ${mark} ${stepHeadline(step)}\n\n${preview}`;
   });
+  if (dropped > 0) lines.unshift(`更早的 ${dropped} 步：${toolTally(details.steps.slice(0, dropped))}`);
   // The trail goes first: "why it took two minutes" is read before "what it ran".
   const decisionLines = (details.decisions ?? []).map(formatDecision);
   const body = decisionLines.length > 0 ? ["**决策**", ...decisionLines, ...lines] : lines;
@@ -477,7 +503,7 @@ export function card(
   // The trail gives way first: the answer is why the message exists, the steps are footnotes.
   if (details !== undefined && details.steps.length > 0) {
     const total = details.steps.length;
-    const slim = { ...details, steps: details.steps.slice(0, CARD_PANEL_STEPS).map((step) => ({ ...step, preview: "" })) };
+    const slim = { ...details, steps: details.steps.slice(-CARD_PANEL_STEPS).map((step) => ({ ...step, preview: "" })) };
     draft = envelope(markdown, slim);
     if (cardBytes(draft) <= CARD_BUDGET_BYTES) {
       log("feishu", "card over budget, step panel trimmed", { steps: total, kept: CARD_PANEL_STEPS, bytes: cardBytes(draft) });
@@ -1928,15 +1954,43 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     const stopButtons = (): CardButton[] => [
       { label: "停止", value: { kind: "stop", conversationId: conversation.id as unknown as number }, type: "danger" },
     ];
-    const paint = (): void => {
+    // Feishu redraws the whole card on every patch and a token is not a frame: a fast model used to
+    // re-upload the card several times a second, which is where the `2200` stream errors came from.
+    // One frame per 300ms looks the same to a reader, and the frame that is queued is always the
+    // newest one — the last thing said still ends up on the card.
+    const PAINT_MIN_MS = 300;
+    let paintedAt = 0;
+    let lastFrame = "";
+    let pendingFrame: ReturnType<typeof setTimeout> | undefined;
+    const flushFrame = (): void => {
+      pendingFrame = undefined;
       if (phase !== "live") return;
       refreshStages();
-      void patchCard(cardId, body(), status === "" ? working() : status, stopButtons(), WORKING_HEADER, undefined, false).catch((error) => {
+      const text = body();
+      const subtitle = status === "" ? working() : status;
+      const frame = `${text}\u0000${subtitle}`;
+      // Nothing new: the 20s tick and a commit that changed no visible word do not need a round trip.
+      if (frame === lastFrame) return;
+      lastFrame = frame;
+      paintedAt = Date.now();
+      void patchCard(cardId, text, subtitle, stopButtons(), WORKING_HEADER, undefined, false).catch((error) => {
         if (streamErrors < 3) {
           streamErrors += 1;
           logError("feishu", "stream patch failed", error);
         }
       });
+    };
+    const paint = (): void => {
+      if (phase !== "live") return;
+      const wait = PAINT_MIN_MS - (Date.now() - paintedAt);
+      if (wait <= 0) {
+        flushFrame();
+        return;
+      }
+      if (pendingFrame === undefined) {
+        pendingFrame = setTimeout(flushFrame, wait);
+        pendingFrame.unref?.();
+      }
     };
 
     return {
@@ -1977,6 +2031,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         phase = "delivering";
         if (timer !== undefined) clearInterval(timer);
         if (watchdog !== undefined) clearTimeout(watchdog);
+        if (pendingFrame !== undefined) clearTimeout(pendingFrame);
         await watcher?.stop();
       },
     };
