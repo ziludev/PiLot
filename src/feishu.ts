@@ -339,7 +339,9 @@ function textBlockElements(chunk: string): Array<Record<string, unknown>> {
   const flush = (): void => {
     const content = lines.join("\n").trim();
     lines = [];
-    if (content.length > 0) elements.push({ tag: "markdown", content });
+    // A markdown element stops at 3000 characters (11310); past that the client shows nothing, so
+    // an answer written as one long paragraph has to arrive as several elements.
+    if (content.length > 0) for (const piece of chunkMarkdown(content)) elements.push({ tag: "markdown", content: piece });
   };
   for (const line of chunk.split("\n")) {
     if (RULE_LINE.test(line)) {
@@ -352,6 +354,45 @@ function textBlockElements(chunk: string): Array<Record<string, unknown>> {
   }
   flush();
   return elements;
+}
+
+export const MAX_MARKDOWN_CHARS = 3_000;
+
+/**
+ * Cuts a block of markdown into elements the card will actually show whole.
+ *
+ * The cut lands on a line boundary wherever one is near; a cross-cut code fence is closed at the
+ * end of one element and reopened in the next, because an unterminated fence turns the rest of the
+ * answer into code on the client. A single line longer than the cap has nothing to break on and is
+ * cut mid-line.
+ */
+export function chunkMarkdown(content: string, max = MAX_MARKDOWN_CHARS): string[] {
+  if (content.length <= max) return [content];
+  const pieces: string[] = [];
+  let lines: string[] = [];
+  let fence: string | undefined;
+  const carried = (): number => (fence === undefined ? 0 : fence.length + 1);
+  const size = (): number => carried() + lines.reduce((sum, line) => sum + line.length + 1, 0);
+  const cut = (): void => {
+    if (lines.length === 0) return;
+    pieces.push(fence === undefined ? lines.join("\n") : `${lines.join("\n")}\n\`\`\``);
+    lines = fence === undefined ? [] : [fence];
+  };
+  const add = (line: string): void => {
+    if (lines.length > 0 && size() + line.length + 1 > max) cut();
+    lines.push(line);
+    if (/^\s*```/.test(line)) fence = fence === undefined ? line : undefined;
+  };
+  for (const line of content.split("\n")) {
+    if (line.length + carried() + 2 <= max) {
+      add(line);
+      continue;
+    }
+    const room = Math.max(200, max - carried() - 2);
+    for (let index = 0; index < line.length; index += room) add(line.slice(index, index + room));
+  }
+  cut();
+  return pieces.length > 0 ? pieces : [content];
 }
 
 /** The body of a card: prose as markdown, tables as tables, rules as rules. */
@@ -380,47 +421,106 @@ export function bodyElements(markdown: string): Array<Record<string, unknown>> {
  * That placeholder is the read API talking, not the client — a card that renders perfectly still
  * reads back that way.
  */
-function card(
+export function card(
   markdown: string,
   meta?: string,
   buttons?: CardButton[],
   header?: CardHeader,
   details?: Omit<TurnDetails, "at">,
 ): Record<string, unknown> {
-  const elements: Array<Record<string, unknown>> = bodyElements(stripInlineCode(markdown));
-  if (details !== undefined && details.steps.length > 0) {
-    elements.push(detailPanel(details));
-  }
-  if (meta !== undefined) {
-    elements.push({ tag: "markdown", content: meta, text_size: "notation" });
-  }
-  if (buttons !== undefined && buttons.length > 0) {
-    elements.push({
-      tag: "column_set",
-      flex_mode: "flow",
-      horizontal_spacing: "8px",
-      columns: buttons.map((button) => ({
-        tag: "column",
-        width: "auto",
-        elements: [
-          {
-            tag: "button",
-            text: { tag: "plain_text", content: button.label },
-            type: button.type ?? "default",
-            value: button.value,
-          },
-        ],
-      })),
-    });
-  }
-  return {
+  const elementsFor = (body: string, trail?: Omit<TurnDetails, "at">): Array<Record<string, unknown>> => {
+    const elements: Array<Record<string, unknown>> = bodyElements(stripInlineCode(body));
+    if (trail !== undefined && trail.steps.length > 0) {
+      elements.push(detailPanel(trail));
+    }
+    if (meta !== undefined) {
+      elements.push({ tag: "markdown", content: meta, text_size: "notation" });
+    }
+    if (buttons !== undefined && buttons.length > 0) {
+      elements.push({
+        tag: "column_set",
+        flex_mode: "flow",
+        horizontal_spacing: "8px",
+        columns: buttons.map((button) => ({
+          tag: "column",
+          width: "auto",
+          elements: [
+            {
+              tag: "button",
+              text: { tag: "plain_text", content: button.label },
+              type: button.type ?? "default",
+              value: button.value,
+            },
+          ],
+        })),
+      });
+    }
+    return elements;
+  };
+  const summary = cardSummary(markdown, header);
+  const envelope = (body: string, trail?: Omit<TurnDetails, "at">): Record<string, unknown> => ({
     schema: "2.0",
-    config: { update_multi: true, width_mode: "fill" },
+    config: {
+      update_multi: true,
+      width_mode: "fill",
+      // What the chat list and a push notification show instead of the first line of the body.
+      ...(summary.length === 0 ? {} : { summary: { content: summary } }),
+    },
     ...(header === undefined
       ? {}
       : { header: { template: header.template, title: { tag: "plain_text", content: header.title } } }),
-    body: { elements },
-  };
+    body: { elements: elementsFor(body, trail) },
+  });
+
+  let draft = envelope(markdown, details);
+  if (cardBytes(draft) <= CARD_BUDGET_BYTES) return draft;
+  // The trail gives way first: the answer is why the message exists, the steps are footnotes.
+  if (details !== undefined && details.steps.length > 0) {
+    const total = details.steps.length;
+    const slim = { ...details, steps: details.steps.slice(0, CARD_PANEL_STEPS).map((step) => ({ ...step, preview: "" })) };
+    draft = envelope(markdown, slim);
+    if (cardBytes(draft) <= CARD_BUDGET_BYTES) {
+      log("feishu", "card over budget, step panel trimmed", { steps: total, kept: CARD_PANEL_STEPS, bytes: cardBytes(draft) });
+      return draft;
+    }
+    draft = envelope(`${markdown}\n\n> 这轮跑了 ${total} 步，卡片放不下就没列出来`, undefined);
+    if (cardBytes(draft) <= CARD_BUDGET_BYTES) {
+      log("feishu", "card over budget, step panel dropped", { steps: total, bytes: cardBytes(draft) });
+      return draft;
+    }
+  }
+  // Then the words, a slice at a time: an answer that got shorter still beats one that never
+  // arrives, and 230099 is what a card that was too long used to answer with.
+  let body = markdown;
+  for (let guard = 0; guard < 12 && cardBytes(draft) > CARD_BUDGET_BYTES && body.length > 200; guard += 1) {
+    body = `${body.slice(0, Math.max(200, Math.floor(body.length * 0.7)))}\n\n…（太长，后面截掉了）`;
+    draft = envelope(body, undefined);
+  }
+  log("feishu", "card trimmed to fit", { bytes: cardBytes(draft), chars: body.length });
+  return draft;
+}
+
+/** Feishu answers 230099 for a card whose JSON passes 30KB, and the envelope and escaping eat
+ *  into that. A 9000-character CJK answer is 27KB before the step panel is added. */
+export const CARD_BUDGET_BYTES = 28_000;
+
+/** How many steps survive when the panel has to shrink: the newest ones say what went wrong. */
+export const CARD_PANEL_STEPS = 6;
+
+function cardBytes(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value), "utf8");
+}
+
+/** The one line a chat list shows. The header already says what this card is; without one, the
+ *  first line of the answer is the best summary there is. */
+function cardSummary(markdown: string, header?: CardHeader): string {
+  if (header !== undefined) return header.title;
+  const first =
+    markdown
+      .split("\n")
+      .map((line) => line.replace(/[#>*_`|~\-\s]+/g, " ").trim())
+      .find((line) => line.length > 0) ?? "";
+  return first.length > 40 ? `${first.slice(0, 40)}…` : first;
 }
 
 function renderDetails(details: TurnDetails): string {
