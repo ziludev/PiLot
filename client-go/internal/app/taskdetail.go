@@ -41,6 +41,9 @@ type taskDetailPanel struct {
 	// expanded is the stage whose steps are open, by conversation id; 0 is none.
 	// One at a time — two open stages on a phone-sized dialog is a transcript.
 	expanded int
+	// scroll is the body's offset, kept across frames so the dialog stays where
+	// the reader left it while the task's log streams in.
+	scroll ui.ScrollState
 }
 
 // openTaskDetail shows the dialog for id and asks the bridge about it.
@@ -140,13 +143,19 @@ func (a *App) applyTaskStop(id, seq int, err error) {
 	a.invalidate()
 }
 
+// taskDialogMaxHeight is how tall the dialog grows before its body scrolls
+// instead. A fixed height and not a percentage: inside a modal the parent's
+// height is not the window's, and a percentage there is read against the
+// content the dialog is trying to shrink.
+const taskDialogMaxHeight = 700
+
 // taskDetailDialog draws the task the rail's list opened.
 func (a *App) taskDetailDialog(c *ui.Context, t theme.Tokens) {
 	if !a.detail.open {
 		return
 	}
 	ui.Modal(c, &a.detail.open, func() {
-		ui.Column(c).Width(460).Padding(16).Gap(12).Radius(10).
+		ui.Column(c).Width(460).Padding(16).Gap(12).Radius(10).MaxHeight(taskDialogMaxHeight).
 			Background(t.Popover).Border(1, t.Border).Children(func() {
 			title := a.detailTitle()
 			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
@@ -154,18 +163,25 @@ func (a *App) taskDetailDialog(c *ui.Context, t theme.Tokens) {
 					TextColor(t.Foreground).MaxLines(2).Grow(1)
 				a.taskStateBadge(c, t)
 			})
-			if a.detail.busy && a.detail.task == nil {
-				ui.Text(c, i18n.T("loading")).FontSize(11).TextColor(t.MutedFg)
-			}
-			if a.detail.failed != "" {
-				ui.Text(c, a.detail.failed).FontSize(11).TextColor(t.Destructive).MaxLines(4)
-			}
-			if task := a.detail.task; task != nil {
-				a.taskFacts(c, t, task)
-				a.taskInput(c, t, task)
-				a.taskOutcome(c, t, task)
-				a.taskStages(c, t, task)
-			}
+			// The body scrolls, the title and the buttons do not: a task's input
+			// is JSON of whatever length its kind wanted, and a dialog that
+			// clipped it to a dozen lines showed a text it could not finish.
+			ui.Scroll(c).FillWidth().Grow(1).TrackScroll(&a.detail.scroll).Children(func() {
+				ui.Column(c).FillWidth().Gap(12).Children(func() {
+					if a.detail.busy && a.detail.task == nil {
+						ui.Text(c, i18n.T("loading")).FontSize(11).TextColor(t.MutedFg)
+					}
+					if a.detail.failed != "" {
+						ui.Text(c, a.detail.failed).FontSize(11).TextColor(t.Destructive).MaxLines(4)
+					}
+					if task := a.detail.task; task != nil {
+						a.taskFacts(c, t, task)
+						a.taskInput(c, t, task)
+						a.taskOutcome(c, t, task)
+						a.taskStages(c, t, task)
+					}
+				})
+			})
 			ui.Row(c).FillWidth().Justify(ui.End).Gap(8).Children(func() {
 				if a.canStop() {
 					a.dialogButton(c, t, i18n.T("taskStop"), false, func() {
@@ -266,8 +282,10 @@ func (a *App) taskInput(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
 	}
 	ui.Column(c).FillWidth().Gap(3).Children(func() {
 		ui.Text(c, i18n.T("taskInput")).FontSize(10.5).TextColor(t.MutedFg)
-		ui.Text(c, clipLines(text, 12)).Font(monoFont).FontSize(10).
-			TextColor(t.Foreground).MaxLines(14).Padding(8).Radius(6).
+		// 400 lines is a guard against a pasted file, not a summary: the dialog
+		// scrolls, so the whole input is one flick away.
+		ui.Text(c, clipLines(text, 400)).Font(monoFont).FontSize(10).
+			TextColor(t.Foreground).MaxLines(400).Padding(8).Radius(6).
 			Background(t.SidebarAccent)
 	})
 }
@@ -281,8 +299,8 @@ func (a *App) taskOutcome(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
 	}
 	ui.Column(c).FillWidth().Gap(3).Children(func() {
 		ui.Text(c, i18n.T("taskOutcome")).FontSize(10.5).TextColor(t.MutedFg)
-		ui.Text(c, clipLines(text, 8)).Font(monoFont).FontSize(10).
-			TextColor(t.Foreground).MaxLines(10).Padding(8).Radius(6).
+		ui.Text(c, clipLines(text, 120)).Font(monoFont).FontSize(10).
+			TextColor(t.Foreground).MaxLines(120).Padding(8).Radius(6).
 			Background(t.SidebarAccent)
 	})
 }
@@ -558,8 +576,9 @@ func rawText(raw json.RawMessage) string {
 	return prettyJSON(text)
 }
 
-// clipLines keeps the first n lines of a block: an input or an outcome can be a
-// whole document, and the dialog is not the place to read it.
+// clipLines keeps the first n lines of a block. The callers pick n as a guard
+// against a pasted document, not as a summary: the dialog scrolls, so a task's
+// input is readable down to its last field.
 func clipLines(text string, n int) string {
 	lines := strings.Split(text, "\n")
 	if len(lines) <= n {
