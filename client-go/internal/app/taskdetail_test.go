@@ -367,3 +367,40 @@ func TestTheRowThatStartedTheTaskIsNotABash(t *testing.T) {
 		t.Fatal("a stage opened itself")
 	}
 }
+
+// TestLongTaskInputIsAllThere: a task's input is JSON of whatever length its
+// kind asked for. Clipped to a dozen lines, the dialog showed a text it could
+// not finish and had nowhere to scroll — so the reader was told the input went
+// on but not what it said.
+func TestLongTaskInputIsAllThere(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	tt := ui.NewTester(a.View, 1180, 820)
+
+	input := map[string]any{}
+	for i := 0; i < 60; i++ {
+		input["field"+itoa(i)] = i
+	}
+	raw, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	detailWithLog(t, a, tt, api.TaskDetail{
+		ID: 9, Kind: "pi.generation", ConversationID: 11, Status: "dormant",
+		Title: "Recap the day", Input: raw,
+	}, nil)
+	tt.Frame()
+
+	// The last field is the proof the whole block was laid out, not the first
+	// twelve lines of it.
+	if !tt.HasText(`"field59"`) {
+		t.Fatalf("the input stopped early; drew %v", tt.Texts())
+	}
+	// And the body it sits in has somewhere to go: MaxY is what the wheel has to
+	// travel, and a dialog whose overflow is zero cannot show its own last line.
+	tt.Advance(400 * time.Millisecond)
+	if a.detail.scroll.MaxY <= 0 {
+		t.Fatal("the dialog has no room to scroll, so its tail is unreachable")
+	}
+}
