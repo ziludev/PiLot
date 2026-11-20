@@ -517,12 +517,46 @@ type TaskDetail struct {
 }
 
 // TaskSubAgent is one child a task spawned, which is where a running task's
-// signs of life are.
+// signs of life are. The conversation is how the child's steps are found.
 type TaskSubAgent struct {
-	ID    string `json:"id"`
+	ID             string `json:"id"`
+	Kind           string `json:"kind"`
+	Title          string `json:"title"`
+	State          string `json:"state"`
+	ConversationID int    `json:"conversationId"`
+}
+
+// TaskLogStep is one thing a task did: a tool call with its verdict, or a reply
+// in words. Thinking is not kept — it is the model talking to itself.
+type TaskLogStep struct {
+	ID    int    `json:"id"`
 	Kind  string `json:"kind"`
-	Title string `json:"title"`
+	At    int64  `json:"at"`
+	Tool  string `json:"tool"`
+	Label string `json:"label"`
 	State string `json:"state"`
+	Text  string `json:"text"`
+}
+
+// TaskLogStage is one conversation's part of a run: the task's own turn when it
+// spawned nothing, each child when it did.
+type TaskLogStage struct {
+	ConversationID int           `json:"conversationId"`
+	Parent         bool          `json:"parent"`
+	Role           string        `json:"role"`
+	Steps          []TaskLogStep `json:"steps"`
+	More           int           `json:"more"`
+}
+
+// TaskLog reads what the task did, stage by stage. A task that ran for hours can
+// break at 03:40, and the only way to see which command went red used to be
+// opening the child's chat — which is not in the rail at all.
+func (c *Client) TaskLog(ctx context.Context, id int) ([]TaskLogStage, error) {
+	var log struct {
+		Stages []TaskLogStage `json:"stages"`
+	}
+	err := c.get(ctx, "/api/task/log?id="+strconv.Itoa(id), &log)
+	return log.Stages, err
 }
 
 // Task reads one task in detail.

@@ -38,8 +38,11 @@ import (
 // kinds of receipt (a chat, the nightly pass, a memo typed into Feishu) each
 // need a phrase rather than a raw "chat:12" leaking into the window; 249 adds the
 // six words for the two delivery settings (night, how many a day) and their offs,
-// plus the two that say a stopped task is not a lost one.
-const maxKeys = 251
+// two that say a stopped task is not a lost one, and six for the step list a
+// task's dialog turns into a timeline: its header, the hint, the overflow count,
+// the "what it did" label, and the two lines about the stop; and the commit
+// dialog's placeholder, which the key audit found missing since it was written.
+const maxKeys = 256
 
 func TestDictionariesMatch(t *testing.T) {
 	keys := Keys()

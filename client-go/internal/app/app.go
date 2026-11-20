@@ -297,6 +297,7 @@ const (
 	evCommitDiff
 	// A task's detail, its stop, and the usage calendar's daily samples.
 	evTaskDetail
+	evTaskLog
 	evTaskStop
 	evUsage
 	// A file's text, for the preview beside a patch.
@@ -344,6 +345,9 @@ type event struct {
 	// and what came back.
 	taskID int
 	task   *api.TaskDetail
+	// stages is the task's step list, fetched separately because it is read from
+	// the store rather than from the task's own record.
+	stages []api.TaskLogStage
 	// fileText is the preview's answer: the path it was asked for and the text.
 	path      string
 	fileText  string
@@ -693,6 +697,8 @@ func (a *App) apply(ev event) {
 		a.applyCommitDiff(ev.hash, ev.diff, ev.err)
 	case evTaskDetail:
 		a.applyTaskDetail(ev.taskID, ev.seq, ev.task, ev.err)
+	case evTaskLog:
+		a.applyTaskLog(ev.taskID, ev.seq, ev.stages, ev.err)
 	case evTaskStop:
 		a.applyTaskStop(ev.taskID, ev.seq, ev.err)
 	case evUsage:
