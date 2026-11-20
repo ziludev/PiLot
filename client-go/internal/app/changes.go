@@ -1,12 +1,13 @@
 package app
 
-// The changes drawer: what the agent changed in the chat's worktree, the patch
-// behind it, and the commits on this branch.
+// The changes drawer: what the agent changed in the chat's worktree, and the
+// patch behind it.
 //
-// It is one drawer rather than three because they answer one question in three
-// depths: the file list says what moved, the patch says how, the commits say
-// what already left. Picking a file or a commit replaces the list with the
-// patch and a way back — a 460-point drawer has no room for two columns.
+// It answers one question in two depths: the file list says what moved, the
+// patch says how. Picking a file replaces the list with its lines and a way
+// back — a 460-point drawer has no room for two columns. The branch's commit
+// log used to sit here too; it answered a different question ("what already
+// left") that git log and the transcript already answer, so it went.
 //
 // Read-only by design. Committing, pushing and merging are writes that need the
 // approval path, and the rail's chat menu is where those belong; a panel that
@@ -31,9 +32,10 @@ const (
 	// changesWidth fits a diff line at 10.5pt and still leaves the transcript
 	// more than half the window.
 	changesWidth = 460
-	// commitLimit is how far back the commits tab reads: enough for a day of
-	// work on a branch, short enough to answer in one call.
-	commitLimit = 20
+	// gitLimit is how much of the branch's log to ask for. The drawer wants the
+	// branch, the base and the remote out of that reply, not the history: one
+	// commit is enough to make the bridge's own read small.
+	gitLimit = 1
 )
 
 // monoFont is what the transcript's code blocks use; a diff is code.
@@ -41,7 +43,6 @@ const monoFont = "SF Mono, Menlo, monospace"
 
 type changesPanel struct {
 	open   bool
-	tab    int
 	conv   int
 	busy   bool
 	failed string
@@ -69,15 +70,12 @@ type changesPanel struct {
 	textCut  bool
 	textBusy bool
 
-	commits     []protocol.Commit
-	commitsConv int
-	// openCommit is the hash whose patch fills the drawer, "" for the list.
-	openCommit    string
-	commitSubject string
+	// gitConv is the chat whose branch and base were read; 0 for none. The
+	// drawer needs them for the write verbs, and they outlive a refresh.
+	gitConv int
 
-	fileList   ui.ListState
-	commitList ui.ListState
-	diffList   ui.ListState
+	fileList ui.ListState
+	diffList ui.ListState
 }
 
 // toggleChanges opens the drawer, or closes it. The two drawers are the same
@@ -94,8 +92,8 @@ func (a *App) toggleChanges() {
 	a.invalidate()
 }
 
-// refreshChanges reads the worktree patch and, when they are stale or belong to
-// another chat, the branch's commits.
+// refreshChanges reads the worktree patch and, for a chat it has not seen yet,
+// the branch the write verbs act on.
 func (a *App) refreshChanges() {
 	if a.active == 0 {
 		a.changesClear("")
@@ -104,10 +102,6 @@ func (a *App) refreshChanges() {
 	conv := a.active
 	a.changes.conv = conv
 	a.changes.failed = ""
-	if a.changes.commitsConv != conv {
-		a.changes.commits = nil
-		a.changes.commitsConv = conv
-	}
 	a.changes.busy = true
 	go func() {
 		ctx, cancel := context.WithTimeout(a.ctx, 20*time.Second)
@@ -115,11 +109,12 @@ func (a *App) refreshChanges() {
 		changes, err := a.api.Changes(ctx, conv)
 		a.post(event{kind: evChanges, convID: conv, changes: changes, err: err})
 	}()
-	if a.changes.commits == nil {
+	if a.changes.gitConv != conv {
+		a.changes.gitConv = conv
 		go func() {
 			ctx, cancel := context.WithTimeout(a.ctx, 20*time.Second)
 			defer cancel()
-			git, err := a.api.Git(ctx, conv, commitLimit)
+			git, err := a.api.Git(ctx, conv, gitLimit)
 			a.post(event{kind: evGit, convID: conv, git: git, err: err})
 		}()
 	}
@@ -134,7 +129,6 @@ func (a *App) changesClear(reason string) {
 	a.changes.patch = ""
 	a.changes.openFile = ""
 	a.changes.lines = nil
-	a.changes.openCommit = ""
 }
 
 func (a *App) applyChanges(convID int, changes *protocol.Changes, err error) {
@@ -167,12 +161,14 @@ func (a *App) applyGit(convID int, git *protocol.Git, err error) {
 		return
 	}
 	if err != nil {
+		// Let the next refresh ask again: the write verbs need the base, and a
+		// drawer opened while the bridge was down would otherwise stay base-less.
+		a.changes.gitConv = 0
 		if a.changes.failed == "" {
 			a.changes.failed = err.Error()
 		}
 		return
 	}
-	a.changes.commits = git.Commits
 	if git.Branch != "" {
 		a.changes.branch = git.Branch
 	}
@@ -234,35 +230,6 @@ func (a *App) applyFileText(convID int, path, text string, truncated bool, err e
 	a.changes.textCut = truncated
 }
 
-// openCommitFile shows one commit's patch, read when it is asked for: the log
-// does not carry bodies, and a branch's twentieth commit is rarely opened.
-func (a *App) openCommitFile(hash, subject string) {
-	a.changes.openCommit = hash
-	a.changes.commitSubject = subject
-	a.changes.lines = nil
-	a.changes.diffList = ui.ListState{}
-	a.changes.failed = ""
-	go func() {
-		ctx, cancel := context.WithTimeout(a.ctx, 20*time.Second)
-		defer cancel()
-		diff, err := a.api.CommitDiff(ctx, a.changes.conv, hash)
-		a.post(event{kind: evCommitDiff, hash: hash, diff: diff, err: err})
-	}()
-	a.invalidate()
-}
-
-func (a *App) applyCommitDiff(hash, diff string, err error) {
-	// A slow reply for a commit the user already left must not open itself.
-	if hash != a.changes.openCommit {
-		return
-	}
-	if err != nil {
-		a.changes.failed = err.Error()
-		return
-	}
-	a.changes.lines = strings.Split(strings.TrimRight(diff, "\n"), "\n")
-}
-
 // changesView is the drawer.
 func (a *App) changesView(c *ui.Context, t theme.Tokens) {
 	// Shrinks on a narrow window: 260 of rail plus 460 of drawer would leave the
@@ -276,53 +243,16 @@ func (a *App) changesView(c *ui.Context, t theme.Tokens) {
 				ui.Text(c, a.changes.failed).FontSize(11).TextColor(t.Destructive).MaxLines(4)
 			})
 		}
-		if a.changes.openFile == "" && a.changes.openCommit == "" {
-			a.changesTabs(c, t)
-		}
-		switch {
-		case a.changes.openFile != "":
+		if a.changes.openFile != "" {
 			a.changesFileHead(c, t, a.changes.openFile)
 			if a.changes.whole {
 				a.fileTextView(c, t)
 			} else {
 				a.diffView(c, t)
 			}
-		case a.changes.openCommit != "":
-			a.changesFileHead(c, t, a.changes.commitSubject)
-			a.diffView(c, t)
-		case a.changes.tab == 1:
-			a.commitsBody(c, t)
-			a.writeFooter(c, t)
-		default:
+		} else {
 			a.changesBody(c, t)
 			a.writeFooter(c, t)
-		}
-	})
-}
-
-// changesTabs switches between what moved and what already left.
-func (a *App) changesTabs(c *ui.Context, t theme.Tokens) {
-	labels := [2]string{i18n.T("changesTab"), i18n.T("commitsTab")}
-	ui.Row(c).FillWidth().Padding(0, 12, 8, 12).Gap(2).Children(func() {
-		for index := range labels {
-			at, text := index, labels[index]
-			on := a.changes.tab == index
-			tab := ui.ButtonBase(c).Grow(1).Height(24).Radius(5).Justify(ui.Center).
-				Cursor(ui.CursorPointer)
-			if on {
-				tab.Background(t.Background)
-			}
-			tab.Children(func() {
-				color, weight := t.MutedFg, 500
-				if on {
-					color, weight = t.Foreground, 600
-				}
-				ui.Text(c, text).FontSize(11).FontWeight(weight).TextColor(color).MaxLines(1)
-			})
-			tab.OnClick(func() {
-				a.changes.tab = at
-				a.changes.fileList, a.changes.commitList = ui.ListState{}, ui.ListState{}
-			})
 		}
 	})
 }
@@ -365,13 +295,12 @@ func (a *App) changesFileHead(c *ui.Context, t theme.Tokens, title string) {
 			ui.Text(c, i18n.T("back")).FontSize(10.5).TextColor(t.MutedFg)
 		})
 		back.OnClick(func() {
-			a.changes.openFile, a.changes.openCommit = "", ""
-			a.changes.lines, a.changes.commitSubject = nil, ""
+			a.changes.openFile, a.changes.lines = "", nil
 		})
 		ui.Text(c, title).FontSize(10.5).TextColor(t.Foreground).MaxLines(1).Grow(1)
-		// Only a worktree file has text behind it; a commit's diff is all there
-		// is, so the switch is not offered there.
-		if a.changes.openFile != "" && a.changes.openCommit == "" {
+		// A file has text behind it; the patch is what the drawer opened on, so
+		// the switch back and forth is always offered here.
+		if a.changes.openFile != "" {
 			for index, label := range [2]string{i18n.T("changesPatch"), i18n.T("changesWhole")} {
 				at, text := index == 1, label
 				on := a.changes.whole == at
@@ -463,38 +392,6 @@ func (a *App) changeFileRow(c *ui.Context, t theme.Tokens, file protocol.FileCha
 	})
 	path := file.Path
 	row.OnClick(func() { a.openChangeFile(path) })
-}
-
-func (a *App) commitsBody(c *ui.Context, t theme.Tokens) {
-	if len(a.changes.commits) == 0 {
-		ui.Column(c).FillWidth().Padding(12, 12).Children(func() {
-			ui.Text(c, i18n.T("commitsNone")).FontSize(11).TextColor(t.MutedFg).MaxLines(2)
-		})
-		return
-	}
-	ui.Column(c).FillWidth().Padding(0, 12).Grow(1).Children(func() {
-		ui.List(c, &a.changes.commitList, len(a.changes.commits), func(row int) {
-			a.commitRow(c, t, a.changes.commits[row])
-		}).Grow(1).Width(changesWidth - 24)
-	})
-}
-
-func (a *App) commitRow(c *ui.Context, t theme.Tokens, commit protocol.Commit) {
-	row := ui.Row(c).FillWidth().Gap(8).Padding(6, 4).AlignItems(ui.Start).
-		Cursor(ui.CursorPointer).Radius(5)
-	row.Children(func() {
-		ui.Text(c, commit.Short).Font(monoFont).FontSize(10).TextColor(t.MutedFg).Width(56)
-		ui.Column(c).Grow(1).Gap(2).Children(func() {
-			ui.Text(c, commit.Subject).FontSize(11).TextColor(t.Foreground).MaxLines(2)
-			meta := changeCounts(protocol.FileChange{Added: commit.Added, Removed: commit.Removed})
-			if commit.Files > 0 {
-				meta = i18n.TF("commitFiles", map[string]any{"n": commit.Files}) + " · " + meta
-			}
-			ui.Text(c, meta).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
-		})
-	})
-	hash, subject := commit.Hash, commit.Subject
-	row.OnClick(func() { a.openCommitFile(hash, subject) })
 }
 
 // diffView is the patch itself: one line per row, colour by what the line does.

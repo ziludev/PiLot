@@ -426,19 +426,6 @@ func (c *Client) Git(ctx context.Context, convID, limit int) (*protocol.Git, err
 	return &out, nil
 }
 
-// CommitDiff is GET /api/git/diff: one commit's patch, by hash.
-func (c *Client) CommitDiff(ctx context.Context, convID int, hash string) (string, error) {
-	var out struct {
-		Hash string `json:"hash"`
-		Diff string `json:"diff"`
-	}
-	path := "/api/git/diff?conversationId=" + strconv.Itoa(convID) + "&hash=" + url.QueryEscape(hash)
-	if err := c.get(ctx, path, &out); err != nil {
-		return "", err
-	}
-	return out.Diff, nil
-}
-
 // CommitResult is what POST /api/commit answers: the commit it made.
 type CommitResult struct {
 	Head string `json:"head"`

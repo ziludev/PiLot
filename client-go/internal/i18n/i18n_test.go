@@ -43,7 +43,7 @@ import (
 // the "what it did" label, and the two lines about the stop; and the commit
 // dialog's placeholder, which the key audit found missing since it was written;
 // and the "started from" label on the one row that began a task.
-const maxKeys = 257
+const maxKeys = 254
 
 func TestDictionariesMatch(t *testing.T) {
 	keys := Keys()

@@ -296,10 +296,9 @@ const (
 	evMemory
 	evCurate
 	evMemorySaved
-	// The changes drawer: the worktree patch, the branch, one commit's patch.
+	// The changes drawer: the worktree patch and the branch it sits on.
 	evChanges
 	evGit
-	evCommitDiff
 	// A task's detail, its stop, and the usage calendar's daily samples.
 	evTaskDetail
 	evTaskLog
@@ -344,8 +343,6 @@ type event struct {
 	applied  *protocol.MemoryApplied
 	changes  *protocol.Changes
 	git      *protocol.Git
-	hash     string
-	diff     string
 	// taskID and task are the dialog's round trip: which task was asked about,
 	// and what came back.
 	taskID int
@@ -698,8 +695,6 @@ func (a *App) apply(ev event) {
 		a.applyChanges(ev.convID, ev.changes, ev.err)
 	case evGit:
 		a.applyGit(ev.convID, ev.git, ev.err)
-	case evCommitDiff:
-		a.applyCommitDiff(ev.hash, ev.diff, ev.err)
 	case evTaskDetail:
 		a.applyTaskDetail(ev.taskID, ev.seq, ev.task, ev.err)
 	case evTaskLog:
