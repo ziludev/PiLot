@@ -15,6 +15,7 @@ import { ROLES, toolsFor, type RoleName } from "./roles.ts";
 import { notify, surfaceForConversation } from "./channel.ts";
 import { getHarness } from "./runtime-ref.ts";
 import { log, logError } from "./log.ts";
+import { AGENT_TASKS, AGENT_TOOLS, setAgentBoundary } from "./agents.ts";
 
 const ROLE_NAMES = Object.keys(ROLES) as RoleName[];
 /** How many times a stage is asked for the rest of its work before the pipeline gives up on it. */
@@ -189,9 +190,10 @@ type FeatureInput = {
   /** Parent conversation, so the result also lands in its transcript. */
   parentConversationId: number;
   skipTests: boolean;
+  skipReview: boolean;
 };
 
-type StageKey = "feature-design" | "feature-implement" | "feature-test";
+type StageKey = "feature-design" | "feature-implement" | "feature-test" | "feature-review";
 
 /**
  * The same pipeline as the synchronous tool, but as a background durable task:
@@ -211,6 +213,11 @@ const FeatureTask = defineTask<FeatureInput, { phase: "run" }, string>({
       ];
       if (!task.input.skipTests) {
         stages.push({ key: "feature-test", role: "tester", title: "写测试" });
+      }
+      // Review last, after the tests exist: a reviewer that cannot see the test a change had to pass
+      // reviews half the change. It reads the diff, not the summary.
+      if (!task.input.skipReview) {
+        stages.push({ key: "feature-review", role: "reviewer", title: "评审改动" });
       }
 
       const outputs: Record<string, string> = {};
@@ -325,7 +332,7 @@ async function runStage(
   }
 }
 
-function buildStagePrompt(key: StageKey, spec: string, previous: Record<string, string>): string {
+export function buildStagePrompt(key: StageKey, spec: string, previous: Record<string, string>): string {
   const design = previous["feature-design"] ?? "";
   const implementation = previous["feature-implement"] ?? "";
   if (key === "feature-design") {
@@ -333,6 +340,10 @@ function buildStagePrompt(key: StageKey, spec: string, previous: Record<string, 
   }
   if (key === "feature-implement") {
     return `需求：\n${spec}\n\n设计文档与注意事项：\n${design}\n\n请实现并自测，然后按约定格式汇报。`;
+  }
+  if (key === "feature-review") {
+    const tests = previous["feature-test"] ?? "";
+    return `需求：\n${spec}\n\n设计摘要：\n${design}\n\n实现者的汇报：\n${implementation}\n\n测试者的汇报：\n${tests}\n\n请直接读仓库里的改动（git diff / git status）评审：只列真正必须改的问题，最多三条，说清在哪、为什么、怎么改；没有必须改的就一句话说通过。`;
   }
   return `需求：\n${spec}\n\n设计摘要：\n${design}\n\n实现者的汇报：\n${implementation}\n\n请按约定写测试并运行一次。`;
 }
@@ -384,11 +395,12 @@ async function report(
 const buildFeature = defineTool({
   name: "build_feature",
   description:
-    "把需求跑完整流水线：designer 写设计文档 → implementer 实现自测 → tester 写测试。background=\"1\" 时丢到后台跑，立即返回，完成后主动发消息（推荐，尤其是要几分钟的活）；否则同步等待结果。",
+    "把需求跑完整流水线：designer 写设计文档 → implementer 实现自测 → tester 写测试 → reviewer 评审改动。background=\"1\" 时丢到后台跑，立即返回，完成后主动发消息（推荐，尤其是要几分钟的活）；否则同步等待结果。",
   parameters: obj({
     spec: str({ description: "需求描述：要做什么、边界、验收标准" }),
     background: opt(str({ description: '传 "1" 后台跑（推荐）' })),
     skipTests: opt(str({ description: '传 "1" 跳过测试阶段' })),
+    skipReview: opt(str({ description: '传 "1" 跳过评审阶段' })),
   }),
   replay: "safe",
   execute: async (args, api, context) => {
@@ -407,6 +419,7 @@ const buildFeature = defineTool({
           surfaceId,
           parentConversationId: api.conversationId as unknown as number,
           skipTests: args.skipTests === "1",
+          skipReview: args.skipReview === "1",
         },
         // Background: outlives this turn, so the conversation goes idle while it runs.
         { ownership: { kind: "conversation" }, background: true },
@@ -420,7 +433,7 @@ const buildFeature = defineTool({
             type: "text" as const,
             text: `已在后台开工（task ${taskId}）：designer → implementer${
               args.skipTests === "1" ? "" : " → tester"
-            }。做完我主动发你消息，期间你可以继续聊别的。`,
+            }${args.skipReview === "1" ? "" : " → reviewer"}。做完我主动发你消息，期间你可以继续聊别的。`,
           },
         ],
       };
@@ -456,6 +469,7 @@ const buildFeature = defineTool({
     }
     report.push(`【implementer】\n${implementation.text}`);
 
+    let testText = "";
     if (args.skipTests !== "1") {
       api.output("③ tester 写测试并运行…");
       const tests = await runChild(
@@ -468,7 +482,24 @@ const buildFeature = defineTool({
           "feature-implement": implementation.text,
         }),
       );
-      report.push(tests.ok ? `【tester】\n${tests.text}` : `【tester】失败：${tests.error}`);
+      testText = tests.ok ? tests.text : `失败：${tests.error}`;
+      report.push(`【tester】\n${testText}`);
+    }
+
+    if (args.skipReview !== "1") {
+      api.output("④ reviewer 读改动评审…");
+      const review = await runChild(
+        api,
+        context,
+        "feature-review",
+        "reviewer",
+        buildStagePrompt("feature-review", args.spec, {
+          "feature-design": design.text,
+          "feature-implement": implementation.text,
+          "feature-test": testText,
+        }),
+      );
+      report.push(review.ok ? `【reviewer】\n${review.text}` : `【reviewer】失败：${review.error}`);
     }
 
     return {
@@ -551,7 +582,11 @@ const cancelTask = defineTool({
 export const SUBAGENT_TOOLS = [delegate, delegateParallel, buildFeature, taskStatus, cancelTask];
 
 export const subagentExtension = defineExtension({
-  name: "subagents",
-  tools: SUBAGENT_TOOLS,
-  tasks: [FeatureTask],
+	name: "subagents",
+	// Long-lived named agents live in the same extension: they are the other way to hand work
+	// over, and an agent that could hire agents would be an unbounded fan-out.
+	tools: [...SUBAGENT_TOOLS, ...AGENT_TOOLS],
+	tasks: [FeatureTask, ...AGENT_TASKS],
 });
+
+setAgentBoundary(subagentExtension);
