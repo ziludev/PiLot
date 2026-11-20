@@ -169,7 +169,8 @@ Everything lives in `.env`; `.env.example` explains every key.
 | `AGENT_PROVIDER`, `AGENT_MODEL`, `AGENT_THINKING` | default provider, model and thinking level |
 | `MAGPIE_BASE_URL`, `MAGPIE_API_KEY` | when `AGENT_PROVIDER=magpie`: a local OpenAI-compatible proxy |
 | `AGENT_WORKSPACE`, `AGENT_DB` | the directory tools may touch, and the SQLite file |
-| `AGENT_MAX_TURNS` | tool calls per turn before the card offers Continue |
+| `AGENT_MAX_TURNS` | tool calls per turn before the card offers Continue (240; a runaway guard, not a budget) |
+| `AGENT_DAILY_BUDGET_USD` | dollars per day across all chats, 0 = unlimited (200 here) |
 | `AGENT_DAILY_BUDGET_USD` | daily spend cap, `0` for none |
 | `AGENT_WORKTREE`, `AGENT_SKILLS_DIRS`, `AGENT_MCP_CONFIG` | worktree mode, skill directories, MCP config file |
 | `AGENT_TOOLBOX_BIN` | the toolbox binary that serves `bash`/`read`/`write`/`edit`; rebuilt from `toolbox-go/` when stale |
@@ -347,7 +348,7 @@ npm run eval -- --json        # one envelope, for scripts
 ## Known limits
 
 - Tests cover pure logic and contracts, not end to end; both commands run in seconds.
-- A turn stops after 80 tool calls (`AGENT_MAX_TURNS`). That is not a failure: the card says it stopped at the limit and offers Continue; the transcript is intact.
+- A turn stops after 240 tool calls (`AGENT_MAX_TURNS`). That is a runaway guard, not a budget: ordinary work here runs 100-150 calls, and a loop looks like hundreds within minutes. Money is capped by `AGENT_DAILY_BUDGET_USD`. Stopping is not a failure — the card says so and offers Continue; the transcript is intact. A run that makes 40 calls in a row without changing anything is told to wrap up (that warning rides along with the tool result; see `src/stall.ts`).
 - Pi Durable is **experimental** and changes between 1.x releases; run `npm run typecheck` before upgrading. It also pins chord: from 1.5.1 chord v2 is the package root, `Context` lives only in `@earendil-works/chord/context`, and importing it from the root fails to compile.
 - SQLite runs with `synchronous=NORMAL`: a crash loses nothing, a power cut may lose the last commit.
 - `bash` can in principle `cd` out of the workspace; the guard hook covers danger, it is not a sandbox.
