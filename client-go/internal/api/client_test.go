@@ -343,7 +343,7 @@ func TestGitReadsTheCommitsAndTheCompareURL(t *testing.T) {
 
 func TestTaskReadsOneDetail(t *testing.T) {
 	var got capture
-	client := serve(t, `{"id":7,"kind":"agent.run","conversationId":2,"owner":"cli","background":true,`+
+	client := serve(t, `{"id":7,"kind":"agent.run","conversationId":2,"owner":3,"background":true,`+
 		`"abortRequested":false,"status":"running","phase":"thinking","until":1794819765170,`+
 		`"title":"整理日志","input":{"text":"go"},"outcome":null,`+
 		`"subAgents":[{"id":"sub_1","kind":"agent.spawn","title":"读源码","state":"running"}],`+
@@ -360,6 +360,11 @@ func TestTaskReadsOneDetail(t *testing.T) {
 	}
 	if task.Until != 1794819765170 {
 		t.Fatalf("until %d", task.Until)
+	}
+	// The bridge sends the owner as a task id number; a string field here failed every
+	// detail page for a task that had one.
+	if task.Owner == nil || *task.Owner != 3 {
+		t.Fatalf("owner %v", task.Owner)
 	}
 	if len(task.SubAgents) != 1 || task.SubAgents[0].Title != "读源码" || task.SubAgents[0].State != "running" {
 		t.Fatalf("subAgents %+v", task.SubAgents)
