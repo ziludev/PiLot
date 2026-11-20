@@ -23,6 +23,7 @@ import type { Context } from "@earendil-works/chord/context";
 import { obj, opt, str } from "@earendil-works/pi-schema";
 import { answerTextInTx } from "./answer.ts";
 import { notify, surfaceForConversation } from "./channel.ts";
+import { config } from "./config.ts";
 import { log, logError } from "./log.ts";
 import { ROLES, toolsFor, type RoleName } from "./roles.ts";
 import { settle } from "./settle.ts";
@@ -66,6 +67,9 @@ export function setAgentBoundary(extension: Extension): void {
 
 async function configureAgent(tx: Tx, id: ConversationId, role: RoleName): Promise<void> {
   await configure(tx, id, {
+    // An ownerless conversation is not a copy of the one that hired it, so the model and the
+    // thinking level are stated here instead of inherited.
+    model: { provider: config.model.provider, modelId: config.model.modelId },
     extensions: { remove: boundary === undefined ? [] : [boundary] },
     instructions: `你是 ${role}，alex 的长期协作者。上一条消息可能是以前的活，别当新任务重做。\n\n${ROLES[role].instructions}\n\n角色上限：${ROLES[role].maxTurns} 轮工具调用。`,
     ...toolsFor(role),
