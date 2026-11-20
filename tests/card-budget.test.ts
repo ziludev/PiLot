@@ -70,9 +70,13 @@ test("a card too big even without its panel arrives shorter instead of not at al
 });
 
 test("a shortened panel keeps the newest steps and drops the output", () => {
-  const built = JSON.stringify(card("结论。", undefined, undefined, undefined, details(60)));
-  assert.ok(built.includes("第 5 次"));
-  assert.equal((built.match(/输出行/g) ?? []).length, 0);
+  // A long answer plus a 200-step panel is past the budget, so the panel is what gives way.
+  const shortened = card("回答。".repeat(1_700), undefined, undefined, undefined, details(200));
+  assert.ok(bytes(shortened) <= CARD_BUDGET_BYTES);
+  const built = JSON.stringify(shortened);
+  assert.ok(built.includes(`第 ${200 - 1} 次`), "the step that just ran is the one that stays");
+  assert.ok(!built.includes("第 0 次"), "the oldest steps are what went");
+  assert.equal((built.match(/输出行/g) ?? []).length, 0, "a trimmed panel carries no output");
   assert.ok(CARD_PANEL_STEPS > 0);
 });
 
