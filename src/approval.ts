@@ -35,6 +35,21 @@ const RISKY: Array<{ pattern: RegExp; reason: string; key: string }> = [
 const WRITE_TOOLS = new Set(["write", "edit"]);
 
 /**
+ * MCP 浏览器工具里，只有这几个是「看一眼」：快照、控制台、网络记录、截图、查找。
+ * 其余（导航、点击、输入、填表、上传）都能把工作区里的东西送到外网去，或者替人在别人
+ * 的系统里按下按钮——对群成员来说和 `git push` 是一个量级，所以硬拒绝。
+ */
+const BROWSER_READS = new Set([
+  "browser_snapshot",
+  "browser_find",
+  "browser_console_messages",
+  "browser_network_requests",
+  "browser_network_request",
+  "browser_take_screenshot",
+  "browser_tabs",
+]);
+
+/**
  * 群成员的写操作：拒绝，不弹卡。
  *
  * 审批卡是「alex 不在场时替他按一下确认」用的；同事要改代码，得他自己决定，一张卡放在群里
@@ -75,6 +90,8 @@ export function memberBlock(tool: string, args: Record<string, unknown>): string
   if (tool === "db_query" && typeof args["sql"] === "string" && SECRET_COLUMN.test(args["sql"])) {
     return "查密钥字段";
   }
+  const browser = /^mcp__playwright__(.+)$/.exec(tool);
+  if (browser !== null && BROWSER_READS.has(browser[1] ?? "") === false) return "动浏览器";
   if (tool !== "bash") return undefined;
   const command = typeof args["command"] === "string" ? args["command"] : "";
   if (command.length === 0) return undefined;

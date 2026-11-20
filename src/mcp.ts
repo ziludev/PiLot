@@ -19,6 +19,12 @@ type McpServerConfig = {
   /** Streamable HTTP server; takes precedence over command. */
   url?: string;
   headers?: Record<string, string>;
+  /**
+   * Only these tools are exposed, by the names the server reports. Unset exposes all of them.
+   * Every exposed tool costs its schema in the request on every turn: playwright ships 25 and
+   * ~18KB of JSON, most of it drag-and-drop and file uploads nobody asks for.
+   */
+  only?: string[];
 };
 
 export type McpRuntime = {
@@ -81,7 +87,9 @@ export async function connectMcp(configPath: string, workspace: string): Promise
       type ListedTool = { name: string; description?: string; inputSchema?: object };
       const listed = (await client.listTools()) as unknown as ListedTool[] | { tools?: ListedTool[] };
       // pi-mcp returns the tool array itself; tolerate the spec's { tools } shape too.
-      const toolList = Array.isArray(listed) ? listed : (listed.tools ?? []);
+      const all = Array.isArray(listed) ? listed : (listed.tools ?? []);
+      const toolList = server.only === undefined ? all : all.filter((tool) => server.only?.includes(tool.name) === true);
+      if (toolList.length < all.length) log("mcp", `skipped ${all.length - toolList.length} tools from ${server.name}`);
       for (const tool of toolList) {
         const name = toolName(server.name, tool.name);
         tools.push(
