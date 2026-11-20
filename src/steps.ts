@@ -117,6 +117,21 @@ const TOOL_ICONS: Record<string, string> = {
 };
 
 /**
+ * The skill a `bash` call is running, if it is one.
+ *
+ * A skill is a folder of scripts: the agent opens with
+ * `export SKILL_DIR="/Users/…/.pi/agent/skills/lark-doc"` and then runs what is inside it. The call
+ * is a shell call honestly, but the skill is what is doing the work, and `⌨️ bash export SKILL_DIR=…`
+ * told a reader neither of those things.
+ */
+export function skillOf(hint: string | undefined): string | undefined {
+  if (hint === undefined) return undefined;
+  // The name has to end on its own: a hint is cut at 90 characters, and half a skill name is
+  // worse than no name at all.
+  return /\.pi\/agent\/skills\/([\w.-]+)(?=[/"'\s])/.exec(hint)?.[1];
+}
+
+/**
  * What a shell command actually was, when the tool name says nothing.
  *
  * `bash` is not one thing: it is the web (curl), the repo (git), the tests (go test), the database
@@ -156,6 +171,7 @@ export function toolIcon(name: string, hint?: string): string {
   const icon = TOOL_ICONS[key];
   // The shell's category is in its command, not in its name.
   if ((key === "bash" || key === "shell" || key === "exec") && hint !== undefined) {
+    if (skillOf(hint) !== undefined) return "🧩";
     const fromCommand = commandIcon(hint);
     if (fromCommand !== undefined) return fromCommand;
   }
@@ -209,7 +225,8 @@ export function renderSteps(trail: Trail, now: number, options: { limit?: number
 
 /** `🌿 bash \`git log --oneline -3\` · 2s`: the name, what it ran, how long, and the last thing it said. */
 function stepLine(label: string, hint: string | undefined, elapsed: string, tail?: string): string {
-  const what = hintLine(hint);
+  // A skill call says which skill; its `export SKILL_DIR=…` says nothing twice over.
+  const what = skillOf(hint) ?? hintLine(hint);
   const head = `${withIcons(label, hint)}${what.length === 0 ? "" : ` \`${what}\``}`;
   return `${head} · ${elapsed}${tail === undefined ? "" : ` · ${tail}`}`;
 }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { advance, renderSteps, stepCount, toolIcon, withIcons, type Trail } from "../src/steps.ts";
+import { advance, renderSteps, skillOf, stepCount, toolIcon, withIcons, type Trail } from "../src/steps.ts";
 
 /** A running card has to answer "what did it do so far", not just "something is happening". */
 
@@ -94,4 +94,28 @@ test("a command longer than the line keeps its verb when it is cut", () => {
   trail = advance(trail, live(["bash"], ["a"]), 0, `git commit -m "${long}"`);
   assert.match(renderSteps(trail, 1_000), /🌿 bash `git commit -m "npm test/);
   assert.match(renderSteps(trail, 1_000), /…`/);
+});
+
+test("a skill call wears the skill, not the shell", () => {
+  // The shape the agent writes: the skill's folder, then a script inside it.
+  const cmd =
+    `export SKILL_DIR="/Users/alexwang/.pi/agent/skills/presence-diagnose"; for q in 'draw'; ` +
+    `do bash "$SKILL_DIR/scripts/sls.sh" query dev dora-dev-stdout "$q"; done`;
+  assert.equal(skillOf(cmd), "presence-diagnose");
+  assert.equal(toolIcon("bash", cmd), "🧩", "a skill is not a keyboard");
+  // Everything that is not a skill still reads its command.
+  assert.equal(toolIcon("bash", "git status"), "🌿");
+  assert.equal(skillOf("git status"), undefined);
+  // A hint cut mid-name must not pass the fragment off as the skill.
+  assert.equal(skillOf('export SKILL_DIR="/Users/alexwang/.pi/agent/skills/presence-dia'), undefined);
+});
+
+test("the step line names the skill instead of its SKILL_DIR preamble", () => {
+  let trail: Trail = { rounds: [], since: 0 };
+  const hint = 'export SKILL_DIR="/Users/alexwang/.pi/agent/skills/lark-doc"; sed -n 1,80p "$SKILL_DIR/SKILL.md"';
+  trail = advance(trail, live(["bash"], ["a"]), 0, hint);
+  const card = renderSteps(trail, 10_000);
+  assert.match(card, /🧩 bash `lark-doc`/);
+  assert.match(card, /`lark-doc`/);
+  assert.ok(!card.includes("SKILL_DIR"), `still showing the preamble: ${card}`);
 });
