@@ -7,7 +7,7 @@ import { getFeishuStatus, handleGatewayEvent, stopConversation } from "./feishu.
 import { startTurn } from "./channel.ts";
 import { log, logError } from "./log.ts";
 import { config } from "./config.ts";
-import { subAgentActivity } from "./activity.ts";
+import { subAgentActivity, taskLog } from "./activity.ts";
 import { lastStops } from "./turn-status.ts";
 import { collectChanges, commitChanges, ensureRepo } from "./changes.ts";
 import { mergeWorktree } from "./worktree.ts";
@@ -854,6 +854,18 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
           // actually is.
           subAgents: subAgentActivity(config.dbPath, id),
         });
+      }
+
+      if (req.method === "GET" && path === "/api/task/log") {
+        // What the task did, in order. The dialog could already say what it was asked and how it
+        // ended, but a pipeline that broke at 03:40 could only be read by opening the child's chat —
+        // and the child's chat is not in the rail. Read-only: the store is the record.
+        const id = Number(url.searchParams.get("id"));
+        if (!Number.isFinite(id)) return send(res, 400, { error: "id required" });
+        const record = await runtime.harness.getTask(id as never, context);
+        if (record === undefined) return send(res, 404, { error: "no such task" });
+        const conversationId = (record as unknown as { conversationId?: number }).conversationId;
+        return send(res, 200, { id, stages: taskLog(config.dbPath, id, conversationId ?? null) });
       }
 
       if (req.method === "POST" && path === "/api/task/cancel") {
