@@ -8,7 +8,8 @@ import { log } from "./log.ts";
  * `bash` counts as looking on purpose: it is both `git commit` and `grep`, and guessing wrong in
  * the safe direction (counting a commit as dry) only makes the warning arrive a round later.
  */
-const PROGRESS_TOOLS = new Set([
+/** Tools that change something; the batching hint reuses the split. */
+export const PROGRESS_TOOLS = new Set([
   "edit",
   "write",
   "remember",
