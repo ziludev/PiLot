@@ -32,8 +32,19 @@ test("nothing to say prints nothing, not a stray string", () => {
 });
 
 test("the headline keeps the tool's own name and drops a backtick that would break the span", () => {
-  assert.equal(stepHeadline({ name: "bash" }), "**bash**");
-  assert.equal(stepHeadline({ name: "bash", hint: "" }), "**bash**");
-  assert.equal(stepHeadline({ name: "bash", hint: "git status" }), "**bash** `git status`");
-  assert.equal(stepHeadline({ name: "bash", hint: "cd `pwd`" }), "**bash** `cd 'pwd'`");
+  assert.equal(stepHeadline({ name: "bash" }), "⌨️ **bash**");
+  assert.equal(stepHeadline({ name: "bash", hint: "" }), "⌨️ **bash**");
+  assert.equal(stepHeadline({ name: "bash", hint: "cd `pwd`" }), "⌨️ **bash** `cd 'pwd'`");
+});
+
+// Every call in a turn here is `bash` — the web is curl, the repo is git, the tests are `go test`.
+// An icon chosen by tool name alone therefore put a keyboard on every line, which is the same as
+// having no icons at all.
+test("the icon follows the command, so five bash lines read as five different things", () => {
+  assert.equal(stepHeadline({ name: "bash", hint: "git status" }), "🌿 **bash** `git status`");
+  assert.equal(stepHeadline({ name: "bash", hint: "curl -s https://example.com" }), "🌐 **bash** `curl -s https://example.com`");
+  assert.equal(stepHeadline({ name: "bash", hint: "cd client-go && go test ./..." }), "🧪 **bash** `cd client-go && go test ./...`");
+  assert.equal(stepHeadline({ name: "bash", hint: "npx tsc --noEmit" }), "🧪 **bash** `npx tsc --noEmit`");
+  // A tool whose name already says what it is keeps its own icon.
+  assert.equal(stepHeadline({ name: "read", hint: "/tmp/a.md" }), "📄 **read** `/tmp/a.md`");
 });

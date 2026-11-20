@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { shortRole, spanText, stageLine, subAgentActivity, subAgentStagesSince, type SubAgentActivity } from "../src/activity.ts";
+import { callHints, shortRole, spanText, stageLine, subAgentActivity, subAgentStagesSince, type SubAgentActivity } from "../src/activity.ts";
 
 /** When the fixture's in-flight stage started, in wall clock ms. */
 const LIVE_START = 3_600_000;
@@ -225,4 +225,27 @@ test("a stage line says which role, how long, and whether it broke", () => {
   assert.equal(stageLine(failed, now), "✗ 按设计文档实现代码 · 失败");
   assert.equal(spanText(-5), "0s");
   assert.equal(spanText(3_900_000), "1h 5m");
+});
+
+test("a call id on the card is traced back to the command that ran", () => {
+  // The live document names the tool and withholds the arguments, so without this lookup a turn
+  // that ran five shell commands draws five identical lines.
+  const dir = mkdtempSync(join(tmpdir(), "hints-"));
+  const path = join(dir, "agent.sqlite");
+  const db = new DatabaseSync(path);
+  db.exec("create table entries (id integer primary key autoincrement, conversation_id integer, record text)");
+  const assistant = (callId: string, command: string) => ({
+    model: [{
+      role: "assistant",
+      content: [{ type: "toolCall", id: callId, name: "bash", arguments: { command } }],
+    }],
+  });
+  db.prepare("insert into entries (conversation_id, record) values (?, ?)").run(7, JSON.stringify(assistant("call_1", "cd api && go test ./...")));
+  db.prepare("insert into entries (conversation_id, record) values (?, ?)").run(8, JSON.stringify(assistant("call_other", "rm -rf /")));
+
+  const got = callHints(path, 7, ["call_1", "call_missing"]);
+  db.close();
+  rmSync(dir, { recursive: true, force: true });
+
+  assert.deepEqual(got, { call_1: "cd api && go test ./..." }, "the other conversation's call is not this turn's");
 });

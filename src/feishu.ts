@@ -46,7 +46,7 @@ import {
 import { lookupMessage, topicTitle } from "./threads.ts";
 import { readTurnDetails, saveTurnDetails, type TurnDetails } from "./details.ts";
 import { formatDecision, noteDecision, takeDecisions } from "./decisions.ts";
-import { shortRole, spanText, stageLine, subAgentStagesSince } from "./activity.ts";
+import { callHints, shortRole, spanText, stageLine, subAgentStagesSince } from "./activity.ts";
 import { doneVerdict, takeDone } from "./done.ts";
 import {
   adoptChatLevels,
@@ -211,7 +211,7 @@ function standaloneHeader(reason: string | undefined): CardHeader {
  *  A backtick in the command would end the inline code span early, so it becomes a quote. */
 export function stepHeadline(step: { name: string; hint?: string }): string {
   const hint = (step.hint ?? "").replace(/`/g, "'").trim();
-  return hint.length === 0 ? `**${step.name}**` : `**${step.name}** \`${hint}\``;
+  return hint.length === 0 ? `${toolIcon(step.name)} **${step.name}**` : `${toolIcon(step.name, hint)} **${step.name}** \`${hint}\``;
 }
 
 export function detailPanel(details: Omit<TurnDetails, "at">): Record<string, unknown> {
@@ -1764,6 +1764,33 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     // connection per token.
     let stages: string[] = [];
     let stagesAt = 0;
+    // `bash` five times in a row is what a turn here actually looks like, and the live document
+    // names the tool but not what it ran: the arguments are in the transcript, keyed by call id.
+    // One lookup per call id, remembered for the turn — the card is painted far more often than
+    // calls are made.
+    const hints = new Map<string, string>();
+    const hintFor = (live: LiveSnapshot): string | undefined => {
+      const callIds = live.callIds ?? [];
+      const missing = callIds.filter((id) => !hints.has(id));
+      if (missing.length > 0) {
+        let found: Record<string, string> = {};
+        try {
+          found = callHints(config.dbPath, conversation.id as unknown as number, missing);
+        } catch {
+          // A card that cannot read the arguments is still a card; it just says `bash`.
+        }
+        for (const id of missing) {
+          // Remember the miss too: a call id whose arguments are not in the transcript yet must
+          // not be looked up on every patch.
+          hints.set(id, found[id] ?? "");
+        }
+      }
+      // Only when the round is one call: two calls in a round are two commands, and putting the
+      // first one's arguments next to both names would mislabel the second.
+      if (callIds.length !== 1) return undefined;
+      const hint = hints.get(callIds[0] as string) ?? "";
+      return hint.length === 0 ? undefined : hint;
+    };
     const refreshStages = (): void => {
       const now = Date.now();
       if (now - stagesAt < 2_000) return;
@@ -1805,7 +1832,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         watcher = await watchLive(conversation, (live) => {
           if (phase !== "live") return;
           last = live;
-          trail = advance(trail, live, Date.now());
+          trail = advance(trail, live, Date.now(), hintFor(live));
           for (const tool of live.tools) tools.add(tool);
           paint();
         });

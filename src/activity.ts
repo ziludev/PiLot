@@ -286,6 +286,52 @@ export function argumentLabel(args: unknown): string {
   return "";
 }
 
+/**
+ * What a call's arguments say, looked up by the call id the live snapshot carries.
+ *
+ * The live document names the tools of a round and nothing else, so a turn that ran everything
+ * through `bash` draws five identical lines — and most turns here are exactly that, because
+ * searching the web, reading a repo and checking git all go through `bash`. The arguments are in
+ * the transcript one row above the slot; the first line of them is what makes those lines differ.
+ *
+ * Read-only and capped: a handful of rows per call id, one connection per snapshot that brings a
+ * call id we have not seen.
+ */
+export function callHints(dbPath: string, conversationId: number, callIds: string[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (callIds.length === 0) return out;
+  const db = new DatabaseSync(dbPath, { readOnly: true });
+  try {
+    const find = db.prepare(
+      `select record from entries
+        where conversation_id = ? and record like ?
+        order by id desc
+        limit 5`,
+    );
+    for (const callId of callIds) {
+      const rows = find.all(conversationId, `%"${callId}"%`) as { record: string }[];
+      for (const row of rows) {
+        let record: { model?: { role?: string; content?: Block[] }[] };
+        try {
+          record = JSON.parse(row.record);
+        } catch {
+          continue;
+        }
+        const block = (record.model ?? [])
+          .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+          .find((part) => part.type === "toolCall" && part.id === callId);
+        if (block === undefined) continue;
+        const hint = argumentLabel(block.arguments);
+        if (hint.length > 0) out[callId] = hint;
+        break;
+      }
+    }
+  } finally {
+    db.close();
+  }
+  return out;
+}
+
 interface Block {
   type?: string;
   text?: string;
