@@ -2134,10 +2134,10 @@ const continuing = new Set<string>();
       await conversation
         .configure({ compaction: { reserveTokens: 8_192 } }, context)
         .catch((error: unknown) => logError("feishu", "could not set group compaction", error));
-      void sendText(chatId, "已开通：可以问我了。查代码、查库、查日志、改文件都能做，危险操作会先问 alex。").catch(() => {});
+      void sendText(chatId, "已开通：可以问我了。查代码、查库、查日志都能做；改文件、写库、看密钥只有 alex 能做，会被直接拒。").catch(() => {});
       const messageId = payload.context?.open_message_id;
       if (messageId !== undefined) {
-        void patchCard(messageId, `✅ 已开放 ${chatId.slice(-6)}`, "所有人都能用：查代码 / 库 / 日志，危险操作走审批").catch(
+        void patchCard(messageId, `✅ 已开放 ${chatId.slice(-6)}`, "所有人都能用：查代码 / 库 / 日志；写操作只有 alex 能做").catch(
           () => {},
         );
       }
@@ -2392,7 +2392,7 @@ const continuing = new Set<string>();
       await openGroup(message.chat_id, groupInstructions());
       await sendText(
         message.chat_id,
-        "已把本群开放：群里所有人都能用，查代码、查 test/prod 的库和日志、改文件都能做；危险操作会先私聊问 alex。",
+        "已把本群开放：群里所有人都能用，查代码、查 test/prod 的库和日志都能做；改文件、写库、看密钥只有 alex 能做，会被直接拒。",
       );
       return;
     }
@@ -2412,7 +2412,7 @@ const continuing = new Set<string>();
       const conversation = await runtime.conversationFor(message.chat_id);
       await setChatTopic(runtime.harness, context, conversation.id as unknown as number, topic);
       await openGroup(message.chat_id, groupInstructions(topic));
-      await sendText(message.chat_id, "已把本群开放给所有成员：查代码、查 test/prod 的库和日志、改文件都能做，危险操作会先私聊问 alex。");
+      await sendText(message.chat_id, "已把本群开放给所有成员：查代码、查 test/prod 的库和日志都能做；改文件、写库、看密钥只有 alex 能做，会被直接拒。");
       return;
     }
     if (isGroupChat && !isOwner) {
