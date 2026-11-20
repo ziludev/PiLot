@@ -487,10 +487,13 @@ func (c *Client) Merge(ctx context.Context, convID int) (MergeResult, error) {
 // TaskDetail is one task as GET /api/task describes it: what it is doing, what
 // it was asked, and what it spawned.
 type TaskDetail struct {
-	ID             int             `json:"id"`
-	Kind           string          `json:"kind"`
-	ConversationID int             `json:"conversationId"`
-	Owner          string          `json:"owner"`
+	ID             int    `json:"id"`
+	Kind           string `json:"kind"`
+	ConversationID int    `json:"conversationId"`
+	// The task that owns this one — a task id, or null for work nobody owns. Read as a
+	// number: the bridge sends what the harness records, and a string here failed the whole
+	// detail with "cannot unmarshal number into Go struct field TaskDetail.owner".
+	Owner          *int            `json:"owner"`
 	Background     bool            `json:"background"`
 	AbortRequested bool            `json:"abortRequested"`
 	Status         string          `json:"status"`
