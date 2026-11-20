@@ -22,6 +22,8 @@ import { chooseName } from "./identity.ts";
 import { titleExtension } from "./title.ts";
 import { contextGuardExtension } from "./context-guard.ts";
 import { stallExtension } from "./stall.ts";
+import { batchingExtension } from "./batching.ts";
+import { turnLogExtension } from "./turn-log.ts";
 import { alertReport } from "./alerts.ts";
 import { notify } from "./channel.ts";
 import { ChatMemory, GlobalMemory, memoryExtension, type Note } from "./memory.ts";
@@ -230,6 +232,8 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   registry.install(titleExtension);
   registry.install(contextGuardExtension);
   registry.install(stallExtension);
+  registry.install(batchingExtension);
+  registry.install(turnLogExtension);
   registry.install(subagentExtension);
   registry.install(projectExtension);
   registry.install(doneExtension);

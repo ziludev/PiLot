@@ -1,6 +1,7 @@
 import { createBashTool } from "@earendil-works/pi-durable/tools";
 import { defineTool, type ToolExecutionApi, type ToolExecutionResult, type ToolRegistration } from "@earendil-works/pi-durable";
 import { requireCwd, toolboxError } from "./shared.ts";
+import { noteSlice, parseSliceRead, widenedNote } from "./bash-read.ts";
 import { abortedCall, type Toolbox, type ToolboxFailure } from "../client.ts";
 
 /** The in-process tool: its schema, description, and result shape are the contract. */
@@ -49,6 +50,34 @@ export function createBashToolProxy(toolbox: Toolbox) {
       validateTimeout(args.timeout);
       // The reference's exec refuses an already-aborted call before it starts anything.
       if (context.abortSignal?.aborted) throw abortedCall();
+      // A second slice of the same file is answering a question the first slice raised; the whole
+      // file answers it and the next few. Falls through to the shell when the read itself fails.
+      const slice = parseSliceRead(args.command);
+      if (slice !== undefined) {
+        const count = noteSlice(api.conversationId as unknown as number, slice.path);
+        if (count > 1) {
+          const read = await toolbox.call(
+            "read",
+            { path: slice.path, offset: slice.offset, limit: 2000 },
+            { cwd: requireCwd(api), signal: context.abortSignal },
+          );
+          if (read.failure === undefined && read.result.isError !== true) {
+            const text = String(read.result.text ?? "");
+            api.diagnostic({
+              severity: "info",
+              code: "widened_read",
+              message: `Read ${slice.path} whole instead of another slice`,
+            });
+            return {
+              structuredOutput: {
+                output: `${text}\n\n${widenedNote(slice.path, count)}`,
+                truncated: false,
+                exitCode: 0,
+              },
+            };
+          }
+        }
+      }
       const call = await toolbox.call(
         "bash",
         { command: args.command, timeout: args.timeout },
