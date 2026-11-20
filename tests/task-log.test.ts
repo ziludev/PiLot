@@ -215,3 +215,29 @@ test("a task nobody called — a routine — has no start row", () => {
   assert.equal(stages.length, 1);
   assert.equal(stages[0]?.start, undefined);
 });
+
+test("an approval and a verdict show up in the task that hit them", () => {
+  const store = new Store();
+  const turn = store.task(9);
+  store.child(2, turn);
+  store.rows(9, turn, [
+    call("c1", "bash", { command: "rm -rf build" }),
+    result("c1", false),
+  ]);
+  // Written by the bridge, not by the model: an approval is answered outside the task's own commit
+  // scope, so the task it belongs to rides in `data` and the row has no model to read.
+  store.rows(9, turn, [
+    { kind: "app.approval", data: { taskId: turn, text: "bash：rm -rf build → 已批准", at: 1002 } },
+    { kind: "app.done", data: { taskId: turn, text: "目标达成：删干净了", at: 1003 } },
+  ]);
+
+  const stages = taskLog(store.path, turn, 9);
+  store.close();
+
+  const labels = (stages[0]?.steps ?? []).map((step) => [step.kind, step.label ?? step.text]);
+  assert.deepEqual(labels, [
+    ["tool", "rm -rf build"],
+    ["say", "bash：rm -rf build → 已批准"],
+    ["say", "目标达成：删干净了"],
+  ]);
+});

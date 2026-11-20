@@ -14,6 +14,7 @@ import { answerHead, composeAnswer, type AnswerBlock } from "./answer.ts";
 import { setApprovalDecider, setNotifier, setTurnStarter, type ApprovalRequest } from "./channel.ts";
 import { log, logError } from "./log.ts";
 import { record } from "./audit.ts";
+import { rememberCardText, sentCardText } from "./card-text.ts";
 import { collectKetchup, elapsed, formatKetchup } from "./ketchup.ts";
 import { collectDigest } from "./digest.ts";
 import { recordVerdict } from "./verdicts.ts";
@@ -811,6 +812,9 @@ function titleOf(content: string): string {
   }
 }
 
+/** What Feishu hands back instead of a 2.0 card's body when one is read by its message id. */
+export const CARD_PLACEHOLDER = "请升级至最新版本客户端";
+
 /** Every `text`/`content` string inside a card JSON, in order — cards are deeply nested. */
 function cardText(content: string): string {
   const parts: string[] = [];
@@ -825,7 +829,7 @@ function cardText(content: string): string {
     for (const [key, item] of Object.entries(value)) {
       if (typeof item === "string" && (key === "text" || key === "content" || key === "title")) {
         const trimmed = item.replace(/\s+/g, " ").trim();
-        if (trimmed.length > 0) parts.push(trimmed);
+        if (trimmed.length > 0 && !trimmed.includes(CARD_PLACEHOLDER)) parts.push(trimmed);
         continue;
       }
       walk(item, depth + 1);
@@ -858,6 +862,8 @@ export function quoteText(
   }
   if (msgType === "interactive") {
     const own = cardText(content);
+    // A card read back by id comes home as a placeholder, not as what it says. Saying "no readable
+    // text" is honest; pasting "请升级至最新版本客户端" into the model is a red herring.
     return own.length > 0 ? own.slice(0, 1_200) : "（一张卡片，里面没有可读的文字）";
   }
   const parsed = parseContent({ message_type: msgType, content, mentions } as never);
@@ -1237,6 +1243,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       },
     });
     const messageId = (response as { data?: { message_id?: unknown } } | undefined)?.data?.message_id;
+    if (typeof messageId === "string") void rememberCardText(runtime.harness, context, messageId, markdown);
     return typeof messageId === "string" ? messageId : undefined;
   }
 
@@ -1259,7 +1266,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       await sendMarkdown(chatId, markdown, meta, header);
       return;
     }
-    await im.message.reply({
+    const response = await im.message.reply({
       path: { message_id: messageId },
       data: {
         msg_type: "interactive",
@@ -1267,6 +1274,8 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         ...(thread === true ? { reply_in_thread: true } : {}),
       },
     });
+    const sentId = (response as { data?: { message_id?: unknown } } | undefined)?.data?.message_id;
+    if (typeof sentId === "string") void rememberCardText(runtime.harness, context, sentId, markdown);
   }
 
   async function patchCard(
@@ -1276,8 +1285,12 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     buttons?: CardButton[],
     header?: CardHeader,
     details?: Omit<TurnDetails, "at">,
+    keepText = true,
   ): Promise<void> {
     const content = JSON.stringify(card(markdown, meta, buttons, header, details));
+    // The card now says this. Streaming frames pass `keepText: false`: they are shown for seconds
+    // and a doc write per frame is not worth it — the final patch is the one a quote would hit.
+    if (keepText) void rememberCardText(runtime.harness, context, messageId, markdown);
     const response = await serializePatch(messageId, () =>
       im.message.patch({ path: { message_id: messageId }, data: { content } }),
     );
@@ -1818,7 +1831,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     const paint = (): void => {
       if (phase !== "live") return;
       refreshStages();
-      void patchCard(cardId, body(), status === "" ? working() : status, stopButtons(), WORKING_HEADER).catch((error) => {
+      void patchCard(cardId, body(), status === "" ? working() : status, stopButtons(), WORKING_HEADER, undefined, false).catch((error) => {
         if (streamErrors < 3) {
           streamErrors += 1;
           logError("feishu", "stream patch failed", error);
@@ -3162,33 +3175,42 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
   async function readQuoted(parentId: string): Promise<Quoted | undefined> {
     const hit = quotedCache.get(parentId);
     if (hit !== undefined && Date.now() - hit.at < QUOTED_TTL_MS) return hit.value;
-    const response = await im.message
+    // `im` goes through feishu-gw, which answers with the sender only — no type, no body — so every
+    // quote used to arrive as "（没有可读的文字）". Message history is the one call the SDK keeps.
+    const response = await client.im.message
       .get({ path: { message_id: parentId } })
       .catch((error: unknown) => {
         logError("feishu", "could not read the quoted message", error);
         return undefined;
       });
     const item = response?.data?.items?.[0];
+    // Our own cards read back as a placeholder, so the text we sent is the copy that counts.
+    const stored = await sentCardText(runtime.harness, context, parentId);
     const value: Quoted | undefined =
-      item === undefined || item.deleted === true
+      item !== undefined && item.deleted === true
         ? undefined
-        : {
-            who:
-              item.sender?.sender_type === "app"
-                ? "bot"
-                : ((await senderName(String(item.sender?.id ?? "")).catch(() => undefined)) ??
-                  `ou_${String(item.sender?.id ?? "?").slice(-6)}`),
-            text: quoteText(
-              item.msg_type ?? "",
-              item.body?.content ?? "",
-              // The API's mentions carry the open_id as a string; ours carry it one level down.
-              (item.mentions ?? []).map((mention: { key?: string; name?: string; id?: string }) => ({
-                key: mention.key,
-                name: mention.name,
-                id: { open_id: mention.id },
-              })),
-            ),
-          };
+        : item === undefined && stored === undefined
+          ? undefined
+          : {
+              who:
+                stored !== undefined || item?.sender?.sender_type === "app"
+                  ? "bot"
+                  : ((await senderName(String(item?.sender?.id ?? "")).catch(() => undefined)) ??
+                    `ou_${String(item?.sender?.id ?? "?").slice(-6)}`),
+              text:
+                stored !== undefined
+                  ? stored.slice(0, 1_200)
+                  : quoteText(
+                      item?.msg_type ?? "",
+                      item?.body?.content ?? "",
+                      // The API's mentions carry the open_id as a string; ours carry it one level down.
+                      (item?.mentions ?? []).map((mention: { key?: string; name?: string; id?: string }) => ({
+                        key: mention.key,
+                        name: mention.name,
+                        id: { open_id: mention.id },
+                      })),
+                    ),
+            };
     quotedCache.set(parentId, { at: Date.now(), value });
     if (quotedCache.size > QUOTED_CACHE_MAX) {
       const oldest = quotedCache.keys().next().value;

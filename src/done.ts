@@ -1,5 +1,7 @@
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { bool, obj, str } from "@earendil-works/pi-schema";
+import { getHarness, getSessionContext } from "./runtime-ref.ts";
+import { DONE_EVENT, noteTaskEvent } from "./task-events.ts";
 
 /**
  * A turn that ends is not a turn that worked. "✅ 答完了" only means the submission settled; the
@@ -45,6 +47,17 @@ const reportDone = defineTool({
   execute: async (args, api) => {
     const why = args.why.trim().slice(0, 200);
     claimDone(String(api.conversationId), { met: args.met, why, at: Date.now() });
+    // The card says the verdict for an hour; the task dialog should keep it.
+    void noteTaskEvent(
+      getHarness(),
+      getSessionContext(),
+      api.conversationId as unknown as number,
+      api.taskId as unknown as number,
+      DONE_EVENT,
+      `${
+        args.met ? "目标达成" : "目标未达成"
+      }${why === "" ? "" : `：${why}`}`,
+    );
     return {
       output: [{ type: "text" as const, text: `已记录：${args.met ? "目标达成" : "目标未达成"} — ${why}` }],
     };

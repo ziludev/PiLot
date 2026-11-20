@@ -403,6 +403,41 @@ function transcript(db: DatabaseSync, conversationId: number, taskId: number | "
       isError: row.isError === 1,
     });
   }
+  // What happened in Feishu — it waited for a yes, it ended with a verdict — was written down as an
+  // `app.*` entry, which has no model rows and so fell out of the query above. An approval is
+  // decided outside the task's own commit scope, so the task id it belongs to rides in `data`.
+  const events = db
+    .prepare(
+      `select id,
+              json_extract(record, '$.kind') as kind,
+              json_extract(record, '$.data.at') as at,
+              json_extract(record, '$.data.text') as text
+         from entries
+        where conversation_id = ?
+          and json_extract(record, '$.data.taskId') ${taskId === "any" ? "is not null" : "= ?"}
+        order by id`,
+    )
+    .all(...(taskId === "any" ? [conversationId] : [conversationId, taskId])) as Array<{
+    id: number;
+    kind?: string | null;
+    at?: number | null;
+    text?: string | null;
+  }>;
+  for (const event of events) {
+    const text = typeof event.text === "string" ? event.text : "";
+    if (text.trim() === "") continue;
+    out.push({
+      id: event.id,
+      kind: event.kind ?? "",
+      at: event.at ?? 0,
+      content: [{ type: "text", text }],
+      callId: null,
+      isError: false,
+    });
+  }
+  // Two passes into one timeline: the dialog reads them in the order they happened, and `id` is the
+  // only clock both kinds of entry share.
+  out.sort((a, b) => a.id - b.id);
   return out;
 }
 
@@ -431,6 +466,9 @@ export function stepsFromTranscript(rows: RawRow[]): TaskLogStep[] {
         };
         steps.push(step);
         if (typeof block.id === "string") byCall.set(block.id, step);
+      } else if (row.kind.startsWith("app.") && block.type === "text" && typeof block.text === "string" && block.text.trim() !== "") {
+        // Our own event line: an approval, a verdict. It reads like a sentence the turn said.
+        steps.push({ id: row.id, kind: "say", at: row.at, state: "ok", text: oneLine(block.text, SAY_TEXT) });
       } else if (row.kind === "pi.assistant" && block.type === "text" && typeof block.text === "string" && block.text.trim() !== "") {
         steps.push({ id: row.id, kind: "say", at: row.at, state: "ok", text: oneLine(block.text, SAY_TEXT) });
       }
