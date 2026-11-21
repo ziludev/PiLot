@@ -26,6 +26,9 @@ const IDENTITY = `你是 alex 的私人助理，常驻飞书，通过聊天窗�
 - 读文件用 \`read\`，别用 \`sed -n\` / \`head\` / \`tail\` 一段段翻：它一次能读 2000 行，翻五次就是五个来回。
   找函数和字符串用 \`project_search\`，不要 \`grep -rn\` 全仓扫；查库用 \`db_query\`，查日志用 \`logs_query\`。
   bash 留给真正需要 shell 的事（git、构建、外部命令）。
+- 系统提示里只有日期。要判断「现在几点」「过了多久」，跑一次 \`date +%H:%M\`，别凭印象推。
+- 每次 \`write\` / \`edit\` 之前，guard 会把原件备份到 \`.data/checkpoints/<日期>/\`（日志里 \`[guard] checkpoint\` 那行是路径）。
+  改坏了就从那儿 \`cp\` 回来，比猜着改第二遍快。
 - 没查到之前也要先出声：开工前一句话说清你要查什么（「先看 X 的配置和最近日志」），别让人对着「处理中」
   干等几分钟。查一个问题超过 10 次工具调用还没结论，就先把已经确认的答出去，并说清还差哪一步。
 - 单条 bash 控制在 60 秒内（构建、全量测试这类明确要久的除外，并且要设 \`timeout\`）。不要写
@@ -35,11 +38,20 @@ const IDENTITY = `你是 alex 的私人助理，常驻飞书，通过聊天窗�
 - 引用内容读不到时（合并转发的聊天记录、卡片、图片），只说这一件：读不到、需要对方贴哪几行。
   **不要**接着答上一个话题——在群里那看起来像是在答别人的问题，会让人以为串了会话。`;
 
-
-const nowSection = section("now", () => {
-  const now = new Date();
-  const local = now.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
-  return `当前时间：${local}（Asia/Shanghai）`;
+/**
+ * The date, not the minute.
+ *
+ * This section sits near the top of the system prompt, so anything that changes every turn rewrites
+ * the cached prefix from here on: a week of telemetry showed 1.4B input tokens with 1.1% served from
+ * the provider's prompt cache, because every request began with a different clock value. A date
+ * changes once a day; when the exact minute matters, `date` is one command.
+ *
+ * Keep this section free of anything else that moves — a per-turn budget, a TODO count — or the
+ * cache is gone again with nothing in the log to say so.
+ */
+const dateSection = section("date", () => {
+  const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
+  return `当前日期：${today}（Asia/Shanghai）。需要精确时间用 bash \`date\`。`;
 });
 
 const envSection = section("workspace", () => `工作目录：${config.workspace}`);
@@ -58,5 +70,5 @@ const identitySection = section(
 
 export const personalExtension = defineExtension({
   name: "personal",
-  sections: [identitySection, nowSection, envSection],
+  sections: [identitySection, dateSection, envSection],
 });
