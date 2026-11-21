@@ -2917,6 +2917,13 @@ const continuing = new Set<string>();
     );
     if (cardId === undefined) {
       log("feishu", "reply card creation failed, continuing without streaming");
+      // Silence used to be the answer here. With a burst, silence now covers the other messages
+      // folded into this turn as well, and nobody can tell a lost message from a slow one.
+      await replyText(
+        message.message_id,
+        `卡片没建成功，这条${burst.length > 1 ? `（和后面 ${burst.length - 1} 条）` : ""}没跑，再发一次试试。`,
+        { thread: threadFor(message) },
+      ).catch(() => {});
       return;
     }
     log("feishu", "card created", cardId);
