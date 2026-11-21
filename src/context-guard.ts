@@ -1,8 +1,8 @@
 import { defineExtension, hook, GenerationTask } from "@earendil-works/pi-durable";
 import { createHash } from "node:crypto";
 import type { Message } from "@earendil-works/pi-ai";
-import { estimateMessageTokens } from "@earendil-works/pi-ai/utils/estimate";
 import { log } from "./log.ts";
+import { messageTokens } from "./tokens.ts";
 
 /**
  * Keep a long run's context from filling with tool output nobody reads again.
@@ -22,6 +22,9 @@ export const KEEP_RECENT = 12;
  * This used to be 60k characters, which is a whole compaction cycle late: measured runs spent most
  * of their history re-sending pages and file reads the model had already used. 24k is the point
  * where the reused material costs more than it informs.
+ *
+ * Counted with `messageTokens`, not the upstream estimate: at 3.5 characters per token a Chinese
+ * run only reached this figure at ~84k characters, so the threshold never fired on our own logs.
  */
 export const ELIDE_MIN_TOKENS = 24_000;
 /** What a trimmed result keeps at each end: enough to recognise the shape, not to re-read it. */
@@ -122,7 +125,7 @@ export function elideOldToolOutputs(
     .filter((entry) => isReference(entry.message));
   if (results.length <= keep) return { messages: [...messages], elided: 0 };
 
-  const total = results.reduce((sum, entry) => sum + estimateMessageTokens(entry.message), 0);
+  const total = results.reduce((sum, entry) => sum + messageTokens(entry.message), 0);
   if (total < minTokens) return { messages: [...messages], elided: 0 };
 
   const stale = new Set(results.slice(0, results.length - keep).map((entry) => entry.index));
@@ -166,7 +169,7 @@ export const contextGuardExtension = defineExtension({
       beforeRequest: (request) => {
         lastCount = request.messages.length;
         const { messages, elided } = elideOldToolOutputs(request.messages);
-        lastTokens = messages.reduce((sum, message) => sum + estimateMessageTokens(message), 0);
+        lastTokens = messages.reduce((sum, message) => sum + messageTokens(message), 0);
         requests += 1;
         if (requests % LOG_EVERY === 0) {
           log("context", "request size", { messages: messages.length, tokens: lastTokens });
