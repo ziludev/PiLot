@@ -4,7 +4,7 @@ import {
   defineTask,
   hook,
   GenerationTask,
-  runEndTask,
+  hookTask,
   type HookApi,
   type RunningTask,
   type RunSummary,
@@ -20,7 +20,7 @@ import { log } from "./log.ts";
  *
  * The rail shows the first 32 characters of the first message, which reads like a fragment
  * ("用一句话介绍你自己，并说出你当…"). A short title the model writes from the actual question is
- * cheaper to scan, and this is the shape `runEndTask` exists for: a durable task asked for by an
+ * cheaper to scan, and this is the shape `hookTask` exists for: a durable task asked for by an
  * `afterRun` hook, so a crash before it is created asks again and a created one is never repeated.
  */
 
@@ -112,7 +112,7 @@ async function afterRun(run: RunSummary, api: HookApi, context: Context) {
   if (surfaceId === undefined) return undefined;
   const meta = (await api.snapshot(SurfaceMetaDoc, context).catch(() => undefined))?.surfaces[surfaceId];
   if (meta?.title !== undefined && meta.title.length > 0) return undefined;
-  return { tasks: [runEndTask(TitleTask, { conversationId, surfaceId } satisfies TitleInput)] };
+  return { tasks: [hookTask(TitleTask, { conversationId, surfaceId } satisfies TitleInput)] };
 }
 
 export const titleExtension = defineExtension({
