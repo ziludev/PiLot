@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Harness } from "@earendil-works/pi-durable";
-import { drain, retryDelay, type OutboxEntry } from "../src/outbox.ts";
+import { drain, releaseHeld, retryDelay, type OutboxEntry } from "../src/outbox.ts";
 
 function entry(text: string, chatId: string, at = 0): OutboxEntry {
   return { id: text, chatId, text, plain: false, createdAt: at, attempts: 0, nextAt: 0 };
@@ -71,4 +71,26 @@ test("nothing waiting is a no-op", async () => {
     throw new Error("should not be called");
   });
   assert.deepEqual(report, { sent: 0, left: 0, gaveUp: [] });
+});
+
+test("a paused message waits without blocking the chat and survives the drain", async () => {
+  const held = { ...entry("held", "c1"), paused: true };
+  const { harness, state } = fakeHarness([held, entry("b", "c1")]);
+  const sent: string[] = [];
+  await drain(harness, context, async (message) => {
+    sent.push(message.text);
+  }, 1_000);
+  assert.deepEqual(sent, ["b"], "observe holds its own message, not the queue");
+  assert.deepEqual(state.entries.map((item) => item.text), ["held"], "a paused message is not dropped");
+});
+
+test("flushing releases what observe held, and only that", async () => {
+  const { harness, state } = fakeHarness([
+    { ...entry("held", "c1"), paused: true },
+    { ...entry("b", "c1"), attempts: 2, nextAt: 999_999 },
+  ]);
+  assert.equal(await releaseHeld(harness, context), 1);
+  assert.equal(state.entries[0]!.paused, undefined);
+  assert.equal(state.entries[0]!.nextAt, 0);
+  assert.equal(state.entries[1]!.nextAt, 999_999, "a retry keeps its own timing");
 });

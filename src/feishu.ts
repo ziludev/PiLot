@@ -11,7 +11,13 @@ import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
 import { runInFlight, watchLive, type LiveSnapshot } from "./live.ts";
 import { advance, renderSteps, skillOf, stepCount, toolIcon, withIcons, type Trail } from "./steps.ts";
 import { composeAnswer, type AnswerBlock } from "./answer.ts";
-import { setApprovalDecider, setNotifier, setTurnStarter, type ApprovalRequest } from "./channel.ts";
+import {
+  conversationForSurface,
+  setApprovalDecider,
+  setNotifier,
+  setTurnStarter,
+  type ApprovalRequest,
+} from "./channel.ts";
 import { log, logError } from "./log.ts";
 import { record } from "./audit.ts";
 import { rememberCardText, sentCardText } from "./card-text.ts";
@@ -20,7 +26,13 @@ import { collectDigest } from "./digest.ts";
 import { recordVerdict } from "./verdicts.ts";
 import { note } from "./notes.ts";
 import { lastRequestMessages, lastRequestTokens } from "./context-guard.ts";
-import { drain as drainOutbox, hold as holdForRetry, pending as pendingOutbox, type OutboxEntry } from "./outbox.ts";
+import {
+  drain as drainOutbox,
+  hold as holdForRetry,
+  pending as pendingOutbox,
+  releaseHeld,
+  type OutboxEntry,
+} from "./outbox.ts";
 
 /**
  * Compact after the answer when the next request would carry more than this.
@@ -61,7 +73,10 @@ import {
   setChatTopic,
   setChatTurn,
   setIsolatedPolicy,
+  proactiveOf,
+  setProactive,
   type ChatLevel,
+  type ProactiveMode,
 } from "./access.ts";
 import { dropAllApprovals, getApproval, pendingCount, registerApproval, resolveApproval } from "./approvals.ts";
 import { addChatNote, chatNotes, clearChatNotes, removeChatNote } from "./memory.ts";
@@ -1647,10 +1662,24 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
    * and the structure is gone, so the first line becomes the header and the rest a card body.
    */
   /**
-   * A notice is nobody's answer: if it cannot be delivered now it waits in the outbox instead of
-   * failing a background task that has already done its work.
+   * A notice is nobody's answer, so how loud it is depends on the chat: `off` drops it, `observe`
+   * keeps it out of sight until `/outbox flush`, and `auto` (the default) sends it now. A notice that
+   * cannot be delivered waits in the outbox instead of failing a background task that has already
+   * done its work.
    */
   async function sendNotice(chatId: string, text: string): Promise<void> {
+    const mode = await noticeMode(chatId);
+    if (mode === "off") {
+      log("feishu", "notice dropped by chat policy", { chatId, chars: text.length });
+      return;
+    }
+    if (mode === "observe") {
+      await holdForRetry(runtime.harness, context, { chatId, text, plain: true, paused: true }).catch((inner) =>
+        logError("feishu", "could not hold the notice either", inner),
+      );
+      log("feishu", "notice held by chat policy", { chatId });
+      return;
+    }
     try {
       await sendNoticeNow(chatId, text);
     } catch (error) {
@@ -1659,6 +1688,13 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         logError("feishu", "could not hold the notice either", inner),
       );
     }
+  }
+
+  /** `auto` unless this chat said otherwise; a chat with no conversation yet is `auto`. */
+  async function noticeMode(chatId: string): Promise<ProactiveMode> {
+    const conversationId = conversationForSurface(chatId);
+    if (conversationId === undefined) return "auto";
+    return proactiveOf(runtime.harness, context, conversationId).catch(() => "auto" as ProactiveMode);
   }
 
   async function sendNoticeNow(chatId: string, text: string): Promise<void> {
@@ -2548,6 +2584,70 @@ const continuing = new Set<string>();
       await setChatTopic(runtime.harness, context, conversation.id as unknown as number, topic);
       await openGroup(message.chat_id, groupInstructions(topic));
       await sendText(message.chat_id, "已把本群开放给所有成员：查代码、查 test/prod 的库和日志都能做；改文件、写库、看密钥只有 alex 能做，会被直接拒。");
+      return;
+    }
+    if (isOwner && text.trim().startsWith("/proactive")) {
+      const arg = text.trim().split(/\s+/)[1] ?? "";
+      const conversation = await runtime.conversationFor(message.chat_id);
+      const conversationId = conversation.id as unknown as number;
+      if (arg === "") {
+        const mode = await proactiveOf(runtime.harness, context, conversationId);
+        await sendText(
+          message.chat_id,
+          `主动消息：${
+            mode === "auto" ? "auto（照常发）" : mode === "observe" ? "observe（先攒着，/outbox flush 才发）" : "off（不发，直接丢）"
+          }\n改：/proactive off | observe | auto`,
+        );
+        return;
+      }
+      if (arg !== "off" && arg !== "observe" && arg !== "auto") {
+        await sendText(message.chat_id, "用法：/proactive off | observe | auto");
+        return;
+      }
+      await setProactive(runtime.harness, context, conversationId, arg);
+      await sendText(
+        message.chat_id,
+        arg === "auto"
+          ? "主动消息恢复：后台跑完、提醒、日报照常发到这里。"
+          : arg === "observe"
+            ? "主动消息先攒着不发：/outbox 看，/outbox flush 发。"
+            : "主动消息关掉了：后台跑完、提醒、日报都不发到这里，只记日志。",
+      );
+      return;
+    }
+    if (isOwner && (text.trim() === "/outbox" || text.trim() === "/outbox flush")) {
+      if (text.trim() === "/outbox flush") {
+        const released = await releaseHeld(runtime.harness, context);
+        await drainOutbox(runtime.harness, context, sendHeld).catch((error) =>
+          logError("feishu", "outbox flush failed", error),
+        );
+        await sendText(message.chat_id, released === 0 ? "没有攒着的消息。" : `放出了 ${released} 条，正在发。`);
+        return;
+      }
+      const waiting = await pendingOutbox(runtime.harness, context);
+      const mine = waiting.filter((entry) => entry.chatId === message.chat_id);
+      const others = waiting.length - mine.length;
+      if (mine.length === 0) {
+        await sendText(
+          message.chat_id,
+          others === 0 ? "outbox 是空的：没有等着的消息。" : `本会话没有，别的会话还有 ${others} 条。`,
+        );
+        return;
+      }
+      const lines = mine.slice(0, 5).map((entry) => {
+        const when = new Date(entry.createdAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
+        const state = entry.paused === true ? "攒着" : `重试 ${entry.attempts} 次`;
+        return `· ${when}（${state}）${entry.text.replace(/\s+/g, " ").slice(0, 60)}`;
+      });
+      await sendText(
+        message.chat_id,
+        [
+          `outbox 有 ${mine.length} 条${others > 0 ? `（别的会话还有 ${others} 条）` : ""}：`,
+          ...lines,
+          ...(mine.length > 5 ? [`…还有 ${mine.length - 5} 条`] : []),
+          ...(mine.some((entry) => entry.paused === true) ? ["", "攒着的用 /outbox flush 发出去。"] : []),
+        ].join("\n"),
+      );
       return;
     }
     if (isGroupChat && !isOwner) {
