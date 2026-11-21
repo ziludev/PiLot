@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { AGENT_TASKS, AGENT_TOOLS, Agents } from "../src/agents.ts";
+import { AGENT_TASKS, AGENT_TOOLS, Agents, agentLine } from "../src/agents.ts";
 import { buildStagePrompt, SUBAGENT_TOOLS } from "../src/subagents.ts";
 
 test("the agent tools are named the way the model is told to call them", () => {
@@ -37,4 +37,19 @@ test("the review stage reads the diff, not just the reports", () => {
   assert.match(prompt, /git diff/);
   assert.match(prompt, /12 个测试通过/, "the reviewer has to see what the change had to pass");
   assert.match(prompt, /最多三条/, "a review that lists everything is a review nobody reads");
+});
+
+test("a busy agent says what it is doing, not just that it is busy", () => {
+  const record = {
+    role: "implementer" as const,
+    conversationId: 12,
+    status: "working" as const,
+    current: "把 OCR 的\n三条意见改完并推分支",
+    updatedAt: 0,
+  };
+  const line = agentLine("hodor", record);
+  assert.match(line, /在忙/);
+  assert.match(line, /在做：把 OCR 的 三条意见改完并推分支/, "the task summary is one line, so the roster stays scannable");
+  const idle = agentLine("x", { ...record, status: "idle" });
+  assert.equal(idle.includes("在做"), false, "an idle agent has nothing in flight to report");
 });
