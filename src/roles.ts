@@ -1,4 +1,5 @@
 import { createBashTool, createEditTool, createReadTool, createWriteTool } from "@earendil-works/pi-durable/tools";
+import { recall } from "./memory.ts";
 
 export type RoleName = "planner" | "designer" | "implementer" | "tester" | "reviewer";
 
@@ -72,15 +73,17 @@ export function toolsFor(role: RoleName) {
   const write = createWriteTool();
   const edit = createEditTool();
   const bash = createBashTool();
+  // `recall` rides along with every role: the work-memory index in the child's own system prompt
+  // tells it to search for details, so a role without the tool is told to do something it cannot.
   switch (ROLES[role].tools) {
     case "none":
       return { tools: [] };
     case "read":
-      return { tools: [read, bash] };
+      return { tools: [read, bash, recall] };
     case "write":
-      return { tools: [read, write, edit, bash] };
+      return { tools: [read, write, edit, bash, recall] };
     case "full":
     default:
-      return { tools: [read, write, edit, bash] };
+      return { tools: [read, write, edit, bash, recall] };
   }
 }
