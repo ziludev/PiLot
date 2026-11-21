@@ -1,8 +1,10 @@
 import { basename, isAbsolute, relative, resolve } from "node:path";
 import { defineExtension, hook, ToolTask } from "@earendil-works/pi-durable";
 import { ChatPolicy } from "./access.ts";
+import { hasInlineScript, isReadOnlyCommand, needsConservativeRefusal } from "./readonly.ts";
 import { config } from "./config.ts";
 import { requestApproval, surfaceForConversation } from "./channel.ts";
+import { backupFile } from "./checkpoint.ts";
 import { hasGrant } from "./grants.ts";
 import { getHarness, getSessionContext } from "./runtime-ref.ts";
 import { APPROVAL_EVENT, noteTaskEvent } from "./task-events.ts";
@@ -96,11 +98,17 @@ export function memberBlock(tool: string, args: Record<string, unknown>): string
   const command = typeof args["command"] === "string" ? args["command"] : "";
   if (command.length === 0) return undefined;
   if (SECRET_PATH.test(command)) return "这个命令会碰到密钥文件";
+  // 内联脚本没有参数可分析：`node -e`、`python -c` 里一行就是任意写操作。
+  if (hasInlineScript(command)) return "执行内联脚本";
+  // 判成只读就放行，不必靠黑名单猜：`grep "cp" notes.md` 不写任何东西，
+  // 而名单里出现词根从来不是写操作的证据。
+  if (isReadOnlyCommand(command)) return undefined;
   for (const rule of WRITE_COMMANDS) {
     const hit = rule.pattern.exec(command);
     if (hit !== null) return `${rule.reason}（${hit[0].trim().slice(0, 40)}）`;
   }
-  return undefined;
+  // 黑名单没覆盖、也分析不出只读的：`git branch -D`、`find -delete` 这类，拒。
+  return needsConservativeRefusal(command);
 }
 
 /** Tools that change something outside the workspace, in someone else's system. */
@@ -224,6 +232,15 @@ export const guardExtension = defineExtension({
               `${call.name}：${denied} → 已拒绝（群里不批写操作）`,
             );
             return { block: `${denied}——这一步只有 ${owner} 能做。跟提问的人说一句就好，不要绕过。` };
+          }
+        }
+        // 改之前先留一份原件：git 管不到的文件（笔记、配置、一次性脚本）改坏了没有别的退路。
+        // 放在审批之前，拒绝的那次也留了底，但只对真正要写的工具做。
+        if (WRITE_TOOLS.has(call.name)) {
+          const path = typeof args["path"] === "string" ? args["path"] : "";
+          if (path.length > 0) {
+            const backup = backupFile(path);
+            if (backup !== undefined) console.log(`[guard] checkpoint ${path} -> ${backup}`);
           }
         }
         // One surface the rest of the way: what a call *does* matters, so the risk list below

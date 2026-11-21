@@ -1,4 +1,5 @@
 import { defineExtension, hook, GenerationTask } from "@earendil-works/pi-durable";
+import { createHash } from "node:crypto";
 import type { Message } from "@earendil-works/pi-ai";
 import { estimateMessageTokens } from "@earendil-works/pi-ai/utils/estimate";
 import { log } from "./log.ts";
@@ -15,10 +16,30 @@ import { log } from "./log.ts";
 
 /** Tool results kept verbatim at the end of the request. */
 export const KEEP_RECENT = 12;
-/** Below this many characters of tool output, nothing is touched. */
-export const ELIDE_MIN_CHARS = 60_000;
-/** What a placeholder keeps of the original: enough to recognise, not enough to pay for. */
-const PREVIEW_CHARS = 200;
+/**
+ * Below this many tokens of reference material, nothing is touched.
+ *
+ * This used to be 60k characters, which is a whole compaction cycle late: measured runs spent most
+ * of their history re-sending pages and file reads the model had already used. 24k is the point
+ * where the reused material costs more than it informs.
+ */
+export const ELIDE_MIN_TOKENS = 24_000;
+/** What a trimmed result keeps at each end: enough to recognise the shape, not to re-read it. */
+const HEAD_CHARS = 1_500;
+const TAIL_CHARS = 1_000;
+/**
+ * Tools whose output is reference material — read once, quoted from, rarely re-read whole.
+ * Edits, writes and reports say what happened in a few lines; trimming those only loses evidence.
+ */
+export const REFERENCE_TOOLS = new Set([
+  "read",
+  "bash",
+  "logs_query",
+  "db_query",
+  "project_search",
+  "recall",
+  "skill",
+]);
 
 /**
  * How many messages the last request carried. A conversation with 1900 of them costs about a minute
@@ -52,39 +73,79 @@ const LOG_EVERY = 8;
 let requests = 0;
 let providerRequests = 0;
 
-const PLACEHOLDER = (name: string, chars: number) =>
-  `[较早的工具输出已省略：${name}，原文约 ${Math.round(chars / 100) / 10}k 字符。需要时重新运行这个工具]`;
+const OMITTED = (chars: number) => `\n……〔此处省略约 ${Math.round(chars / 100) / 10}k 字符〕……\n`;
+
+/** Head and tail of a long result, which is where the model finds what it was looking for. */
+export function trimMiddle(text: string): string {
+  if (text.length <= HEAD_CHARS + TAIL_CHARS) return text;
+  const cut = text.length - HEAD_CHARS - TAIL_CHARS;
+  // Never split a surrogate pair: a lone surrogate makes some providers reject the JSON.
+  const headEnd = /[\uD800-\uDBFF]/.test(text.charAt(HEAD_CHARS - 1)) ? HEAD_CHARS - 1 : HEAD_CHARS;
+  const tailStart = /[\uDC00-\uDFFF]/.test(text.charAt(text.length - TAIL_CHARS))
+    ? text.length - TAIL_CHARS + 1
+    : text.length - TAIL_CHARS;
+  return `${text.slice(0, headEnd)}${OMITTED(cut)}${text.slice(tailStart)}`;
+}
+
+function lengthOf(message: Message): number {
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") return content.length;
+  if (!Array.isArray(content)) return 0;
+  return content.reduce((sum, part) => sum + String((part as { text?: string }).text ?? "").length, 0);
+}
+
+function trimmed(message: Message): Message {
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") return { ...message, content: trimMiddle(content) } as Message;
+  if (!Array.isArray(content)) return message;
+  return {
+    ...message,
+    content: content.map((part) =>
+      typeof (part as { text?: unknown }).text === "string"
+        ? { ...part, text: trimMiddle((part as { text: string }).text) }
+        : part,
+    ),
+  } as Message;
+}
+
+/** Tools whose result counts toward the trimmed set: reference material only. */
+const isReference = (message: Message): boolean =>
+  message.role === "toolResult" && REFERENCE_TOOLS.has(String((message as { toolName?: string }).toolName ?? ""));
 
 export function elideOldToolOutputs(
   messages: readonly Message[],
   keep = KEEP_RECENT,
-  minChars = ELIDE_MIN_CHARS,
+  minTokens = ELIDE_MIN_TOKENS,
 ): { messages: Message[]; elided: number } {
   const results = messages
     .map((message, index) => ({ message, index }))
-    .filter((entry) => entry.message.role === "toolResult");
+    .filter((entry) => isReference(entry.message));
   if (results.length <= keep) return { messages: [...messages], elided: 0 };
 
-  const size = (message: Message): number => {
-    const content = (message as { content?: unknown }).content;
-    if (typeof content === "string") return content.length;
-    if (!Array.isArray(content)) return 0;
-    return content.reduce((sum, part) => sum + String((part as { text?: string }).text ?? "").length, 0);
-  };
-  const total = results.reduce((sum, entry) => sum + size(entry.message), 0);
-  if (total < minChars) return { messages: [...messages], elided: 0 };
+  const total = results.reduce((sum, entry) => sum + estimateMessageTokens(entry.message), 0);
+  if (total < minTokens) return { messages: [...messages], elided: 0 };
 
   const stale = new Set(results.slice(0, results.length - keep).map((entry) => entry.index));
   let elided = 0;
   const next = messages.map((message, index) => {
     if (!stale.has(index)) return message;
-    const chars = size(message);
-    if (chars <= PREVIEW_CHARS) return message;
+    const after = trimmed(message);
+    // A result that was already short (an `ls`, a `git status`) is not worth a placeholder.
+    if (lengthOf(after) >= lengthOf(message) * 0.9) return message;
     elided += 1;
-    const name = String((message as { toolName?: string }).toolName ?? "tool");
-    return { ...message, content: [{ type: "text" as const, text: PLACEHOLDER(name, chars) }] } as Message;
+    return after;
   });
   return { messages: next, elided };
+}
+
+/** Fingerprint of the system prompt sent last, so a prefix that moves every request shows up in the log. */
+let lastSystemDigest = "";
+
+/** Cheap hash of the head and tail of the system prompt: any edit inside it changes one of the two. */
+export function systemDigest(system: unknown): string {
+  const text = typeof system === "string" ? system : JSON.stringify(system ?? "");
+  const edges = text.slice(0, 4000) + "\u0000" + text.slice(-4000);
+  return createHash("sha1").update(`${text.length}:${edges}`).digest("hex").slice(0, 8);
 }
 
 export const contextGuardExtension = defineExtension({
@@ -108,8 +169,17 @@ export const contextGuardExtension = defineExtension({
       // built body instead of guessing which half to trim.
       beforeProviderRequest: (request) => {
         providerRequests += 1;
+        const body = request.payload as { messages?: unknown; input?: unknown; tools?: unknown; system?: unknown };
+        // A prompt cache is only worth anything if the prefix is byte-identical between requests.
+        // Log every change to the system prompt: if this fires on consecutive requests, something
+        // per-turn has moved into it and the whole history is being paid for again.
+        const digest = systemDigest(body.system);
+        if (digest !== lastSystemDigest) {
+          const first = lastSystemDigest === "";
+          lastSystemDigest = digest;
+          if (!first) log("context", "system prompt changed", { digest });
+        }
         if (providerRequests % LOG_EVERY !== 0) return undefined;
-        const body = request.payload as { messages?: unknown; input?: unknown; tools?: unknown };
         const chars = (value: unknown): number => (value === undefined ? 0 : JSON.stringify(value).length);
         log("context", "request bytes", {
           total: chars(request.payload),
