@@ -633,6 +633,62 @@ export function clip(text: string): string {
   return `${cut}${fences % 2 === 1 ? "\n```" : ""}\n\n…（已截断）`;
 }
 
+/** Long enough for a second line to land, short enough that nobody sits waiting on it. */
+const BURST_MS = 1_200;
+
+type BurstItem = {
+  message: NonNullable<IncomingMessage["message"]>;
+  parsed: ParsedContent;
+  senderId: string;
+};
+
+const bursts = new Map<number, BurstItem[]>();
+
+/**
+ * Two messages typed a few seconds apart are one thought: "看看 X", then "顺便查 Y". Each one
+ * starting its own turn pays the system prompt twice, runs two cards for one answer, and the second
+ * turn reads a transcript the first one just wrote. So the first message holds for a moment and
+ * takes whatever arrived meanwhile.
+ *
+ * Returns the batch for the first message of a burst; `undefined` means this message was folded
+ * into a batch that is already waiting, and the caller should stop where it is.
+ */
+export async function collectBurst(
+  conversationId: number,
+  item: BurstItem,
+  windowMs = BURST_MS,
+): Promise<BurstItem[] | undefined> {
+  const live = bursts.get(conversationId);
+  if (live !== undefined) {
+    live.push(item);
+    log("feishu", "message folded into the burst in flight", { conversationId, size: live.length });
+    return undefined;
+  }
+  const batch = [item];
+  bursts.set(conversationId, batch);
+  await new Promise((resolve) => setTimeout(resolve, windowMs));
+  bursts.delete(conversationId);
+  return batch;
+}
+
+/** What `buildUserContent` hands the model: one string, or text/image parts. */
+export type UserContent = string | Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>;
+
+/**
+ * Mark every message of a burst: two unrelated questions run together read as one rambling
+ * request, and the answer then only covers the last one.
+ */
+export function mergeUserContent(items: UserContent[]): UserContent {
+  if (items.length === 1) return items[0]!;
+  const out: Exclude<UserContent, string> = [];
+  items.forEach((item, index) => {
+    out.push({ type: "text", text: `【第 ${index + 1} 条】` });
+    if (typeof item === "string") out.push({ type: "text", text: item });
+    else out.push(...item);
+  });
+  return out;
+}
+
 /**
  * Turns in one conversation share a working tree and a context window, so two at once would edit
  * the same files blind. Each turn waits for its predecessor; the card says it is waiting, because
@@ -2837,10 +2893,14 @@ const continuing = new Set<string>();
       return;
     }
 
-    log("feishu", "turn start", { chatId, conversationId: conversation.id, type: message.message_type });
+    // One thought split over two messages is one turn (see collectBurst).
+    const burst = await collectBurst(conversation.id as unknown as number, { message, parsed, senderId });
+    if (burst === undefined) return;
+
+    log("feishu", "turn start", { chatId, conversationId: conversation.id, type: message.message_type, batched: burst.length });
     const inGroup = message.chat_type === "group";
     const replyOptions = { thread: threadFor(message), mention: mentionFor(event, message) };
-    const digest = digestOf(parsed.text);
+    const digest = digestOf(burst.length === 1 ? parsed.text : burst.map((entry) => entry.parsed.text).join(" / "));
     const opening =
       parsed.audioKey !== undefined
         ? "🎧 听语音…"
@@ -2910,11 +2970,16 @@ const continuing = new Set<string>();
     }
 
     try {
-      const speaker =
-        message.chat_type === "p2p"
-          ? undefined
-          : speakerTag(isOwner, senderId, isOwner ? undefined : await senderName(senderId).catch(() => undefined));
-      const userContent = await buildUserContent(message, parsed, speaker);
+      const contents: UserContent[] = [];
+      for (const entry of burst) {
+        const entryOwner = owner.includes(entry.senderId);
+        const speaker =
+          entry.message.chat_type === "p2p"
+            ? undefined
+            : speakerTag(entryOwner, entry.senderId, entryOwner ? undefined : await senderName(entry.senderId).catch(() => undefined));
+        contents.push(await buildUserContent(entry.message, entry.parsed, speaker));
+      }
+      const userContent = mergeUserContent(contents);
       // Marked before the turn's first write, so the finished card can name what this turn changed
       // and not the uncommitted mess that was already in the tree when it started.
       const turnAgent = await conversation.agent(context).catch(() => undefined);
@@ -3353,7 +3418,7 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
     message: NonNullable<IncomingMessage["message"]>,
     parsed: ParsedContent,
     speaker?: string,
-  ): Promise<string | Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>> {
+  ): Promise<UserContent> {
     /** Who is talking, on its own line, so a long turn does not read as the assistant's own. */
     const tag = (text: string): string => (speaker === undefined ? text : `${speaker} ${text}`);
     // A reply carries the id of the message it answers, never its text: "这个怎么改" needs the quote.
