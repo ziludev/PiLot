@@ -39,6 +39,8 @@ export type AgentRecord = {
   status: "working" | "idle" | "failed";
   /** Tail of the last answer, so `list_agents` needs no transcript read. */
   last?: string;
+  /** What it was last asked to do. "在忙" alone does not say whether it is on the right thing. */
+  current?: string;
   updatedAt: number;
 };
 
@@ -155,7 +157,7 @@ const AgentTurn = defineTask<AgentInput, { phase: "turn" }, string>({
             settled.reason === "turn_limit"
               ? `${(TURN_ROUNDS + 1) * ROLES[role].maxTurns} 步还没收尾，去会话 ${conversationId} 看进度`
               : `${settled.reason ?? "没答出来"}${settled.detail === undefined ? "" : `（${String(settled.detail)}）`}`;
-          await mark(runtime, task, context, { status: "failed" });
+          await mark(runtime, task, context, { status: "failed", current: null });
           await finish(runtime, task, context, `❌ ${name} 没答完：${why}`);
           return;
         }
@@ -166,11 +168,11 @@ const AgentTurn = defineTask<AgentInput, { phase: "turn" }, string>({
           return undefined;
         }, context);
         const answer = text.length === 0 ? "（它没说话，只有工具调用，去会话里看）" : text;
-        await mark(runtime, task, context, { status: "idle", last: answer.slice(-400) });
+        await mark(runtime, task, context, { status: "idle", last: answer.slice(-400), current: null });
         await finish(runtime, task, context, `${name}：\n\n${answer}`);
       } catch (error) {
         logError("agent", `${name} failed`, error);
-        await mark(runtime, task, context, { status: "failed" });
+        await mark(runtime, task, context, { status: "failed", current: null });
         await finish(runtime, task, context, `❌ ${name} 出错了：${(error as Error).message}`);
       }
     },
@@ -185,7 +187,7 @@ async function mark(
   runtime: TaskRuntime<AgentInput, { phase: "turn" }, string, object>,
   task: { input: AgentInput },
   context: Context,
-  patch: Partial<Pick<AgentRecord, "status" | "last">>,
+  patch: { status?: AgentRecord["status"]; last?: string; current?: string | null },
 ): Promise<void> {
   await runtime.commit(async (tx) => {
     const doc = await tx.doc(Agents, task.input.parentConversationId as never);
@@ -193,6 +195,8 @@ async function mark(
     if (record === undefined) return undefined;
     if (patch.status !== undefined) record.status = patch.status;
     if (patch.last !== undefined) record.last = patch.last;
+    if (patch.current === null) delete record.current;
+    else if (patch.current !== undefined) record.current = patch.current;
     record.updatedAt = Date.now();
     return undefined;
   }, context);
@@ -238,6 +242,17 @@ async function hire(
   message: string,
   interrupt: boolean,
 ): Promise<void> {
+  // The tool returns as soon as the task exists, so the record has to say "working" here: an agent
+  // told to do something is not idle until its answer comes back.
+  await api.commit(async (tx) => {
+    const doc = await tx.doc(Agents, api.conversationId);
+    const live = doc.agents[name];
+    if (live === undefined) return undefined;
+    live.status = "working";
+    live.current = oneLine(message).slice(0, 160);
+    live.updatedAt = Date.now();
+    return undefined;
+  }, context);
   await api.createTask(
     AgentTurn,
     {
@@ -251,6 +266,11 @@ async function hire(
     { ownership: { kind: "conversation" }, background: true },
     context,
   );
+}
+
+/** `list_agents` prints one line per agent; a task written over ten lines would break that. */
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
 }
 
 const spawnAgent = defineTool({
@@ -354,6 +374,17 @@ const tellAgent = defineTool({
   },
 });
 
+/** One line per agent: `list_agents` is read to decide who to nudge, not to admire the roster. */
+export function agentLine(name: string, record: AgentRecord): string {
+  const state = record.status === "working" ? "在忙" : record.status === "failed" ? "上次没答完" : "闲着";
+  const doing =
+    record.status === "working" && record.current !== undefined
+      ? `\n  在做：${record.current.replace(/\s+/g, " ").slice(0, 100)}`
+      : "";
+  const last = record.last === undefined ? "" : `\n  上次：${record.last.replace(/\s+/g, " ").slice(0, 120)}`;
+  return `- ${name}（${record.role}，${state}，会话 ${record.conversationId}）${doing}${last}`;
+}
+
 const listAgents = defineTool({
   name: "list_agents",
   description: "看在岗的 agent：名字、角色、在忙还是闲着、上一次答到哪。",
@@ -363,11 +394,7 @@ const listAgents = defineTool({
     const doc = await api.snapshot(Agents, api.conversationId, context).catch(() => undefined);
     const entries = Object.entries(doc?.agents ?? {});
     if (entries.length === 0) return { output: [{ type: "text" as const, text: "还没有雇过 agent。" }] };
-    const lines = entries.map(([name, record]) => {
-      const state = record.status === "working" ? "在忙" : record.status === "failed" ? "上次没答完" : "闲着";
-      const last = record.last === undefined ? "" : `\n  上次：${record.last.replace(/\s+/g, " ").slice(0, 120)}`;
-      return `- ${name}（${record.role}，${state}，会话 ${record.conversationId}）${last}`;
-    });
+    const lines = entries.map(([name, record]) => agentLine(name, record));
     return { output: [{ type: "text" as const, text: lines.join("\n") }] };
   },
 });
