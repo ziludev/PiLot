@@ -83,9 +83,9 @@ import {
   threadIndex,
 } from "./threads.ts";
 import { config } from "./config.ts";
+import { compactionPolicy } from "./compaction.ts";
 
 export const context = BACKGROUND_CONTEXT;
-
 /** chat surface id (Feishu chat_id, "cli", ...) -> conversation id. Session-scoped, so it survives restarts. */
 /** How long each approval made a run wait, so the turn timeline can show it. */
 const ApprovalWaits = defineDoc<{
@@ -257,9 +257,10 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
         // `keepRecentTokens` decides how much of the conversation survives a compaction verbatim,
         // and it is what every round of every turn re-reads: at the 20k default a request carried
         // ~26k tokens and a 40-round turn cost ~1M. 10k keeps the last few turns in full and pushes
-        // the rest into the summary. `reserveTokens` stays as it is — it only decides when the
-        // window itself gets tight.
-        compaction: { reserveTokens: 16384, keepRecentTokens: 10_000 },
+        // the rest into the summary. The trigger itself is capped by `compactionPolicy`.
+        compaction: compactionPolicy(
+          models.getModel(config.model.provider, config.model.modelId)?.contextWindow ?? 0,
+        ),
         toolExecution: "parallel",
         // Only when set: the provider's own timeouts/retries stay the default otherwise.
         ...(config.stream.timeoutMs > 0 || config.stream.maxRetries > 0
