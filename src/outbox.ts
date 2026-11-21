@@ -23,6 +23,8 @@ export type OutboxEntry = {
   plain: boolean;
   meta?: string;
   header?: { title: string; template: "green" | "orange" | "grey" | "red" | "blue" };
+  /** Held on purpose (chat in `observe` mode): not due, not blocking, waits for `/outbox flush`. */
+  paused?: boolean;
   createdAt: number;
   attempts: number;
   nextAt: number;
@@ -97,6 +99,8 @@ export async function drain(
   const blocked = new Set<string>();
   for (const entry of entries) {
     if (blocked.has(entry.chatId)) continue;
+    // Paused entries are not late, they are held: they must not block the retries behind them.
+    if (entry.paused === true) continue;
     if (entry.nextAt > now) {
       // Still cooling down: hold the queue behind it so a later message cannot overtake.
       blocked.add(entry.chatId);
@@ -132,6 +136,21 @@ export async function drain(
   }, context);
 
   return { sent: done.size, left: entries.length - done.size - gaveUp.length, gaveUp };
+}
+
+/** Lets everything `observe` held go out now. Returns how many were released. */
+export async function releaseHeld(harness: Harness, context: Context): Promise<number> {
+  return harness.commit(async (tx) => {
+    const doc = await tx.doc(Outbox);
+    let released = 0;
+    for (const entry of doc.entries) {
+      if (entry.paused !== true) continue;
+      delete entry.paused;
+      entry.nextAt = 0;
+      released += 1;
+    }
+    return released;
+  }, context);
 }
 
 /** What is waiting, for `/outbox` and for the health line. */

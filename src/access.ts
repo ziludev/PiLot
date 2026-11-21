@@ -143,12 +143,17 @@ export async function adoptChatLevels(
  * `turn` used to be `"guest"`; only `"owner"` is ever matched, so an old value reads as a
  * member turn without a migration.
  */
+/** How much this chat wants to hear from the agent without having asked anything. */
+export type ProactiveMode = "off" | "observe" | "auto";
+
 export const ChatPolicy = defineDoc<{
   isolated?: boolean;
   /** Legacy spelling of `isolated`; read-only. */
   guest?: boolean;
   topic?: string;
   turn?: "owner" | "member";
+  /** Absent reads as `auto`: the behaviour before this switch existed. */
+  proactive?: ProactiveMode;
 }>({
   kind: "app.chat-policy",
   version: 1,
@@ -209,6 +214,41 @@ export async function setChatTopic(
     const doc = await tx.doc(ChatPolicy, conversationId as never);
     if (topic === undefined) delete doc.topic;
     else doc.topic = topic;
+  }, context);
+}
+
+/**
+ * How loud this conversation's unprompted messages are allowed to be.
+ *
+ * `off` and `observe` both keep quiet; the difference is what happens to the message. `off` drops it
+ * (a deliberate "do not tell me"), `observe` keeps it in the outbox with `paused`, where `/outbox`
+ * can show it and `/outbox flush` can send it. Absent reads as `auto`: the behaviour before this
+ * switch existed, so nothing changes until someone turns it down.
+ */
+export async function proactiveOf(
+  harness: Harness,
+  context: Context,
+  conversationId: number,
+): Promise<ProactiveMode> {
+  const mode = await harness.commit(
+    async (tx) => (await tx.doc(ChatPolicy, conversationId as never)).proactive,
+    context,
+  );
+  return mode === "off" || mode === "observe" ? mode : "auto";
+}
+
+export async function setProactive(
+  harness: Harness,
+  context: Context,
+  conversationId: number,
+  mode: ProactiveMode,
+): Promise<void> {
+  await harness.commit(async (tx) => {
+    const doc = await tx.doc(ChatPolicy, conversationId as never);
+    // `auto` is the default: a default spelled out in every document is one more copy to keep in
+    // sync, so writing it means deleting it.
+    if (mode === "auto") delete doc.proactive;
+    else doc.proactive = mode;
   }, context);
 }
 
