@@ -20,6 +20,7 @@ import { collectDigest } from "./digest.ts";
 import { recordVerdict } from "./verdicts.ts";
 import { note } from "./notes.ts";
 import { lastRequestMessages, lastRequestTokens } from "./context-guard.ts";
+import { drain as drainOutbox, hold as holdForRetry, pending as pendingOutbox, type OutboxEntry } from "./outbox.ts";
 
 /**
  * Compact after the answer when the next request would carry more than this.
@@ -1547,9 +1548,12 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         await sendText(chatId, stripInlineCode(markdown));
       } catch (inner) {
         logError("feishu", "plain text fallback failed, sending direct", inner);
-        await sendTextDirect(chatId, stripInlineCode(markdown)).catch((last: unknown) =>
-          logError("feishu", "direct send failed too: the answer is only in the log", last),
-        );
+        await sendTextDirect(chatId, stripInlineCode(markdown)).catch(async (last: unknown) => {
+          logError("feishu", "direct send failed too, holding the answer for retry", last);
+          await holdForRetry(runtime.harness, context, { chatId, text: markdown, plain: false, meta, header }).catch(
+            (inner) => logError("feishu", "could not hold the answer either", inner),
+          );
+        });
       }
     }
   }
@@ -1642,7 +1646,22 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
    * markdown, with bold stage names and `code`. Sent as plain text the asterisks show up literally
    * and the structure is gone, so the first line becomes the header and the rest a card body.
    */
+  /**
+   * A notice is nobody's answer: if it cannot be delivered now it waits in the outbox instead of
+   * failing a background task that has already done its work.
+   */
   async function sendNotice(chatId: string, text: string): Promise<void> {
+    try {
+      await sendNoticeNow(chatId, text);
+    } catch (error) {
+      logError("feishu", "notice could not be sent, holding it", error);
+      await holdForRetry(runtime.harness, context, { chatId, text, plain: true }).catch((inner) =>
+        logError("feishu", "could not hold the notice either", inner),
+      );
+    }
+  }
+
+  async function sendNoticeNow(chatId: string, text: string): Promise<void> {
     const [head, ...rest] = text.split("\n");
     const body = rest.join("\n").trim();
     if (body.length === 0 || !noticeIsRich(body)) {
@@ -1842,6 +1861,55 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       slot.done();
     }
   }
+
+  /**
+   * One outbox entry on its way. A card by default: the held text is markdown, and as plain text its
+   * tables and bold arrive as characters.
+   */
+  async function sendHeld(entry: OutboxEntry): Promise<void> {
+    const content = entry.plain
+      ? JSON.stringify({ text: entry.text })
+      : JSON.stringify(card(entry.text, entry.meta, undefined, entry.header));
+    const msgType = entry.plain ? "text" : "interactive";
+    const response =
+      entry.replyTo === undefined
+        ? await im.message.create({
+            params: { receive_id_type: "chat_id" },
+            data: { receive_id: entry.chatId, msg_type: msgType, content },
+          })
+        : await im.message.reply({
+            path: { message_id: entry.replyTo },
+            data: { msg_type: msgType, content, ...(entry.thread === true ? { reply_in_thread: true } : {}) },
+          });
+    if ((response?.code ?? 0) !== 0) {
+      throw new Error(`outbox send refused: ${response?.code} ${response?.msg ?? ""}`);
+    }
+    if (!entry.plain) log("feishu", "held message delivered", { chatId: entry.chatId, attempts: entry.attempts });
+  }
+
+  // The outbox keeps what the fallback chain could not deliver. Fifteen seconds, because the usual
+  // cause is a gateway restart and nobody wants to wait a minute for a retried answer.
+  let draining = false;
+  const outboxTimer = setInterval(() => {
+    if (draining) return;
+    draining = true;
+    void drainOutbox(runtime.harness, context, sendHeld)
+      .then((report) => {
+        if (report.sent > 0) log("feishu", "outbox drained", { sent: report.sent, left: report.left });
+        for (const entry of report.gaveUp) {
+          logError(
+            "feishu",
+            "outbox gave up on a message",
+            new Error(`${entry.chatId} after ${entry.attempts} attempt(s): ${entry.lastError ?? "unknown"}`),
+          );
+        }
+      })
+      .catch((error) => logError("feishu", "outbox drain failed", error))
+      .finally(() => {
+        draining = false;
+      });
+  }, 15_000);
+  outboxTimer.unref?.();
 
   // The extensions reach back through these two hooks.
   setNotifier(async (surfaceId, text) => {
