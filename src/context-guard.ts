@@ -141,9 +141,20 @@ export function elideOldToolOutputs(
 /** Fingerprint of the system prompt sent last, so a prefix that moves every request shows up in the log. */
 let lastSystemDigest = "";
 
-/** Cheap hash of the head and tail of the system prompt: any edit inside it changes one of the two. */
-export function systemDigest(system: unknown): string {
-  const text = typeof system === "string" ? system : JSON.stringify(system ?? "");
+/**
+ * Cheap hash of the head and tail of the system prompt: any edit inside it changes one of the two.
+ *
+ * Which field holds the prompt depends on the provider — Anthropic sends `system`, others open the
+ * messages with a system entry, some use `instructions` — so look in all three rather than hashing
+ * `undefined` and reporting a prefix that never moves.
+ */
+export function systemDigest(payload: unknown): string {
+  const body = payload as
+    | { system?: unknown; instructions?: unknown; messages?: Array<{ role?: string; content?: unknown }> }
+    | undefined;
+  const system =
+    body?.system ?? body?.instructions ?? body?.messages?.find((message) => message.role === "system")?.content ?? "";
+  const text = typeof system === "string" ? system : JSON.stringify(system);
   const edges = text.slice(0, 4000) + "\u0000" + text.slice(-4000);
   return createHash("sha1").update(`${text.length}:${edges}`).digest("hex").slice(0, 8);
 }
@@ -173,7 +184,7 @@ export const contextGuardExtension = defineExtension({
         // A prompt cache is only worth anything if the prefix is byte-identical between requests.
         // Log every change to the system prompt: if this fires on consecutive requests, something
         // per-turn has moved into it and the whole history is being paid for again.
-        const digest = systemDigest(body.system);
+        const digest = systemDigest(body);
         if (digest !== lastSystemDigest) {
           const first = lastSystemDigest === "";
           lastSystemDigest = digest;
