@@ -5,6 +5,7 @@ import {
   ELIDE_MIN_TOKENS,
   KEEP_RECENT,
   elideOldToolOutputs,
+  systemDigest,
   trimMiddle,
 } from "../src/context-guard.ts";
 
@@ -70,4 +71,14 @@ test("trimMiddle keeps both ends and never leaves half a surrogate pair", () => 
   assert.ok(trimmed.endsWith("😀"));
   assert.equal(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(trimmed), false);
   assert.equal(trimMiddle("short"), "short");
+});
+
+test("the system prompt is found whether it is a field or a leading message", () => {
+  const viaField = systemDigest({ system: "you are a bot" });
+  const viaMessage = systemDigest({ messages: [{ role: "system", content: "you are a bot" }, { role: "user", content: "hi" }] });
+  const viaInstructions = systemDigest({ instructions: "you are a bot" });
+  assert.equal(viaField, viaMessage);
+  assert.equal(viaField, viaInstructions);
+  assert.notEqual(viaField, systemDigest({ system: "you are a different bot" }));
+  assert.notEqual(systemDigest({ system: "a".repeat(9) }), systemDigest({ system: "a".repeat(10) }), "length is part of it");
 });
