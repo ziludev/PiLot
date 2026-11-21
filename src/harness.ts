@@ -21,6 +21,7 @@ import { openTelemetry } from "./telemetry.ts";
 import { chooseName } from "./identity.ts";
 import { titleExtension } from "./title.ts";
 import { contextGuardExtension } from "./context-guard.ts";
+import { snapshotExtension } from "./turn-snapshot.ts";
 import { stallExtension } from "./stall.ts";
 import { batchingExtension } from "./batching.ts";
 import { turnLogExtension } from "./turn-log.ts";
@@ -231,6 +232,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   registry.install(codemodeExtension);
   registry.install(titleExtension);
   registry.install(contextGuardExtension);
+  registry.install(snapshotExtension);
   registry.install(stallExtension);
   registry.install(batchingExtension);
   registry.install(turnLogExtension);
