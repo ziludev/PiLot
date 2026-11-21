@@ -232,7 +232,7 @@ export const MemoryTombstones = defineDoc<{ texts: string[] }>({
   checkpointWhen: () => false,
 });
 
-const recall = defineTool({
+export const recall = defineTool({
   name: "recall",
   description:
     "在长期记忆里搜索：多个关键词用空格分开，全部命中才算。记忆很多、prompt 里只显示最近若干条时用它找旧信息。",

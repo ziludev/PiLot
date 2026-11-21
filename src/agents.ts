@@ -23,7 +23,7 @@ import type { Context } from "@earendil-works/chord/context";
 import { obj, opt, str } from "@earendil-works/pi-schema";
 import { answerTextInTx } from "./answer.ts";
 import { notify, surfaceForConversation } from "./channel.ts";
-import { reportSurface } from "./access.ts";
+import { reportSurface, ChatPolicy, isIsolatedPolicy } from "./access.ts";
 import { config } from "./config.ts";
 import { log, logError } from "./log.ts";
 import { ROLES, toolsFor, type RoleName } from "./roles.ts";
@@ -66,7 +66,12 @@ export function setAgentBoundary(extension: Extension): void {
   boundary = extension;
 }
 
-async function configureAgent(tx: Tx, id: ConversationId, role: RoleName): Promise<void> {
+async function configureAgent(
+  tx: Tx,
+  id: ConversationId,
+  role: RoleName,
+  isolated: boolean,
+): Promise<void> {
   await configure(tx, id, {
     // An ownerless conversation is not a copy of the one that hired it, so the model and the
     // thinking level are stated here instead of inherited.
@@ -76,6 +81,12 @@ async function configureAgent(tx: Tx, id: ConversationId, role: RoleName): Promi
     ...toolsFor(role),
     maxTurns: ROLES[role].maxTurns,
   });
+  // Same rule as a stage child: a colleague hired from an isolated conversation must not become
+  // a window onto the owner's memory. Its own history stays private anyway; only the flag is new.
+  if (isolated) {
+    const doc = await tx.doc(ChatPolicy, id as never);
+    doc.isolated = true;
+  }
 }
 
 // ---- the turn ---------------------------------------------------------------
@@ -267,10 +278,14 @@ const spawnAgent = defineTool({
     }
 
     let created = 0;
+    const parentPolicy = await api
+      .snapshot(ChatPolicy, api.conversationId, context)
+      .catch(() => undefined);
+    const isolated = isIsolatedPolicy(parentPolicy);
     await api.commit(async (tx) => {
       // Ownerless: no turn owns a colleague, so no abort or restart takes it away.
       const conversation = await tx.createConversation({ ownership: { kind: "ownerless" } });
-      await configureAgent(tx, conversation.id, role);
+      await configureAgent(tx, conversation.id, role, isolated);
       const doc = await tx.doc(Agents, api.conversationId);
       doc.agents[name] = {
         role,

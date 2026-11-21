@@ -13,8 +13,7 @@ import { answerTextInTx } from "./answer.ts";
 import type { TaskRuntime, ToolExecutionApi } from "@earendil-works/pi-durable";
 import { ROLES, toolsFor, type RoleName } from "./roles.ts";
 import { notify, surfaceForConversation } from "./channel.ts";
-import { reportSurface } from "./access.ts";
-import { getHarness } from "./runtime-ref.ts";
+import { reportSurface, ChatPolicy, isIsolatedPolicy } from "./access.ts";import { getHarness } from "./runtime-ref.ts";
 import { log, logError } from "./log.ts";
 import { AGENT_TASKS, AGENT_TOOLS, setAgentBoundary } from "./agents.ts";
 
@@ -36,13 +35,25 @@ function isRole(value: unknown): value is RoleName {
  * Every child is a task-owned conversation with the role's instructions and tools.
  * A child never gets the delegate tools again: one level of fan-out, bounded cost.
  */
-async function configureChild(tx: Tx, id: ConversationId, role: RoleName): Promise<void> {
+async function configureChild(
+  tx: Tx,
+  id: ConversationId,
+  role: RoleName,
+  isolated: boolean,
+): Promise<void> {
   await configure(tx, id, {
     extensions: { remove: [subagentExtension] },
     instructions: `${ROLES[role].instructions}\n\n角色上限：${ROLES[role].maxTurns} 轮工具调用。`,
     ...toolsFor(role),
     maxTurns: ROLES[role].maxTurns,
   });
+  // A child of an isolated conversation stays isolated. The memory extension reads this flag off
+  // the child's own id, so without it a child hired inside a shared group would see the owner's
+  // global memory — the isolation that hid it from the group would stop at the subagent boundary.
+  if (isolated) {
+    const doc = await tx.doc(ChatPolicy, id as never);
+    doc.isolated = true;
+  }
 }
 
 async function ensureChild(
@@ -55,9 +66,14 @@ async function ensureChild(
   const known = map[key];
   if (known !== undefined) return known as unknown as ConversationId;
 
+  const parentPolicy = await api
+    .snapshot(ChatPolicy, api.conversationId, context)
+    .catch(() => undefined);
+  const isolated = isIsolatedPolicy(parentPolicy);
+
   const created = await api.commit(async (tx) => {
     const conversation = await tx.createConversation({ ownership: { kind: "task", taskId: api.taskId } });
-    await configureChild(tx, conversation.id, role);
+    await configureChild(tx, conversation.id, role, isolated);
     return conversation.id as unknown as number;
   }, context);
 
@@ -272,12 +288,17 @@ async function runStage(
     const existing = await runtime.memo<number>(`child:${key}`, context);
     let childId = existing;
     if (childId === undefined) {
+      // Read the hiring conversation's policy here: a stage belongs to the feature task, not to that
+      // conversation, so nothing about it is inherited unless we copy it.
+      const parentPolicy = await runtime
+        .snapshot(ChatPolicy, task.input.parentConversationId as never, context)
+        .catch(() => undefined);
       let created = 0;
       await runtime.commit(async (tx) => {
         const conversation = await tx.createConversation({
           ownership: { kind: "task", taskId: task.id as never },
         });
-        await configureChild(tx, conversation.id, role);
+        await configureChild(tx, conversation.id, role, isIsolatedPolicy(parentPolicy));
         created = conversation.id as unknown as number;
         return undefined;
       }, context);
