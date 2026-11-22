@@ -575,16 +575,16 @@ func (a *App) taskStepRow(c *ui.Context, t theme.Tokens, step api.TaskLogStep) {
 		// nobody opens.
 		caretColor := t.MutedFg
 		if openable {
-			caretColor = t.Foreground.Alpha(0.45)
+			caretColor = t.Foreground.Alpha(0.7)
 		}
-		ui.Text(c, caret).FontSize(9.5).TextColor(caretColor).Width(10).Shrink(0)
+		ui.Text(c, caret).FontSize(11).TextColor(caretColor).Width(11).Shrink(0)
 	})
 	if !open {
 		return
 	}
 	// Indented to where the tool's name starts, so the blocks read as part of
 	// the row they belong to rather than as another step.
-	ui.Column(c).FillWidth().Gap(4).Padding(2, 0, 2, 16).Children(func() {
+	ui.Column(c).FillWidth().Gap(4).Padding(2, 0, 2, 32).Children(func() {
 		if step.Args != "" {
 			ui.Text(c, i18n.T("taskStepArgs")).FontSize(9).TextColor(t.MutedFg)
 			ui.Text(c, clipLines(step.Args, 10)).Font(monoFont).FontSize(9).
