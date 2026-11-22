@@ -86,7 +86,9 @@ func taskProgress(c *ui.Context, t theme.Tokens, children []api.TaskSubAgent) {
 		barGap   float32 = 4
 	)
 	segment := (barWidth - barGap*float32(total-1)) / float32(total)
-	ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+	// Ten, not six: at six the count sat as close to the last segment as the
+	// segments sit to each other, and the bar read as five blocks.
+	ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
 		ui.Row(c).Height(4).Gap(barGap).Label(i18n.T("taskProgress")).Role(ui.RoleProgress).
 			Children(func() {
 				for _, child := range children {

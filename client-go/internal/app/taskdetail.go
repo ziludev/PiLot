@@ -176,13 +176,23 @@ func (a *App) taskDetailDialog(c *ui.Context, t theme.Tokens) {
 					}
 					if task := a.detail.task; task != nil {
 						a.taskFacts(c, t, task)
+						// How far along it is comes before what it was asked: the input can be
+						// four hundred lines of JSON, and the stages pushed under it were only
+						// reachable by scrolling past the one thing nobody opens this for.
+						a.taskStages(c, t, task)
 						a.taskInput(c, t, task)
 						a.taskOutcome(c, t, task)
-						a.taskStages(c, t, task)
 					}
 				})
 			})
-			ui.Row(c).FillWidth().Justify(ui.End).Gap(8).Children(func() {
+			// Stopping is the one thing here that cannot be undone, so it does not sit
+			// eight points from the button every hand reaches for: it takes the far
+			// end of the row, and close keeps the near one.
+			justify := ui.End
+			if a.canStop() {
+				justify = ui.SpaceBetween
+			}
+			ui.Row(c).FillWidth().Justify(justify).Gap(8).Children(func() {
 				if a.canStop() {
 					a.dialogButton(c, t, i18n.T("taskStop"), false, func() {
 						a.stopTask(a.detail.id)
@@ -320,6 +330,14 @@ type taskStageRow struct {
 	inline bool
 }
 
+// The two columns a stage's trailing facts sit in. Fixed, because a state word
+// that shifts 13 points left on the one row carrying a failure count stops
+// reading as a column — and that is the row the eye goes to first.
+const (
+	stageStateWidth float32 = 34
+	stageFailWidth  float32 = 22
+)
+
 // taskStages reads the run as a timeline. The child list said how far each stage
 // got; these rows say what it did, because "写测试 · 跑了 · 2 步" never told
 // anyone which command went red at 03:40.
@@ -330,12 +348,16 @@ func (a *App) taskStages(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
 	}
 	ui.Column(c).FillWidth().Gap(3).Children(func() {
 		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, i18n.T("taskSteps")).FontSize(10.5).TextColor(t.MutedFg)
-			if a.anyClickable(rows) {
-				// The dot keeps the hint from reading as one sentence with the label
-				// ("步骤点一行看它做了什么") — same size and colour, 8pt apart.
-				ui.Text(c, "· "+i18n.T("taskStepsHint")).FontSize(9.5).TextColor(t.MutedFg).MaxLines(1)
-			}
+			// Indented to where the stage titles start, so the heading names the
+			// list under it instead of sitting 18 points out in the margin.
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(0, 0, 0, 18).Children(func() {
+				ui.Text(c, i18n.T("taskSteps")).FontSize(10.5).TextColor(t.MutedFg)
+				if a.anyClickable(rows) {
+					// The dot keeps the hint from reading as one sentence with the label
+					// ("步骤点一行看它做了什么") — same size and colour, 8pt apart.
+					ui.Text(c, "· "+i18n.T("taskStepsHint")).FontSize(9.5).TextColor(t.MutedFg).MaxLines(1)
+				}
+			})
 			// The count sits at the row's end, on the same edge as the badge above
 			// it: "how far along" is a header fact, not part of the hint.
 			ui.Row(c).Grow(1)
@@ -344,7 +366,9 @@ func (a *App) taskStages(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
 		for i := range rows {
 			row := rows[i]
 			clickable := len(row.steps) > 0 && row.conv != 0 && !row.inline
-			line := ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).Height(20).Radius(4).Padding(0, 4)
+			// Left padding only: the right padding kept this row's content on 799
+			// while every other column in the dialog ended on 803.
+			line := ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).Height(20).Radius(4).Padding(0, 0, 0, 4)
 			if clickable {
 				line = line.Cursor(ui.CursorPointer)
 				if row.open {
@@ -370,22 +394,25 @@ func (a *App) taskStages(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
 				}
 				ui.Text(c, glyph).FontSize(9).TextColor(t.MutedFg).Width(8)
 				ui.Text(c, row.title).FontSize(10.5).TextColor(t.Foreground).MaxLines(1).Grow(1)
-				if row.state != "" {
-					// The state word is the only thing on this row that says whether
-					// to stop reading, so it carries the colour the bar gives it. All
-					// four words in muted grey made "阶段 2 失败" look like "已结束".
-					color := t.MutedFg
-					switch row.status {
-					case stageFailed:
-						color = t.Destructive
-					case stageRunning:
-						color = t.Warning
-					}
-					ui.Text(c, row.state).FontSize(9.5).TextColor(color).MaxLines(1)
+				// The state word is the only thing on this row that says whether
+				// to stop reading, so it carries the colour the bar gives it. All
+				// four words in muted grey made "阶段 2 失败" look like "已结束".
+				color := t.MutedFg
+				switch row.status {
+				case stageFailed:
+					color = t.Destructive
+				case stageRunning:
+					color = t.Warning
 				}
-				if failures := failedSteps(row.steps); failures > 0 {
-					ui.Text(c, "✗ "+itoa(failures)).FontSize(9.5).TextColor(t.Destructive).MaxLines(1)
+				ui.Text(c, row.state).FontSize(9.5).TextColor(color).MaxLines(1).
+					Width(stageStateWidth).TextAlign(ui.End).Shrink(0)
+				failures := failedSteps(row.steps)
+				mark := ""
+				if failures > 0 {
+					mark = "✗ " + itoa(failures)
 				}
+				ui.Text(c, mark).FontSize(9.5).TextColor(t.Destructive).MaxLines(1).
+					Width(stageFailWidth).TextAlign(ui.End).Shrink(0)
 			})
 			if row.open || row.inline {
 				a.taskStepList(c, t, row.steps, row.more)
