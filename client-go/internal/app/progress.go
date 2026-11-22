@@ -107,9 +107,11 @@ func taskProgress(c *ui.Context, t theme.Tokens, children []api.TaskSubAgent) {
 					ui.Box(c).Width(segment).Height(4).Radius(2).Shrink(0).Background(color)
 				}
 			})
-		// Amber while there is work left, red once a stage broke, green when all
-		// of them came back — the same three readings the rail's running dot gives.
-		color := t.MutedFg
+		// Red once a stage broke, green when all of them came back. The count is
+		// the one exact reading on this control, so the in-between case is a
+		// dimmed foreground, not muted grey: muted put it below the segments it
+		// was summarising.
+		color := t.Foreground.Alpha(0.7)
 		switch {
 		case failed > 0:
 			color = t.Destructive
