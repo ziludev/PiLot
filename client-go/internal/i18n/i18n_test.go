@@ -44,7 +44,7 @@ import (
 // dialog's placeholder, which the key audit found missing since it was written;
 // and the "started from" label on the one row that began a task. 255 keys: the
 // stage meter's own name, which only assistive technology reads.
-const maxKeys = 255
+const maxKeys = 260
 
 func TestDictionariesMatch(t *testing.T) {
 	keys := Keys()

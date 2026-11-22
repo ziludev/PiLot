@@ -524,8 +524,14 @@ type TaskLogStep struct {
 	At    int64  `json:"at"`
 	Tool  string `json:"tool"`
 	Label string `json:"label"`
-	State string `json:"state"`
-	Text  string `json:"text"`
+	// Args is the whole call, pretty-printed; Label is its first line. The row
+	// draws Label and opens Args underneath it.
+	Args string `json:"args"`
+	// Output is what the call answered, cut to a screenful by the bridge. Empty
+	// while it runs, and for calls that answered with nothing.
+	Output string `json:"output"`
+	State  string `json:"state"`
+	Text   string `json:"text"`
 }
 
 // TaskLogStage is one conversation's part of a run: the task's own turn when it

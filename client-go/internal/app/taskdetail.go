@@ -41,6 +41,10 @@ type taskDetailPanel struct {
 	// expanded is the stage whose steps are open, by conversation id; 0 is none.
 	// One at a time — two open stages on a phone-sized dialog is a transcript.
 	expanded int
+	// stepOpen is the steps opened under their row, by entry id. A call can be
+	// read as one line or as what it was told and what it answered; the row
+	// above is the index, this is the evidence.
+	stepOpen map[int]bool
 	// scroll is the body's offset, kept across frames so the dialog stays where
 	// the reader left it while the task's log streams in.
 	scroll ui.ScrollState
@@ -517,29 +521,85 @@ func (a *App) taskStepList(c *ui.Context, t theme.Tokens, steps []api.TaskLogSte
 	}
 	ui.Column(c).FillWidth().Gap(2).Padding(0, 0, 0, 18).Children(func() {
 		for _, step := range kept {
-			ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Start).Children(func() {
-				glyph, color := "✓", t.MutedFg
-				switch step.State {
-				case "failed":
-					glyph, color = "✗", t.Destructive
-				case "running":
-					glyph, color = "·", t.Warning
-				}
-				ui.Text(c, glyph).FontSize(9.5).TextColor(color).Width(10)
-				if step.Kind == "say" {
-					ui.Text(c, step.Text).FontSize(10).TextColor(t.MutedFg).MaxLines(2).Grow(1)
-					return
-				}
-				ui.Text(c, step.Tool).Font(monoFont).FontSize(9.5).TextColor(t.Foreground).MaxLines(1)
-				if step.Label != "" {
-					ui.Text(c, step.Label).Font(monoFont).FontSize(9.5).
-						TextColor(t.MutedFg).MaxLines(1).Grow(1)
-				}
-			})
+			a.taskStepRow(c, t, step)
 		}
 		if more > 0 {
 			ui.Text(c, i18n.TF("taskStepMore", map[string]any{"n": more})).
 				FontSize(9.5).TextColor(t.MutedFg)
+		}
+	})
+}
+
+// taskStepRow is one call. A tool call that has something to show opens: the
+// row is the index line, and what the tool was told and answered sits under it.
+// A reply in words has nothing to open and stays one line.
+func (a *App) taskStepRow(c *ui.Context, t theme.Tokens, step api.TaskLogStep) {
+	openable := step.Kind == "tool" && (step.Args != "" || step.Output != "")
+	open := openable && a.detail.stepOpen[step.ID]
+	line := ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Start)
+	if openable {
+		line = line.Cursor(ui.CursorPointer)
+		line.OnClick(func() {
+			if a.detail.stepOpen == nil {
+				a.detail.stepOpen = map[int]bool{}
+			}
+			a.detail.stepOpen[step.ID] = !a.detail.stepOpen[step.ID]
+			a.invalidate()
+		})
+	}
+	line.Children(func() {
+		glyph, color := "✓", t.MutedFg
+		switch step.State {
+		case "failed":
+			glyph, color = "✗", t.Destructive
+		case "running":
+			glyph, color = "·", t.Warning
+		}
+		ui.Text(c, glyph).FontSize(9.5).TextColor(color).Width(10)
+		if step.Kind == "say" {
+			ui.Text(c, step.Text).FontSize(10).TextColor(t.MutedFg).MaxLines(2).Grow(1)
+			return
+		}
+		ui.Text(c, step.Tool).Font(monoFont).FontSize(9.5).TextColor(t.Foreground).MaxLines(1)
+		ui.Text(c, step.Label).Font(monoFont).FontSize(9.5).
+			TextColor(t.MutedFg).MaxLines(1).Grow(1)
+		caret := " "
+		if openable {
+			caret = "▸"
+			if open {
+				caret = "▾"
+			}
+		}
+		// Brighter than the label: at 8pt muted grey the caret read as dirt at
+		// the end of the row, and a row nobody can tell is openable is a row
+		// nobody opens.
+		caretColor := t.MutedFg
+		if openable {
+			caretColor = t.Foreground.Alpha(0.45)
+		}
+		ui.Text(c, caret).FontSize(9.5).TextColor(caretColor).Width(10).Shrink(0)
+	})
+	if !open {
+		return
+	}
+	// Indented to where the tool's name starts, so the blocks read as part of
+	// the row they belong to rather than as another step.
+	ui.Column(c).FillWidth().Gap(4).Padding(2, 0, 2, 16).Children(func() {
+		if step.Args != "" {
+			ui.Text(c, i18n.T("taskStepArgs")).FontSize(9).TextColor(t.MutedFg)
+			ui.Text(c, clipLines(step.Args, 10)).Font(monoFont).FontSize(9).
+				TextColor(t.MutedFg).MaxLines(10).FillWidth().
+				Padding(6).Radius(4).Background(t.SidebarAccent)
+		}
+		if step.Output != "" {
+			label, color := i18n.T("taskStepOutput"), t.MutedFg
+			if step.State == "failed" {
+				label, color = i18n.T("taskStepError"), t.Destructive
+			}
+			ui.Text(c, label).FontSize(9).TextColor(color)
+			ui.Text(c, clipLines(step.Output, 12)).Font(monoFont).FontSize(9).
+				TextColor(t.MutedFg).MaxLines(12).FillWidth().
+				Padding(6).Radius(4).Background(t.SidebarAccent)
 		}
 	})
 }

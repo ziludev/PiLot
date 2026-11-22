@@ -218,6 +218,9 @@ var zh = map[string]string{
 	"taskStartedFrom":    "发起",
 	"taskStepsHint":      "点一行看它做了什么",
 	"taskStepMore":       "还有 {n} 步",
+	"taskStepArgs":       "参数",
+	"taskStepOutput":     "输出",
+	"taskStepError":      "错误",
 	"taskDid":            "它做了什么",
 	"close":              "关闭",
 
@@ -499,6 +502,9 @@ var en = map[string]string{
 	"taskStartedFrom":    "started from",
 	"taskStepsHint":      "click a row to see what it did",
 	"taskStepMore":       "{n} more",
+	"taskStepArgs":       "arguments",
+	"taskStepOutput":     "output",
+	"taskStepError":      "error",
 	"taskDid":            "what it did",
 	"close":              "Close",
 
