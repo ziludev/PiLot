@@ -4,6 +4,7 @@ import { conversationForSurface, startTurn, surfaceForConversation } from "./cha
 import { recordSpend, spentSoFar } from "./spend.ts";
 import { log, logError } from "./log.ts";
 import { getHarness } from "./runtime-ref.ts";
+import { readWatch, summarizeWatch, watchChangeNote } from "./watch.ts";
 
 /**
  * A routine is a reminder that comes back. Everything a routine needs already existed once the
@@ -138,11 +139,16 @@ type RoutineInput = {
   surfaceId: string;
   /** Creation time; interval schedules keep their grid on it. */
   anchor: number;
+  /**
+   * A command whose output decides whether a round says anything. `baseline` is what it said when
+   * the routine was built, so the first round already has something to compare against.
+   */
+  watch?: { cmd: string; baseline: string };
 };
 
-type RoutineState = { phase: "wait" } | { phase: "fire"; at: number };
+type RoutineState = { phase: "wait"; seen?: string } | { phase: "fire"; at: number; seen?: string };
 
-const Routine = defineTask<RoutineInput, RoutineState, string>({
+export const Routine = defineTask<RoutineInput, RoutineState, string>({
   name: "app.routine",
   version: 1,
   initial: () => ({ phase: "wait" }),
@@ -153,6 +159,22 @@ const Routine = defineTask<RoutineInput, RoutineState, string>({
     },
     fire: async (task, runtime, context) => {
       const surfaceId = surfaceForConversation(task.conversationId) ?? task.input.surfaceId;
+      const watch = task.input.watch;
+      let seen = task.state.checkpoint.seen ?? watch?.baseline;
+      let change = "";
+      if (watch !== undefined) {
+        const look = await readWatch(watch.cmd, process.cwd());
+        if (look.reading === seen) {
+          // Nothing moved, so nothing is said. The command already ran; the turn it skips is the part
+          // that costs tokens and a card, and this is the whole difference between watching and nagging.
+          log("routines", "watch unchanged, no turn", { task: task.id, reading: look.summary });
+          const quiet = nextOccurrence(task.input.schedule, Date.now(), task.input.anchor);
+          await runtime.sleepUntil(quiet, { phase: "wait", seen: look.reading }, context);
+          return;
+        }
+        change = watchChangeNote(watch.cmd, seen ?? "", look.reading, seen === watch.baseline);
+        seen = look.reading;
+      }
       // What the chat's ledger says before the turn, so the routine can report what its own run
       // cost: nobody is watching an unattended run spend money.
       const chatConversation = conversationForSurface(surfaceId);
@@ -160,7 +182,12 @@ const Routine = defineTask<RoutineInput, RoutineState, string>({
         chatConversation === undefined ? undefined : await spentSoFar(runtime, context, chatConversation).catch(() => undefined);
       // The turn is told it is unattended, because the expensive failure mode of a routine is a
       // turn that stops halfway to ask a question nobody is there to answer.
-      const instruction = `⏰ 定时任务（无人在线：不要反问我，做完直接在回复里给结果和验证方式）\n\n${task.input.text}`;
+      const instruction = [
+        `⏰ 定时任务（无人在线：不要反问我，做完直接在回复里给结果和验证方式）\n\n${task.input.text}`,
+        change,
+      ]
+        .filter((part) => part !== "")
+        .join("\n\n");
       try {
         const started = await startTurn(surfaceId, instruction, `routine:${task.id}:${task.state.checkpoint.at}`);
         log("routines", started ? "routine started a turn" : "routine had nowhere to run", {
@@ -183,7 +210,7 @@ const Routine = defineTask<RoutineInput, RoutineState, string>({
         logError("routines", `could not start the routine turn in ${surfaceId}`, error);
       }
       const at = nextOccurrence(task.input.schedule, Date.now(), task.input.anchor);
-      await runtime.sleepUntil(at, { phase: "wait" }, context);
+      await runtime.sleepUntil(at, { phase: "wait", seen }, context);
     },
   },
   abort: async (task, runtime, context) => {
@@ -195,13 +222,19 @@ const Routine = defineTask<RoutineInput, RoutineState, string>({
 const routine = defineTool({
   name: "routine",
   description:
-    "建一个常驻的定时任务：到点自动在聊天里开一轮（跟收到一条消息一样），跑完把结果发到那个聊天。适合「每周一自审日志」「每天早上看有没有红灯」这类。schedule 支持 daily 09:00 / weekdays 09:00 / weekly mon 09:00 / every 6h。",
+    "建一个常驻的定时任务：到点自动在聊天里开一轮（跟收到一条消息一样），跑完把结果发到那个聊天。适合「每周一自审日志」「每天早上看有没有红灯」这类。schedule 支持 daily 09:00 / weekdays 09:00 / weekly mon 09:00 / every 6h。给了 watch 就变成「变了才说话」：每轮先跑那条命令，输出跟上次一样就跳过这一轮，不花 token 也不发卡片。",
   parameters: obj({
     text: str({
       description:
         "到点要做的事。写成给自己下的指令：目标 + 边界 + 怎么算做完（例如「读最近 7 天的 logs 和 report 行，挑出 3 条最该改的流程问题，能直接改的直接改」）",
     }),
     schedule: str({ description: "daily HH:MM / weekdays HH:MM / weekly mon HH:MM / every Nm|Nh|Nd" }),
+    watch: opt(
+      str({
+        description:
+          "可选：一条 shell 命令（在仓库根目录跑），输出就是「被盯的东西」。适合等 MR 评论 / CI 状态 / 部署结果。建任务时会先跑一次当基线，之后每轮比一次，变了才开一轮并把上次和这次一起交给这一轮。命令必须现在是跑得通的（非零退出现在会直接拒绝建任务）。",
+      }),
+    ),
   }),
   replay: "safe",
   execute: async (args, api, context) => {
@@ -210,21 +243,38 @@ const routine = defineTool({
     const anchor = api.now();
     const first = nextOccurrence(schedule, anchor, anchor);
     const surfaceId = surfaceForConversation(api.conversationId) ?? "";
+    let watch: RoutineInput["watch"];
+    const rawWatch = typeof args.watch === "string" ? args.watch.trim() : "";
+    if (rawWatch !== "") {
+      // A baseline taken now is what makes the first round quiet: waiting until the first firing to
+      // learn the state would either report a change nobody made or miss one that already happened.
+      const look = await readWatch(rawWatch, process.cwd());
+      if (look.broke) {
+        return {
+          output: [
+            {
+              type: "text" as const,
+              text: `watch 命令现在跑不通，没建任务（先修好命令再建）：\n$ ${rawWatch}\n${look.summary}\n${look.reading.slice(0, 800)}`,
+            },
+          ],
+        };
+      }
+      watch = { cmd: rawWatch, baseline: look.reading };
+    }
     const taskId = await api.createTask(
       Routine,
-      { schedule, text: args.text, surfaceId, anchor },
+      { schedule, text: args.text, surfaceId, anchor, ...(watch === undefined ? {} : { watch }) },
       // Background: the routine outlives this turn, so the conversation goes idle while it waits.
       { ownership: { kind: "conversation" }, background: true },
       context,
     );
-    return {
-      output: [
-        {
-          type: "text" as const,
-          text: `建好了：${describe(schedule)}，下次 ${formatWhen(first)} 在聊天里开跑（task ${taskId}）`,
-        },
-      ],
-    };
+    const lines = [`建好了：${describe(schedule)}，下次 ${formatWhen(first)} 在聊天里开跑（task ${taskId}）`];
+    if (watch !== undefined) {
+      lines.push(`盯着：\`${watch.cmd}\``);
+      lines.push(`现在的样子：${summarizeWatch(watch.baseline)}`);
+      lines.push("没变化就不吭声，变了才开一轮。");
+    }
+    return { output: [{ type: "text" as const, text: lines.join("\n") }] };
   },
 });
 
@@ -275,7 +325,8 @@ const routines = defineTool({
       const state = entry.record.state;
       const until =
         state.status === "sleeping" && typeof state.until === "number" ? `下次 ${formatWhen(state.until)}` : "正在跑";
-      return `· ${describe(input.schedule)} · ${until} · ${input.text.replace(/\s+/g, " ").slice(0, 40)}（task ${idOf(entry)}）`;
+      const watching = input.watch === undefined ? "" : ` · 盯着 ${input.watch.cmd.replace(/\s+/g, " ").slice(0, 40)}`;
+      return `· ${describe(input.schedule)}${watching} · ${until} · ${input.text.replace(/\s+/g, " ").slice(0, 40)}（task ${idOf(entry)}）`;
     });
     return { output: [{ type: "text" as const, text: lines.join("\n") }] };
   },
