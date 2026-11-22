@@ -68,13 +68,23 @@ func railApp(t *testing.T, baseURL string) *App {
 	return a
 }
 
+// openRailSections unfolds the two shelves railApp's chats land in. A folded
+// section draws its heading and no rows (sectionClosed keeps only the active and
+// pinned ones open by default), so a test that clicks a row — or its ⋯ — has to
+// open what it put on screen first.
+func openRailSections(a *App) *App {
+	a.prefs.Sections = map[string]bool{"direct": true, "other": true}
+	a.invalidate()
+	return a
+}
+
 // TestRailMenuArchive proves the whole path of the row menu: the ⋯ opens a menu
 // with its three verbs, and Archive patches the mirror before the bridge answers,
 // so the row has already left the sections by the time the frame is drawn.
 func TestRailMenuArchive(t *testing.T) {
 	i18n.Set(i18n.EN)
 	bridge := newSurfaceBridge(t)
-	a := railApp(t, bridge.srv.URL)
+	a := openRailSections(railApp(t, bridge.srv.URL))
 
 	tt := ui.NewTester(a.View, 1180, 820)
 	tt.Frame()
@@ -254,7 +264,7 @@ func TestSearchReplyForTheOldQueryIsDropped(t *testing.T) {
 func TestRenameThroughTheMenu(t *testing.T) {
 	i18n.Set(i18n.EN)
 	bridge := newSurfaceBridge(t)
-	a := railApp(t, bridge.srv.URL)
+	a := openRailSections(railApp(t, bridge.srv.URL))
 
 	tt := ui.NewTester(a.View, 1180, 820)
 	tt.Frame()
@@ -308,7 +318,7 @@ func countText(texts []string, s string) int {
 // row under the pointer, not to the whole list — a rail of dots is noise.
 func TestRailMenuFollowsThePointer(t *testing.T) {
 	i18n.Set(i18n.EN)
-	a := railApp(t, "")
+	a := openRailSections(railApp(t, ""))
 	tt := ui.NewTester(a.View, 1180, 820)
 	tt.Frame()
 	if got := countText(tt.Texts(), "⋯"); got != 1 {

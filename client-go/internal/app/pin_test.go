@@ -78,7 +78,7 @@ func TestPinnedChatIsNeverFiledAway(t *testing.T) {
 // telling the bridge — a pin is the window's own bookkeeping.
 func TestPinFromTheMenu(t *testing.T) {
 	i18n.Set(i18n.EN)
-	a := railApp(t, "http://127.0.0.1:1")
+	a := openRailSections(railApp(t, "http://127.0.0.1:1"))
 
 	tt := ui.NewTester(a.View, 1180, 820)
 	tt.Frame()
