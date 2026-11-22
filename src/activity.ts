@@ -238,6 +238,10 @@ export interface TaskLogStep {
   tool?: string;
   /** One line of what the tool was told: the command, the path, the pattern. */
   label?: string;
+  /** The whole of what it was told, pretty-printed and cut to a screenful. The row keeps the one-liner; this is what opens under it. */
+  args?: string;
+  /** What the call answered, cut to a screenful. Absent until the result arrives. */
+  output?: string;
   /** "ok", "failed", or "running" — a call with no result yet is still going. */
   state: "ok" | "failed" | "running";
   /** For "say": the reply, cut to a paragraph. */
@@ -262,6 +266,9 @@ export interface TaskLogStage {
 const STAGE_STEPS = 40;
 const TOOL_LABEL = 90;
 const SAY_TEXT = 280;
+/** What the panel opens under a step. A dialog row holds about this much; more is scrolling. */
+const STEP_ARGS = 600;
+const STEP_OUTPUT = 1000;
 
 /** Arguments worth putting on a row, in the order they read best. */
 const ARG_KEYS = ["command", "path", "pattern", "query", "url", "file", "id", "task", "name", "model", "text"];
@@ -269,6 +276,28 @@ const ARG_KEYS = ["command", "path", "pattern", "query", "url", "file", "id", "t
 function oneLine(text: string, limit: number): string {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length <= limit ? flat : `${flat.slice(0, limit)}…`;
+}
+
+/**
+ * A block of text as the dialog opens it: newlines kept, because a stack trace or a diff read on
+ * one line is unreadable — and cut, because forty steps of full transcripts is a payload nobody
+ * asked for. Both the arguments and the result go through here.
+ */
+function clip(text: string, limit: number): string {
+  const whole = text.replace(/\r\n/g, "\n").trimEnd();
+  return whole.length <= limit ? whole : `${whole.slice(0, limit)}…`;
+}
+
+/** A call's arguments, indented, as the panel shows them under the row. */
+function argsText(args: unknown): string | undefined {
+  if (args === undefined || args === null) return undefined;
+  if (typeof args === "string") return args.trim() === "" ? undefined : clip(args, STEP_ARGS);
+  try {
+    const text = JSON.stringify(args, null, 2);
+    return text === undefined || text === "{}" ? undefined : clip(text, STEP_ARGS);
+  } catch {
+    return undefined;
+  }
 }
 
 /** What a tool call was told, as one line. A row says "bash · go test ./…", not a JSON blob. */
@@ -450,11 +479,19 @@ export function stepsFromTranscript(rows: RawRow[]): TaskLogStep[] {
     // drawing: the tool already has a step, this just closes it.
     if (row.kind === "pi.tool-result" && row.callId !== null) {
       const step = byCall.get(row.callId);
-      if (step !== undefined) step.state = row.isError ? "failed" : "ok";
+      if (step !== undefined) {
+        step.state = row.isError ? "failed" : "ok";
+        const text = row.content
+          .map((block) => (typeof block.text === "string" ? block.text : ""))
+          .filter((part) => part !== "")
+          .join("\n");
+        if (text.trim() !== "") step.output = clip(text, STEP_OUTPUT);
+      }
       continue;
     }
     for (const block of row.content) {
       if (row.kind === "pi.assistant" && block.type === "toolCall" && typeof block.name === "string") {
+        const args = argsText(block.arguments);
         const step: TaskLogStep = {
           id: row.id,
           kind: "tool",
@@ -464,6 +501,9 @@ export function stepsFromTranscript(rows: RawRow[]): TaskLogStep[] {
           state: "running",
           call: typeof block.id === "string" ? block.id : undefined,
         };
+        // Only when there is something to open: a step with no arguments should
+        // not carry the key at all, or every row would look expandable.
+        if (args !== undefined) step.args = args;
         steps.push(step);
         if (typeof block.id === "string") byCall.set(block.id, step);
       } else if (row.kind.startsWith("app.") && block.type === "text" && typeof block.text === "string" && block.text.trim() !== "") {
