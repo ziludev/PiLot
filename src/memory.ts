@@ -56,6 +56,8 @@ export const WorkMemory = defineDoc<{ notes: Note[] }>({
 
 const MAX_GLOBAL_NOTES = 60;
 const MAX_CHAT_NOTES = 20;
+/** Partial hits are leads, not answers: a short list, ranked by how many terms they share. */
+const MAX_PARTIAL_HITS = 8;
 /** A global note past this length stops being an index line and becomes an archive. */
 const INDEX_LIMIT = 160;
 /** Past this, a global note is refused: the detail belongs in work memory. */
@@ -235,7 +237,7 @@ export const MemoryTombstones = defineDoc<{ texts: string[] }>({
 export const recall = defineTool({
   name: "recall",
   description:
-    "在长期记忆里搜索：多个关键词用空格分开，全部命中才算。记忆很多、prompt 里只显示最近若干条时用它找旧信息。",
+    "在长期记忆里搜索（全局/本对话/工作三档）。多个关键词用空格分开，全词命中的排在前面；一条都没全词命中时会退一步列部分命中的，并标出命中几个词。记忆很多、prompt 里只显示最近若干条时用它找旧信息。",
   parameters: obj({ query: str({ description: "关键词，空格分隔" }) }),
   replay: "safe",
   execute: async (args, api, context) => {
@@ -258,12 +260,41 @@ export const recall = defineTool({
           ['本对话', chat?.notes ?? []],
           ['工作', work?.notes ?? []],
         ] as const);
-    for (const [label, notes] of searched) {
-      for (const note of notes) {
-        if (terms.every((term) => note.text.includes(term))) {
-          hits.push(`- [${label}] ${note.at.slice(0, 10)} ${note.text}`);
-        }
+    if (terms.length === 0) {
+      return { output: [{ type: "text" as const, text: "recall 需要一个关键词" }] };
+    }
+    const lowered = terms.map((term) => term.toLowerCase());
+    const rows: Array<{ label: string; note: Note }> = [];
+    for (const [label, notes] of searched) for (const note of notes) rows.push({ label, note });
+    // One line of BM25's idea: a word nearly every note contains (缓存) says little about which
+    // note you want, a rare one (ghostty) says a lot. Only ranks partial hits — exact ones keep
+    // their order — so a note sharing the rare terms comes first.
+    const seen = new Map<string, number>();
+    for (const { note } of rows) {
+      const hay = note.text.toLowerCase();
+      for (const term of lowered) if (hay.includes(term)) seen.set(term, (seen.get(term) ?? 0) + 1);
+    }
+    const rarity = (term: string) => Math.log(1 + rows.length / (seen.get(term) ?? 1));
+    const partial: Array<{ line: string; hits: number; weight: number }> = [];
+    for (const { label, note } of rows) {
+      const hay = note.text.toLowerCase();
+      const matched = lowered.filter((term) => hay.includes(term));
+      if (matched.length === 0) continue;
+      const line = `- [${label}] ${note.at.slice(0, 10)} ${note.text}`;
+      if (matched.length === terms.length) hits.push(line);
+      else {
+        const weight = matched.reduce((sum, term) => sum + rarity(term), 0);
+        partial.push({ line: `${line}（命中 ${matched.length}/${terms.length} 词）`, hits: matched.length, weight });
       }
+    }
+    // Exact hits are the answer. Only when nothing matched every term do the partial ones show up,
+    // as leads with their score on the line.
+    if (hits.length === 0 && partial.length > 0) {
+      partial.sort((a, b) => b.weight - a.weight || b.hits - a.hits);
+      const shown = partial.slice(0, MAX_PARTIAL_HITS);
+      const more = partial.length - shown.length;
+      hits.push("没有全词命中的记忆，以下是部分命中的：", ...shown.map((entry) => entry.line));
+      if (more > 0) hits.push(`（另有 ${more} 条部分命中，换个更短的词能更准）`);
     }
     return {
       output: [
