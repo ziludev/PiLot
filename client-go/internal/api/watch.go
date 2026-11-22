@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/url"
 	"strconv"
@@ -69,6 +70,11 @@ func (c *Client) readFrames(ctx context.Context, conversationID int, conn *webso
 	// receiving and the send below is what is waiting.
 	stop := context.AfterFunc(ctx, func() { conn.CloseNow() })
 	defer stop()
+	// The baseline for this connection only. Deliberately reset on every call:
+	// a reconnected socket starts its own stream from a full first frame, and an
+	// ops frame that arrived before that baseline must not be applied to the old
+	// tree (see the order check in decodeFrame).
+	var tree any
 	for {
 		kind, data, err := conn.Read(ctx)
 		if err != nil {
@@ -82,9 +88,18 @@ func (c *Client) readFrames(ctx context.Context, conversationID int, conn *webso
 		if kind != websocket.MessageText {
 			continue
 		}
-		frame, err := decodeFrame(data)
+		frame, next, err := decodeFrame(data, tree)
 		if err != nil {
+			// A frame we cannot apply leaves the tree suspect. Reconnecting is the
+			// only way back to a known-good baseline, and it is exactly what the
+			// existing backoff loop already does; emitting from a half-applied tree
+			// would corrupt the view silently.
 			log.Printf("api: watch %d: bad frame: %v", conversationID, err)
+			conn.CloseNow()
+			return
+		}
+		tree = next
+		if frame.Value == nil {
 			continue
 		}
 		select {
@@ -95,35 +110,59 @@ func (c *Client) readFrames(ctx context.Context, conversationID int, conn *webso
 	}
 }
 
-// decodeFrame decodes a frame from the wire instead of going straight into
-// protocol.Frame: the bridge sends several documents (pi.agent, pi.inbox,
-// pi.provider, pi.usage) whose shapes do not fit LiveDoc, so the docs map is
-// decoded only for "pi.live" and the rest are dropped.
-func decodeFrame(data []byte) (protocol.Frame, error) {
+// decodeFrame decodes one socket message and returns the tree that the next
+// frame must apply to.
+//
+// Two shapes share the socket:
+//
+//	{"type":"value","value":<view>}    a full view; (re)builds the baseline
+//	{"type":"ops","ops":[<op>...]}     a delta against the current baseline
+//
+// Decoding through an `any` tree instead of straight into protocol.Frame keeps
+// the delta honest: ops address the view itself, and projecting afterwards is
+// one marshal. The docs map keeps every document so paths stay valid; project
+// emits only "pi.live" (the bridge sends pi.agent/pi.inbox/pi.provider/pi.usage
+// whose shapes do not fit LiveDoc).
+func decodeFrame(data []byte, tree any) (protocol.Frame, any, error) {
 	var wire struct {
-		Value *struct {
-			Entries []protocol.Entry           `json:"entries"`
-			Docs    map[string]json.RawMessage `json:"docs"`
-		} `json:"value"`
+		Type  string            `json:"type"`
+		Value json.RawMessage   `json:"value"`
+		Ops   []json.RawMessage `json:"ops"`
 	}
 	if err := json.Unmarshal(data, &wire); err != nil {
-		return protocol.Frame{}, err
+		return protocol.Frame{}, nil, err
 	}
-	if wire.Value == nil {
-		return protocol.Frame{}, nil
-	}
-	frame := protocol.Frame{Value: &protocol.FrameValue{
-		Entries: wire.Value.Entries,
-		Docs:    map[string]protocol.LiveDoc{},
-	}}
-	if raw, ok := wire.Value.Docs["pi.live"]; ok {
-		var live protocol.LiveDoc
-		if err := json.Unmarshal(raw, &live); err != nil {
-			return protocol.Frame{}, err
+
+	if wire.Type == "ops" {
+		if tree == nil {
+			// A delta before any full frame: the stream started mid-conversation
+			// or the bridge changed shape. There is nothing to apply it to.
+			return protocol.Frame{}, nil, fmt.Errorf("ops frame before a value frame")
 		}
-		frame.Value.Docs["pi.live"] = live
+		root, err := applyOps(tree, wire.Ops)
+		if err != nil {
+			return protocol.Frame{}, nil, err
+		}
+		value, err := project(root)
+		if err != nil {
+			return protocol.Frame{}, nil, err
+		}
+		return protocol.Frame{Value: &value}, root, nil
 	}
-	return frame, nil
+
+	if len(wire.Value) == 0 {
+		// Unknown frame kind with no view: nothing the client can draw.
+		return protocol.Frame{}, tree, nil
+	}
+	root, err := decodeTree(wire.Value)
+	if err != nil {
+		return protocol.Frame{}, nil, err
+	}
+	value, err := project(root)
+	if err != nil {
+		return protocol.Frame{}, nil, err
+	}
+	return protocol.Frame{Value: &value}, root, nil
 }
 
 func (c *Client) watchURL(conversationID int) string {
@@ -134,6 +173,9 @@ func (c *Client) watchURL(conversationID int) string {
 		base = "ws://" + rest
 	}
 	query := url.Values{"conversationId": {strconv.Itoa(conversationID)}}
+	// Ask for deltas: the first frame is still the full view, later frames are
+	// {"type":"ops"}. The bridge keeps the old shape for clients without this.
+	query.Set("ops", "1")
 	if c.token != "" {
 		query.Set("token", c.token)
 	}
