@@ -72,6 +72,12 @@ function emit(call: Commit): void {
 	listener(call);
 }
 
+/** Fan a commit out to every attached socket, for tests with two modes at once. */
+function emitAll(call: Commit): void {
+	assert.ok(watchers.length > 0, "no socket has attached yet");
+	for (const listener of watchers) listener(call);
+}
+
 type Probe = {
 	next(timeout?: number): Promise<Record<string, unknown>>;
 	none(ms?: number): Promise<void>;
@@ -191,4 +197,57 @@ test("?ops=1 forwards a mid-stream root replacement as a delta", async () => {
 	assert.equal(frame["type"], "ops");
 	assert.deepEqual(frame["ops"], ops);
 	socket.close();
+});
+
+test("only ops=1 opts in; ops=0 and other values keep the legacy shape", async () => {
+	for (const param of ["ops=0", "ops=true", "ops=1x", "ops="]) {
+		const socket = await open(`/ws?conversationId=7&token=${token}&${param}`);
+		const first = await socket.next();
+		assert.equal(first["type"], "value", `${param}: first frame type`);
+		assert.deepEqual(first["value"], initial, `${param}: first frame value`);
+		assert.deepEqual(first["ops"], [], `${param}: the legacy frame carries ops`);
+
+		const ops = [["s", ["docs", "pi.live", "busy"], true]];
+		emit({ kind: "value", value: committed, ops });
+		const next = await socket.next();
+		assert.equal(next["type"], "value", `${param} must not opt into deltas`);
+		assert.deepEqual(next["value"], committed, `${param}: full value`);
+		assert.deepEqual(next["ops"], ops, `${param}: unchanged client still sees the delta`);
+		socket.close();
+	}
+});
+
+test("?ops=1 falls back to a full frame when the delta is not an array", async () => {
+	const socket = await open(`/ws?conversationId=7&token=${token}&ops=1`);
+	await socket.next();
+
+	emit({ kind: "value", value: committed, ops: "broken" as unknown as unknown[] });
+	const frame = await socket.next();
+	assert.equal(frame["type"], "value");
+	assert.deepEqual(frame["value"], committed);
+	socket.close();
+});
+
+test("two sockets on one conversation each keep their own frame shape", async () => {
+	const legacy = await open(`/ws?conversationId=7&token=${token}`);
+	const delta = await open(`/ws?conversationId=7&token=${token}&ops=1`);
+	const legacyFirst = await legacy.next();
+	const deltaFirst = await delta.next();
+	assert.equal(legacyFirst["type"], "value");
+	assert.deepEqual(legacyFirst["ops"], []);
+	assert.equal(deltaFirst["type"], "value");
+	assert.equal("ops" in deltaFirst, false);
+
+	const ops = [["s", ["docs", "pi.live", "busy"], true]];
+	emitAll({ kind: "value", value: committed, ops });
+	const legacyFrame = await legacy.next();
+	const deltaFrame = await delta.next();
+	assert.equal(legacyFrame["type"], "value");
+	assert.deepEqual(legacyFrame["value"], committed);
+	assert.deepEqual(legacyFrame["ops"], ops);
+	assert.equal(deltaFrame["type"], "ops");
+	assert.equal("value" in deltaFrame, false);
+	assert.deepEqual(deltaFrame["ops"], ops);
+	legacy.close();
+	delta.close();
 });
