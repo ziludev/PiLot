@@ -115,10 +115,15 @@ type LiveWatcher = { stop(): Promise<void> };
  *
  * The gap after a push is paid for by the size of that push: a short frame may go again almost at
  * once, a large one waits. That is the difference between a card that lags a word behind and one
- * that redraws forty kilobytes of thinking every 300 ms. The floor keeps a burst of deltas inside
- * what Feishu accepts; the ceiling keeps a quiet minute from starving the reader.
+ * that redraws forty kilobytes of thinking every 300 ms. The ceiling keeps a quiet minute from
+ * starving the reader.
+ *
+ * The floor is the same 300 ms `src/feishu.ts` uses as its paint gate (`PAINT_MIN_MS`), because that
+ * gate, not this one, is what Feishu enforces: a push that arrives sooner is folded into the next
+ * card frame and buys nothing. Tuning the floor below it would only produce a number this module
+ * cannot actually deliver.
  */
-const MIN_INTERVAL_MS = 250;
+const MIN_INTERVAL_MS = 300;
 const MAX_INTERVAL_MS = 1500;
 const BYTES_PER_SECOND = 32 * 1024;
 

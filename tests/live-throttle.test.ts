@@ -35,7 +35,7 @@ const liveDoc = (text: string) => ({
 // kilobytes may wait — the reader loses nothing either way.
 test("a frame's quiet time is paid by its size, floored and capped", async () => {
   const { liveQuietMs } = await import("../src/live.ts");
-  assert.equal(liveQuietMs(0), 250, "a tiny frame still respects the floor");
+  assert.equal(liveQuietMs(0), 300, "a tiny frame still respects the card's own 300 ms gate");
   assert.equal(liveQuietMs(16 * 1024), 500, "16 KiB at 32 KiB/s is half a second");
   assert.equal(liveQuietMs(10 * 1024 * 1024), 1500, "a huge frame is capped, not starved");
   assert.ok(liveQuietMs(64 * 1024) > liveQuietMs(8 * 1024), "larger is never quicker");
