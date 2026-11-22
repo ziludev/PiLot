@@ -329,10 +329,14 @@ func (a *App) taskStages(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
 	}
 	ui.Column(c).FillWidth().Gap(3).Children(func() {
 		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, i18n.T("taskSteps")).FontSize(10.5).TextColor(t.MutedFg).Grow(1)
+			ui.Text(c, i18n.T("taskSteps")).FontSize(10.5).TextColor(t.MutedFg)
 			if a.anyClickable(rows) {
 				ui.Text(c, i18n.T("taskStepsHint")).FontSize(9.5).TextColor(t.MutedFg).MaxLines(1)
 			}
+			// The count sits at the row's end, on the same edge as the badge above
+			// it: "how far along" is a header fact, not part of the hint.
+			ui.Row(c).Grow(1)
+			taskProgress(c, t, task.SubAgents)
 		})
 		for i := range rows {
 			row := rows[i]

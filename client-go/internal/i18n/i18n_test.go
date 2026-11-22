@@ -42,8 +42,9 @@ import (
 // task's dialog turns into a timeline: its header, the hint, the overflow count,
 // the "what it did" label, and the two lines about the stop; and the commit
 // dialog's placeholder, which the key audit found missing since it was written;
-// and the "started from" label on the one row that began a task.
-const maxKeys = 254
+// and the "started from" label on the one row that began a task. 255 keys: the
+// stage meter's own name, which only assistive technology reads.
+const maxKeys = 255
 
 func TestDictionariesMatch(t *testing.T) {
 	keys := Keys()
