@@ -28,32 +28,54 @@ git clone https://github.com/ziludev/PiLot.git && cd PiLot && ./bin/durable setu
 
 Six steps, then it runs — [Install](#install) has the details and the two things only you can do.
 
-- **Engine** — `@earendil-works/pi-durable` 1.5.2. Every model request, tool call and compaction is a durable task that checkpoints before it runs. `kill -9` mid-turn, restart, and it continues from where it stopped.
-- **Models** — `@earendil-works/pi-ai`. Any built-in provider; model and thinking level are switchable per conversation.
-- **Storage** — one SQLite file (`.data/agent.sqlite`), one writer process, restored as-is on restart.
-- **Three surfaces** — a Feishu app (long connection: no public IP, domain or certificate, held by the gateway in `feishu-gw/`), a native macOS desktop app (`client-go/`: Go + mygo/ui on Metal, no webview), and the `durable` CLI.
+## Three things hold the rest together
 
-![Three surfaces, two processes, one SQLite file](assets/readme/architecture.png)
+**A turn is a durable task.** Every model request, tool call and compaction writes its row before it
+runs. `kill -9` halfway through and the next process marks the interrupted call, retries it, and
+finishes where the turn would have finished: conversation ids, memory, queues and card
+registrations are all where you left them. The engine is `@earendil-works/pi-durable` 1.5.2; the
+models come from `@earendil-works/pi-ai`, and model plus thinking level are switchable per
+conversation.
 
-![One turn, and what survives a kill -9: a message becomes a durable task, a tool call either answers or waits for approval, and the loop runs until the card closes](assets/readme/turn.png)
+**One conversation, three faces.** A Feishu group, the macOS window and `durable chat` are three
+readers of one bridge and one SQLite file. A turn started in a group streams into the window
+without a refresh; `/stop` from the terminal stops the turn the card is showing. None of them is the
+"real" one.
 
-## What it does
+**The fence is code.** Who may talk, what they may reach, and what is asked first are one value per
+chat — `closed`, `owner` or `group` — read by validation, the guest policy, the tool surface and
+every command. A dangerous call waits for your tap in your DM, and nobody tapping within ten minutes
+means no. The model never grants itself anything by asking nicely.
 
-| | |
-|---|---|
-| Feishu | One conversation per chat. In groups it answers only when @-mentioned, in a topic, so the main timeline stays clean; a follow-up inside that topic forks its own conversation. |
-| Desktop | One rail of conversations, filed by kind — 群聊, 话题, 私聊 — with everything that spoke in the last day drawn open on top, each chat showing what it has cost, and a Tasks page for runs, reminders and routines. Answers stream in; a turn's steps fold into one line you can open; a failed turn gets a Retry on its error line. Approvals land inline, every conversation keeps its own queue just above the composer, and stop clears that queue rather than killing the turn. Light and dark, 中文 and English. |
-| Model | `/model` opens a card to switch the conversation's model; `/model <id>`, `/model thinking high`, `/model default <id>` also work. Only the owner may use it. Each answered card names the model, thinking level, tokens and cost of that turn. |
-| Input | Text, images (Feishu image/post messages, pasted screenshots), voice (local whisper). |
-| Interrupt | `/stop` or the client's stop button. Background tasks keep running. |
-| Steering | `/steer <text>` skips the queue and goes into the run that is already going, landing at the next tool-call boundary (idle, it is just a message). Plain messages still queue — a stray "wait…" sent mid-run should not bend the work in flight. Underneath it is pi-durable's `whenBusy: "steer"`, one steer per boundary by default. |
-| Notifications | A Feishu card answer is an *update*, and Feishu does not notify on updates. So a turn longer than 45 s also sends one short message (`✅ done · 53s` plus the first line), in the same topic. `FEISHU_DONE_PING_SECONDS` tunes it, `0` turns it off. |
-| Morning digest | Once a day at `AGENT_DIGEST_AT` the owner gets one message covering the last 12 hours: how many turns ran and how many declared the goal met, every turn that fell short with the reason it gave, approvals, and the audit tail. A quiet night sends nothing. `/digest` (or `/早报`) asks for it on demand. |
-| Catch up | `/ketchup` (或 `/进度`) answers "what happened?" without scrolling: runs in flight, tasks queued behind them, every approval still waiting on you with how long it has waited, and the last few audit rows. Owner only, because the approval lines name your own tool calls. |
+![Three surfaces, three processes, one SQLite file: the Feishu long connection in its own Go process, the bridge as the only writer, the guard between a dangerous call and the toolbox, and one file underneath everything](assets/readme/architecture.png)
+
+## A turn, end to end
+
+![Message in, verdict out: message, durable task, model request, tool call, guard, toolbox, and the loop back — with the checkpoint written before each step](assets/readme/turn.png)
+
+A message becomes a durable task inside the bridge. The model answers, or asks for a tool; a tool
+call that looks dangerous stops at the guard; the call runs in a separate process; the result goes
+back to the model. That loop is the whole assistant, and every step of it survives the machine.
+
+A turn reads as steps, not a log. The transcript keeps one line per turn and opening it lists what
+each step was, whether it failed, and what it printed:
+
+```
+⋯ 4 steps · 12s
+  bash     cd ~/work/example-cli && timeout 90 node dist
+  bash     python3 - <<'EOF' import json,re …
+  thought
+```
+
+The same turn folds into the Feishu card as `Turn details · 5 steps · 62s · $0.0031`, so both
+surfaces count it the same way. An approval that waited sits inside that span, which is why a
+twelve-second turn can be mostly waiting. A failed step keeps its error in the timeline and puts a
+Retry on the line — the same words go out again instead of being retyped.
 
 ### The card says how it ended
 
-A patch in Feishu rebuilds the whole card, so the status band has to be sent with every refresh — otherwise it disappears on the first streaming update.
+A patch in Feishu rebuilds the whole card, so the status band has to be sent with every refresh —
+otherwise it disappears on the first streaming update.
 
 | band | meaning |
 |---|---|
@@ -64,38 +86,50 @@ A patch in Feishu rebuilds the whole card, so the status band has to be sent wit
 | grey `No answer this time · reason` | ended without an answer |
 | red `Failed` | the turn threw |
 
-`Goal met` / `Goal missed` are the model's own claim, not ours: on a turn where it did work it calls `report_done({ met, why })` before it answers, so `why` is how it verified (what it ran, what it saw) or where it got stuck. A turn that declares nothing keeps the plain `Done` — silence is not failure. The claim is read once by the card, written once to `app.turn-verdicts`, and shows up in both the decision trail and the morning digest.
+`Goal met` / `Goal missed` are the model's own claim, not ours: on a turn where it did work it calls
+`report_done({ met, why })` before it answers, so `why` is how it verified (what it ran, what it saw)
+or where it got stuck. A turn that declares nothing keeps the plain `Done` — silence is not failure.
+The claim is read once by the card, written once to `app.turn-verdicts`, and shows up in both the
+decision trail and the morning digest.
 
-The orange and grey cards carry a **Continue** button: it runs the same turn again inside the *same card*, and a double tap still starts only one turn. The card's Continue and `/continue` in `durable chat` are the same path. A turn's steps fold into the card as `Turn details · 5 steps · 62s · $0.0031`, so there is no second "view details" message. The same panel opens with the turn's **decision trail** — what had to be asked, how long it waited, whether you allowed it, why it ended — because "what ran" does not explain a two-minute pause.
+The orange and grey cards carry a **Continue** button: it runs the same turn again inside the *same
+card*, and a double tap still starts only one turn. The card's Continue and `/continue` in `durable
+chat` are the same path. The same panel opens the turn's **decision trail** — what had to be asked,
+how long it waited, whether you allowed it, why it ended — because "what ran" does not explain a
+two-minute pause.
 
-### The run timeline
+## What it does
 
-A turn reads as steps, not a log. The transcript keeps one line per turn — `⋯ 4 steps · 12s` — and opening it lists what each one was:
+| | |
+|---|---|
+| Feishu | One conversation per chat. In groups it answers only when @-mentioned, in a topic, so the main timeline stays clean; a follow-up inside that topic forks its own conversation. |
+| Desktop | One rail of conversations, filed by kind — 群聊, 话题, 私聊 — with everything that spoke in the last day drawn open on top, each chat showing what it has cost, and a Tasks page for runs, reminders and routines. Light and dark, 中文 and English. |
+| Model | `/model` opens a card to switch the conversation's model; `/model <id>`, `/model thinking high`, `/model default <id>` also work. Only the owner may use it. Each answered card names the model, thinking level, tokens and cost of that turn. |
+| Input | Text, images (Feishu image/post messages, pasted screenshots), voice (local whisper). |
+| Interrupt | `/stop` or the client's stop button. Background tasks keep running. |
+| Steering | `/steer <text>` skips the queue and goes into the run that is already going, landing at the next tool-call boundary (idle, it is just a message). Plain messages still queue — a stray "wait…" sent mid-run should not bend the work in flight. Underneath it is pi-durable's `whenBusy: "steer"`, one steer per boundary by default. |
+| Notifications | A Feishu card answer is an *update*, and Feishu does not notify on updates. So a turn longer than 45 s also sends one short message (`✅ done · 53s` plus the first line), in the same topic. `FEISHU_DONE_PING_SECONDS` tunes it, `0` turns it off. |
+| Morning digest | Once a day at `AGENT_DIGEST_AT` the owner gets one message covering the last 12 hours: how many turns ran and how many declared the goal met, every turn that fell short with the reason it gave, approvals, and the audit tail. A quiet night sends nothing. `/digest` (or `/早报`) asks for it on demand. |
+| Catch up | `/ketchup` (或 `/进度`) answers "what happened?" without scrolling: runs in flight, tasks queued behind them, every approval still waiting on you with how long it has waited, and the last few audit rows. Owner only, because the approval lines name your own tool calls. |
 
-```
-⋯ 4 steps · 12s
-  bash     cd ~/work/example-cli && timeout 90 node dist
-  bash     python3 - <<'EOF' import json,re …
-  thought
-```
-
-The same turn folds into the Feishu card as `Turn details · 5 steps · 62s · $0.0031`, so both surfaces count it the same way. An approval that waited sits inside that span, which is why a twelve-second turn can be mostly waiting.
-
-While a turn runs the window cannot look finished: the live row names the tool it is in (`running bash`) and the answer streams in under it. If the turn fails, the error line carries a Retry — the same words go out again instead of being retyped.
+A turn that fails puts a Retry on its error line, and stop clears that conversation's approval
+queue rather than killing the turn.
 
 ### Sessions and projects
 
 - **project** = a git repository on this machine; the bundled `workspace/` is the default one and cannot be removed.
 - **chat** = a conversation inside a project, with its own worktree at `<project>/.worktrees/conv-<id>` on branch `agent/conv-<id>`.
-- Each conversation records its **fork point** and **current base**; the base can be changed, and cleaning up a worktree with unmerged commits is refused.
 
-### Code
+Each conversation records its **fork point** and **current base**; the base can be changed, and
+cleaning up a worktree with unmerged commits is refused. The bridge can diff that worktree, commit
+it, and merge it back `--no-ff` — `/api/changes` and `/api/git` are what the previous client's diff
+and commit panels were built on. The Go client does not draw those panels yet; you ask for a diff,
+or read the branch yourself.
 
-Each conversation runs in its own worktree (`<project>/.worktrees/conv-<id>`, branch `agent/conv-<id>`), and the bridge can diff it, commit it, and merge it back `--no-ff`: `/api/changes` and `/api/git` are what the previous client's diff and commit panels were built on. The Go client does not draw those panels yet — you ask for a diff, or read the branch yourself. Tool output in the transcript is text, as the tool printed it.
+`workspace/` and every `.worktrees/` directory are written to the repository's own
+`.git/info/exclude`: `git status` stays clean, and the user's `.gitignore` is never touched.
 
-`workspace/` and every `.worktrees/` directory are written to the repository's own `.git/info/exclude`: `git status` stays clean, and the user's `.gitignore` is never touched.
-
-### Memory
+## Memory
 
 | layer | holds | injected |
 |---|---|---|
@@ -103,11 +137,16 @@ Each conversation runs in its own worktree (`<project>/.worktrees/conv-<id>`, br
 | `chat_memory` | context for this conversation | last 20 |
 | `work_memory` | project and environment details | only an index line; found via `recall` |
 
-Tools `remember(scope)`, `forget`, `recall`. Per-chat notes use `/memo`, `/memo add …`, `/memo del 2`, `/memo clear`, which write that conversation's `chat_memory`. Deleted memories go to `app/memory-tombstones` so the model cannot resurrect them, and deduplication uses character bigram similarity, so a rephrasing is still recognised. Curating reads recent conversations and produces *suggestions* only (`POST /api/memory/curate`); nothing is written until you accept them. The Go client has no button for it yet, so it takes a request.
+Tools `remember(scope)`, `forget`, `recall`. Per-chat notes use `/memo`, `/memo add …`,
+`/memo del 2`, `/memo clear`, which write that conversation's `chat_memory`. Deleted memories go to
+`app/memory-tombstones` so the model cannot resurrect them, and deduplication uses character bigram
+similarity, so a rephrasing is still recognised. Curating reads recent conversations and produces
+*suggestions* only (`POST /api/memory/curate`); nothing is written until you accept them. The Go
+client has no button for it yet, so it takes a request.
 
-### Access and cost
+## Access and cost
 
-One level per chat, in `app.chat-access`: `closed`, `owner` or `group`. Chats listed in `.env` are pinned to `owner`; `/allow` (or `/open`) opens a group to everyone as `group`; `/close` puts it back to `closed` without editing `.env`. Validation, guest policy, tool surface and the commands all read that one value.
+![Who can talk, what they reach, what is asked first: owner, group and closed, then the approval path from a dangerous call to allow or deny](assets/readme/access.png)
 
 | who | may talk when | tool surface (enforced in code) | memory |
 |---|---|---|---|
@@ -123,35 +162,57 @@ One level per chat, in `app.chat-access`: `closed`, `owner` or `group`. Chats li
 - **Audit**: denials, level changes, approval outcomes and the two read-only queries each write one line to `app.audit` (ring of 300), readable with `durable audit`.
 - **Budget**: `pi.usage` is summed into a daily cap (`AGENT_DAILY_BUDGET_USD`); over it, new requests are refused until the day rolls over.
 
-### Scheduled work
+## Scheduled work
 
-`remind` creates a durable reminder task: the deadline is in the database, the task sleeps, and a restart does not lose it. Running tasks show in the client's Tasks page, grouped working / waiting / sleeping, each with its next fire time and how long it has been running.
+`remind` creates a durable reminder task: the deadline is in the database, the task sleeps, and a
+restart does not lose it. Running tasks show in the client's Tasks page, grouped working / waiting /
+sleeping, each with its next fire time and how long it has been running.
 
-`routine` is the same durable sleep with a turn behind it: it wakes, starts a full turn in the chat (`daily 09:00` / `weekdays 09:00` / `weekly mon 09:00` / `every 6h`), then goes back to sleep — a route that never ends, so the ledger is the schedule. Because it sleeps on a stored deadline, a fire that falls while the machine is off happens once when it comes back, not the whole backlog. `routines` lists them and cancels one.
+`routine` is the same durable sleep with a turn behind it: it wakes, starts a full turn in the chat
+(`daily 09:00` / `weekdays 09:00` / `weekly mon 09:00` / `every 6h`), then goes back to sleep — a
+route that never ends, so the ledger is the schedule. Because it sleeps on a stored deadline, a fire
+that falls while the machine is off happens once when it comes back, not the whole backlog.
+`routines` lists them and cancels one.
 
-`POST /api/hook/<name>` is the same door for things that are not Feishu: a git hook, an SLS alarm, a cron on another box. It starts a real turn in the owner's chat and returns 202 immediately, since the turn takes minutes and the caller should not hold a socket for it. Same bearer token as every other endpoint here.
+`POST /api/hook/<name>` is the same door for things that are not Feishu: a git hook, an SLS alarm, a
+cron on another box. It starts a real turn in the owner's chat and returns 202 immediately, since
+the turn takes minutes and the caller should not hold a socket for it. Same bearer token as every
+other endpoint here.
 
-### The Feishu connection is its own process
+## Processes
 
-`feishu-gw/` holds the long connection to Feishu: a Go program on its own launchd job (`com.pitta.agent.feishu-gw`), talking to the bridge over `127.0.0.1:8788`. It owns the socket, sending, patching and deleting messages, and uploading and downloading attachments. The bridge keeps every decision — which conversation an event belongs to, the queue behind it, what the card says.
+Three processes, not one:
 
-The split is about time budgets. A message event becomes a turn that runs for minutes, so the socket has to be free the moment the event lands: `feishu-gw` acks Feishu first and forwards in the background, retrying at 0 s, 1 s, 2 s and 4 s — long enough to outlive a bridge restart, short enough that a lost event stays one event (a retry is safe because the bridge dedupes by message id). A card click is the opposite shape: Feishu shows its own error after about three seconds, so that path is synchronous, budgeted at 2.5 s, and the reply it hands back is the bridge's.
+- **`src/`** — the bridge. Holds the conversations, the queue, the card state and the only write
+  handle to the database.
+- **`feishu-gw/`** — the Feishu long connection, on its own launchd job, talking to the bridge over
+  `127.0.0.1:8788`. A message event becomes a turn that runs for minutes, so the socket has to be
+  free the moment the event lands: it acks Feishu first and forwards in the background, retrying at
+  0 s, 1 s, 2 s and 4 s. A card click is the opposite shape — Feishu gives up after about three
+  seconds — so that path stays synchronous, budgeted at 2.5 s.
+- **`toolbox-go/`** — `bash`, `read`, `write` and `edit` as a Go service on a unix socket. The model
+  sees the same schemas and result shapes as before; the Node side keeps a thin proxy. Why this is
+  a process and how parity is asserted: [docs/toolbox.md](docs/toolbox.md).
 
-So the transport restarting no longer restarts the agent, and a turn no longer holds the socket open. `./scripts/agentctl status` prints `feishu: ok (gateway connected)` or how long it has been down; `agentctl logs-gateway` tails it and `agentctl install-gateway` rebuilds and reloads it.
+A transport restart no longer restarts the agent, and a turn no longer holds the socket open.
+`./scripts/agentctl status` prints `feishu: ok (gateway connected)` or how long it has been down.
 
-### Where the coding tools run
+## Extensions
 
-`bash`, `read`, `write` and `edit` execute in a separate Go process, `toolbox-go/`, not inside the agent. The Node side keeps the tool schemas and a thin proxy, so the model sees the same names, parameters, result shapes, truncation, exit codes and diagnostics it saw when the tools ran in-process — that equality is what `tests/toolbox-parity.test.ts` and `tests/toolbox-files-parity.test.ts` assert, by running pi-durable's own tools against a real environment and comparing both paths field by field.
+Skills are scanned from `./.pi/skills`, `./.agents/skills`, `~/.pi/agent/skills`,
+`~/.agents/skills`, `~/.claude/skills`; only names go into the prompt and the `skill` tool fetches a
+body on demand. MCP servers from `mcp.json` (stdio or streamable HTTP) are connected at startup and
+their tools registered as `mcp__<server>__<tool>`; a server may list `only` to expose a subset, since
+every tool's schema rides in each request and playwright's 25 tools are ~17KB of it.
 
-At boot the agent starts `toolbox-go/bin/toolbox` on a unix socket under `.data/` and installs the proxies under the extension name `coding-tools`, which is where pi-durable's own tools lived, so nothing downstream changes. The binary is rebuilt from source whenever any `toolbox-go/**/*.go` file is newer than it, and `AGENT_TOOLBOX_BIN` moves it elsewhere.
+`delegate`, `delegate_parallel` and `build_feature` run sub-agents as task-owned conversations: they
+resume after a crash, abort in cascade, and nest one level. `build_feature` ends with a reviewer that
+reads the diff, not the reports. `spawn_agent` / `tell_agent` / `list_agents` / `stop_agent` are the
+other shape: a named, ownerless conversation that keeps its context, can be redirected mid-run, and
+answers back as a message.
 
-There is no in-process implementation left and no fallback: a toolbox that cannot answer aborts the boot, so a turn never runs half on Go and half on Node. A machine without a Go toolchain therefore needs a prebuilt binary; a broken binary is a build problem, not a switch to flip.
-
-`read` path lookups and `edit`'s fuzzy matching need Unicode normalization, which Go's standard library does not provide. `toolbox-go/internal/unicodenorm` therefore carries the tables as data, generated by `internal/unicodenorm/generate.py` from the Unicode database Python ships with, and implements NFD/NFKC on top of them. The generator refuses to run when Python's Unicode version differs from the version node reports, because a stale table changes what `edit` can match; regenerate with `python3 internal/unicodenorm/generate.py > internal/unicodenorm/tables_gen.go` and run `go test ./...`. Its test checks idempotence and canonical ordering across every code point, and the parity suite covers a ligature, full-width text, a character added after Unicode 13 and an NFD filename.
-
-### Extensions
-
-Skills are scanned from `./.pi/skills`, `./.agents/skills`, `~/.pi/agent/skills`, `~/.agents/skills`, `~/.claude/skills`; only names go into the prompt and the `skill` tool fetches a body on demand. MCP servers from `mcp.json` (stdio or streamable HTTP) are connected at startup and their tools registered as `mcp__<server>__<tool>`; a server may list `only` to expose a subset, since every tool's schema rides in each request and playwright's 25 tools are ~17KB of it. `delegate`, `delegate_parallel` and `build_feature` run sub-agents as task-owned conversations: they resume after a crash, abort in cascade, and nest one level. `build_feature` ends with a reviewer that reads the diff, not the reports. `spawn_agent` / `tell_agent` / `list_agents` / `stop_agent` are the other shape of delegation: a named, ownerless conversation that keeps its context, can be redirected mid-run, and answers back as a message — one level of nesting too. Feishu-native tools (`feishu_agenda`, `feishu_tasks`, `feishu_create_task`, `feishu_doc_read`) go through a locally logged-in `lark-cli`, so they act as you.
+Feishu-native tools (`feishu_agenda`, `feishu_tasks`, `feishu_create_task`, `feishu_doc_read`) go
+through a locally logged-in `lark-cli`, so they act as you.
 
 ## Configuration
 
@@ -256,7 +317,8 @@ durable access          # each conversation's level and where approval cards go
 durable audit [n]       # the last n permission decisions
 ```
 
-Conversation commands go through the local HTTP/WS bridge, so they work while launchd owns the process. The name is `durable` because `agent` belongs to grok's CLI.
+Conversation commands go through the local HTTP/WS bridge, so they work while launchd owns the
+process. The name is `durable` because `agent` belongs to grok's CLI.
 
 ## Operations
 
@@ -272,14 +334,13 @@ Conversation commands go through the local HTTP/WS bridge, so they work while la
 ./scripts/agentctl rotate           # trim the logs now (5 MB × 3, `LOG_MAX_BYTES` overrides)
 ```
 
-- The plist is a template (`launchd/*.plist.tmpl`) rendered at install time, so a different machine needs no edits.
-- **Two launchd jobs, one conversation state.** `com.pitta.agent` runs the bridge, `com.pitta.agent.feishu-gw` runs the Feishu connection (`logs/feishu-gw.log`, `KeepAlive`, 10 s throttle); neither restarts the other. The gateway is `KeepAlive` because a bot whose gateway died is deaf with no symptom; `agentctl status` is what says so out loud (`feishu: ok (gateway connected)`).
-- `agentctl` is a Go program (`agentctl/`, built to `bin/agentctl`); `./scripts/agentctl` is a shim that rebuilds it when the sources are newer. Same commands, same launchd labels — the control logic just stopped being a 357-line shell script that quoted its way into a `unexpected EOF`.
-- Backups: `sqlite3 .backup`, then `journal_mode=DELETE` to collapse it to one file, an integrity check, 14 kept; a restore stops the process and waits for it to really exit.
-- **One storage, one writer.** `.data/agent.owner` is created exclusively (`wx`) with the pid; a second process errors out instead of corrupting a live conversation. A **recycled pid does not block startup**: besides `kill(pid, 0)`, the command line from `ps -p <pid> -o command=` must look like `node … main.ts`. Before this, a hard kill could leave the lock pointing at somebody else's process and launchd would retry forever — which looks exactly like "it did not start after a reboot".
-- **A broken storage heals itself.** Once a session reports `Session failed after a storage error`, only a new process can recover it, so the bridge exits and lets launchd start a fresh one; at most once per 10 minutes (`.data/storage-selfheal`), so a truly corrupt database cannot become a restart loop.
-- Logs: `logs/agent.log`, `logs/agent.err.log`, `logs/backup.log`. A `[report] <time> <kind>` line is a failure inside a hook, tool or listener — it never reaches the harness, so it is only visible here.
-- `agentctl doctor` judges relative to the previous run: restarts as `+N since last check`, errors only from the last two days, and untimestamped old log lines counted separately so they cannot keep posing as a new fault.
+`agentctl` is a Go program (`agentctl/`, built to `bin/agentctl`); `./scripts/agentctl` is a shim
+that rebuilds it when the sources are newer. Same commands, same launchd labels — the control logic
+just stopped being a 357-line shell script that quoted its way into an `unexpected EOF`.
+
+The reasons behind the writer lock, the storage self-heal, the log lines and `doctor`'s comparisons
+are in **[docs/operations.md](docs/operations.md)** — each one was learned from a failure that
+looked like something else.
 
 ## Layout
 
@@ -314,7 +375,7 @@ src/
   ketchup.ts       the on-demand "what happened" read
 
 evals/             the offline bench: guard (approval decisions) and contract (config ↔ .env.example ↔ README)
-docs/              the one page with edges: the Feishu console, by menu, with the failures each row causes
+docs/              the pages with edges: the Feishu console, the toolbox, operations
 client-go/         the desktop client: Go drawing the window with mygo/ui on Metal, no webview
 feishu-gw/         the Feishu long connection as its own Go process: acks, forwards, uploads, downloads
 agentctl/          install/start/stop/logs/doctor/backup as a Go program (bin/agentctl)
@@ -332,7 +393,8 @@ toolbox-go/        the coding tools as a Go service on a unix socket: bash, read
 | worktree isolation | a file written in conversation A is invisible in the main tree and other conversations; after `--no-ff` it appears |
 | sub-agents | designer → implementer → tester runs end to end, billed separately and resumed after a crash |
 
-The rest of the evidence — images, unmerged-worktree refusal, the writer lock, 58 guard cases — lives in `evals/` and `tests/`, where it runs instead of being read.
+The rest of the evidence — images, unmerged-worktree refusal, the writer lock, 58 guard cases — lives
+in `evals/` and `tests/`, where it runs instead of being read.
 
 ## Tests and evals
 
@@ -343,7 +405,12 @@ npm run eval -- --strict      # count known gaps as failures
 npm run eval -- --json        # one envelope, for scripts
 ```
 
-`tests/` pins function behaviour; `evals/` pins **contracts** — `approvalReason()` against 58 real commands, and whether `config.ts`, `.env.example` and `README.md` still agree with each other. The metric that matters is **escapes**: dangerous calls that ran with nobody asked. Known holes are not hidden — a case is marked `gap: true`, listed in the output, red under `--strict`, and the bench tells you to delete the marker once it passes. On its first run it caught nine keys missing from `.env.example` and one wrong default. See `evals/README.md`.
+`tests/` pins function behaviour; `evals/` pins **contracts** — `approvalReason()` against 58 real
+commands, and whether `config.ts`, `.env.example` and `README.md` still agree with each other. The
+metric that matters is **escapes**: dangerous calls that ran with nobody asked. Known holes are not
+hidden — a case is marked `gap: true`, listed in the output, red under `--strict`, and the bench
+tells you to delete the marker once it passes. On its first run it caught nine keys missing from
+`.env.example` and one wrong default. See `evals/README.md`.
 
 ## Known limits
 
@@ -352,7 +419,7 @@ npm run eval -- --json        # one envelope, for scripts
 - Pi Durable is **experimental** and changes between 1.x releases; run `npm run typecheck` before upgrading. It also pins chord: from 1.5.1 chord v2 is the package root, `Context` lives only in `@earendil-works/chord/context`, and importing it from the root fails to compile.
 - SQLite runs with `synchronous=NORMAL`: a crash loses nothing, a power cut may lose the last commit.
 - `bash` can in principle `cd` out of the workspace; the guard hook covers danger, it is not a sandbox.
-- One-click Feishu setup across tenants is impossible (see the CLI section).
+- One-click Feishu setup across tenants is impossible (see [Install](#install)).
 - Usage squares start on the day the sampler first ran; there is no per-day history before that.
 - Feishu cards do not render Markdown, they render their own subset: no tables, no inline code, no headings, no quote blocks, no `---`. The card builder translates those (tables become native `table` elements, `##` becomes bold, `---` becomes a divider, inline backticks are stripped, `>` becomes `▸`); anything outside that set arrives as literal characters.
 - A card holds 9000 characters. A longer answer is clipped at that limit with the code fence closed and an ellipsis, not split across cards; the longest real answer so far was 3543.
