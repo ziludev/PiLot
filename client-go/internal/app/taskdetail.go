@@ -308,12 +308,13 @@ func (a *App) taskOutcome(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
 // taskStageRow is one line of the run as the dialog draws it: a child, or the
 // task's own turn when it spawned nothing.
 type taskStageRow struct {
-	conv  int
-	title string
-	state string
-	steps []api.TaskLogStep
-	more  int
-	open  bool
+	conv   int
+	title  string
+	state  string
+	status stageStatus
+	steps  []api.TaskLogStep
+	more   int
+	open   bool
 	// inline rows have nowhere to open to: they are one step, and hiding it
 	// behind a click would cost the answer more than it saves the dialog.
 	inline bool
@@ -370,7 +371,17 @@ func (a *App) taskStages(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
 				ui.Text(c, glyph).FontSize(9).TextColor(t.MutedFg).Width(8)
 				ui.Text(c, row.title).FontSize(10.5).TextColor(t.Foreground).MaxLines(1).Grow(1)
 				if row.state != "" {
-					ui.Text(c, row.state).FontSize(9.5).TextColor(t.MutedFg).MaxLines(1)
+					// The state word is the only thing on this row that says whether
+					// to stop reading, so it carries the colour the bar gives it. All
+					// four words in muted grey made "阶段 2 失败" look like "已结束".
+					color := t.MutedFg
+					switch row.status {
+					case stageFailed:
+						color = t.Destructive
+					case stageRunning:
+						color = t.Warning
+					}
+					ui.Text(c, row.state).FontSize(9.5).TextColor(color).MaxLines(1)
 				}
 				if failures := failedSteps(row.steps); failures > 0 {
 					ui.Text(c, "✗ "+itoa(failures)).FontSize(9.5).TextColor(t.Destructive).MaxLines(1)
@@ -403,7 +414,8 @@ func (a *App) stageRows(task *api.TaskDetail) []taskStageRow {
 	}
 	if len(task.SubAgents) > 0 {
 		for _, child := range task.SubAgents {
-			row := taskStageRow{conv: child.ConversationID, title: child.Title, state: taskStateText(child.State)}
+			row := taskStageRow{conv: child.ConversationID, title: child.Title,
+				state: taskStateText(child.State), status: stageStatusOf(child.State)}
 			if stage := a.stageOf(child.ConversationID); stage != nil {
 				row.steps, row.more = stage.Steps, stage.More
 				if row.title == "" {
@@ -423,12 +435,13 @@ func (a *App) stageRows(task *api.TaskDetail) []taskStageRow {
 			continue
 		}
 		rows = append(rows, taskStageRow{
-			conv:  stage.ConversationID,
-			title: i18n.T("taskDid"),
-			state: taskStateText(task.Status),
-			steps: stage.Steps,
-			more:  stage.More,
-			open:  a.detail.expanded == stage.ConversationID,
+			conv:   stage.ConversationID,
+			title:  i18n.T("taskDid"),
+			state:  taskStateText(task.Status),
+			status: stageStatusOf(task.Status),
+			steps:  stage.Steps,
+			more:   stage.More,
+			open:   a.detail.expanded == stage.ConversationID,
 		})
 	}
 	return rows
