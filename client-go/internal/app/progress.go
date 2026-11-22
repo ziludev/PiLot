@@ -107,18 +107,17 @@ func taskProgress(c *ui.Context, t theme.Tokens, children []api.TaskSubAgent) {
 					ui.Box(c).Width(segment).Height(4).Radius(2).Shrink(0).Background(color)
 				}
 			})
-		// Red once a stage broke, green when all of them came back. The count is
-		// the one exact reading on this control, so the in-between case is a
-		// dimmed foreground, not muted grey: muted put it below the segments it
-		// was summarising.
-		color := t.Foreground.Alpha(0.7)
+		// A broken stage is said as "✗ 1", not "3/4": three of four advanced is
+		// true and useless, because the only thing worth knowing at that moment
+		// is that something died. Same mark the failed steps use further down.
+		label, color := itoa(done)+"/"+itoa(total), t.Foreground.Alpha(0.7)
 		switch {
 		case failed > 0:
-			color = t.Destructive
+			label, color = "✗ "+itoa(failed), t.Destructive
 		case done == total:
 			color = t.Success
 		}
-		ui.Text(c, itoa(done)+"/"+itoa(total)).Font(monoFont).FontSize(9.5).
+		ui.Text(c, label).Font(monoFont).FontSize(9.5).
 			TextColor(color).MaxLines(1)
 	})
 }
