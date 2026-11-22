@@ -949,8 +949,10 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
       const conversation = await resolveConversation(Number.isFinite(id) ? id : undefined);
       if (conversation === undefined) return socket.destroy();
 
+      // Opt-in only, and deliberately not `Boolean(param)`: `ops=0` means off.
+      const opsOnly = url.searchParams.get("ops") === "1";
       wss.handleUpgrade(req, socket, head, (ws) => {
-        void attach(ws, conversation);
+        void attach(ws, conversation, opsOnly);
       });
     } catch (error) {
       logError("ws", "upgrade failed", error);
@@ -958,17 +960,46 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
     }
   });
 
-  async function attach(ws: WebSocket, conversation: Conversation): Promise<void> {
+  async function attach(ws: WebSocket, conversation: Conversation, opsOnly: boolean): Promise<void> {
     // One watch per socket: first frame is the current view, then every commit.
+    //
+    // What each frame carries:
+    // - first frame, both modes: the full view. Without `?ops=1` it is the only shape a
+    //   client has ever seen; with it, this is the baseline every later delta applies to.
+    // - `?ops=1` commits: `{type:"ops", ops}` and nothing else. An empty delta is not sent
+    //   at all — the commit touched only documents the client does not project, so its
+    //   view is unchanged and a frame would only buy a round of pointless work.
+    // - no `?ops=1`: `{type:"value", value, ops}`, byte-identical to before this flag.
+    //
+    // Fallback to a full view is only the first frame and a missing delta (a producer that
+    // sends no usable ops array). A mid-stream `["r", value]` stays an ops frame: the
+    // client applies it as a root replacement, so it needs no special case here.
+    //
+    // A reconnect is a new socket and therefore a new attach, which always pushes the
+    // current view first. That is the single place a delta lost with a dropped socket gets
+    // repaired, so the protocol needs no sequence numbers or backfill.
     const watch = await conversation.watch(context);
-    const push = (value: unknown, ops?: unknown) => {
-      if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "value", value, ops: ops ?? [] }));
+    const sendJson = (frame: unknown) => {
+      if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(frame));
     };
-    push(watch.value);
+    sendJson(opsOnly ? { type: "value", value: watch.value } : { type: "value", value: watch.value, ops: [] });
 
     watch.start(async (call) => {
       if (call.kind !== "value") return;
-      push(call.value, call.ops);
+      if (!opsOnly) {
+        sendJson({ type: "value", value: call.value, ops: call.ops ?? [] });
+        return;
+      }
+      const ops = call.ops;
+      if (!Array.isArray(ops)) {
+        // No delta to apply. A full frame is the only safe fallback: an ops frame is
+        // meaningless without one, and silently dropping the commit would leave the
+        // client stale until the next reconnect.
+        sendJson({ type: "value", value: call.value, ops: [] });
+        return;
+      }
+      if (ops.length === 0) return;
+      sendJson({ type: "ops", ops });
     });
 
     const stop = async () => {
