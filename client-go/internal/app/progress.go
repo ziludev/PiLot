@@ -90,10 +90,12 @@ func taskProgress(c *ui.Context, t theme.Tokens, children []api.TaskSubAgent) {
 		ui.Row(c).Height(4).Gap(barGap).Label(i18n.T("taskProgress")).Role(ui.RoleProgress).
 			Children(func() {
 				for _, child := range children {
-					// Queued is the track: a faint wash of the foreground, not a
-					// theme border — the border token is nearly the popover's own
-					// colour in dark mode, which made a four-stage bar read as three.
-					color := t.Foreground.Alpha(0.16)
+					// Queued is the track: a wash of the foreground, not a theme border
+					// — the border token is nearly the popover's own colour in dark
+					// mode, which made a four-stage bar read as three. Not fainter
+					// than a quarter either: at 16% the empty segments disappeared
+					// and the bar was counted as 3.
+					color := t.Foreground.Alpha(0.26)
 					switch stageStatusOf(child.State) {
 					case stageDone:
 						color = t.Success
