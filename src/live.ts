@@ -111,43 +111,94 @@ export async function runInFlight(conversation: Conversation): Promise<boolean> 
 type LiveWatcher = { stop(): Promise<void> };
 
 /**
+ * What a push buys.
+ *
+ * The gap after a push is paid for by the size of that push: a short frame may go again almost at
+ * once, a large one waits. That is the difference between a card that lags a word behind and one
+ * that redraws forty kilobytes of thinking every 300 ms. The floor keeps a burst of deltas inside
+ * what Feishu accepts; the ceiling keeps a quiet minute from starving the reader.
+ */
+const MIN_INTERVAL_MS = 250;
+const MAX_INTERVAL_MS = 1500;
+const BYTES_PER_SECOND = 32 * 1024;
+
+export type LiveWatchOptions = {
+  /** The shortest gap between two pushes, whatever the frame's size. Older name: `intervalMs`. */
+  minIntervalMs?: number;
+  /** The longest a change may wait, whatever its size. */
+  maxIntervalMs?: number;
+  /** The pace one push buys: a frame of N bytes keeps the card quiet for N / bytesPerSecond. */
+  bytesPerSecond?: number;
+};
+
+/** How long a frame of `bytes` keeps the card quiet: its size, floored and capped. */
+export function liveQuietMs(bytes: number, options: LiveWatchOptions = {}): number {
+  const min = options.minIntervalMs ?? MIN_INTERVAL_MS;
+  const max = Math.max(min, options.maxIntervalMs ?? MAX_INTERVAL_MS);
+  const bytesPerSecond = options.bytesPerSecond ?? BYTES_PER_SECOND;
+  return Math.min(max, Math.max(min, (bytes / bytesPerSecond) * 1000));
+}
+
+/**
  * Follows a conversation and reports the live snapshot on change.
- * Throttled: Feishu card updates are rate limited, so we push at most every `intervalMs`.
+ *
+ * Two things are deliberately not pushed: a snapshot identical to the last one (the end of a run,
+ * a tool round repeating its tail), and nothing at all when the only change would arrive before
+ * the floor — the timer carries it instead, so a delta that lands early is never dropped.
  */
 export async function watchLive(
   conversation: Conversation,
   onSnapshot: (snapshot: LiveSnapshot) => void,
-  options: { intervalMs?: number } = {},
+  options: LiveWatchOptions & { intervalMs?: number } = {},
 ): Promise<LiveWatcher> {
-  const intervalMs = options.intervalMs ?? 1500;
+  const minIntervalMs = options.minIntervalMs ?? options.intervalMs ?? MIN_INTERVAL_MS;
+  const maxIntervalMs = Math.max(minIntervalMs, options.maxIntervalMs ?? MAX_INTERVAL_MS);
+  const pacing: LiveWatchOptions = { minIntervalMs, maxIntervalMs, bytesPerSecond: options.bytesPerSecond };
   const watch = await conversation.watch(context);
   let latest = readLive(watch.value);
   let lastPush = 0;
+  let lastFrame = "";
   let timer: NodeJS.Timeout | undefined;
 
-  const push = () => {
+  const quietFor = (bytes: number): number => liveQuietMs(bytes, pacing);
+
+  const push = (frame: string) => {
     lastPush = Date.now();
+    lastFrame = frame;
     onSnapshot(latest);
   };
 
-  push();
+  // The scheduled wake-up re-measures: the frame it was booked for may have grown since, and a
+  // push that no longer fits the floor is booked again rather than spent.
+  const flush = () => {
+    timer = undefined;
+    const frame = JSON.stringify(latest);
+    if (frame === lastFrame) return;
+    const wait = quietFor(frame.length) - (Date.now() - lastPush);
+    if (wait > 0) {
+      timer = setTimeout(flush, wait);
+      return;
+    }
+    push(frame);
+  };
+
+  push(JSON.stringify(latest));
   watch.start(async (call) => {
     if (call.kind !== "value") return;
     latest = readLive(call.value);
-    const elapsed = Date.now() - lastPush;
-    if (elapsed >= intervalMs) {
+    const frame = JSON.stringify(latest);
+    if (frame === lastFrame) return;
+    const wait = quietFor(frame.length) - (Date.now() - lastPush);
+    if (wait <= 0) {
       if (timer !== undefined) {
         clearTimeout(timer);
         timer = undefined;
       }
-      push();
+      push(frame);
       return;
     }
     if (timer !== undefined) return;
-    timer = setTimeout(() => {
-      timer = undefined;
-      push();
-    }, intervalMs - elapsed);
+    timer = setTimeout(flush, wait);
   });
 
   return {
