@@ -65,3 +65,48 @@ test("an event we wrote down reads like a step", () => {
     { id: 9, kind: "say", at: 2_000, state: "ok", text: "目标未达成：测试还是红的" },
   ]);
 });
+
+test("a step keeps what it was told and what it answered", () => {
+  const steps = stepsFromTranscript([
+    {
+      id: 11,
+      kind: "pi.assistant",
+      at: 1_000,
+      content: [{ type: "toolCall", id: "call_1", name: "bash", arguments: { command: "go test ./...", cwd: "/repo" } }],
+      callId: null,
+      isError: false,
+    },
+    { id: 12, kind: "pi.tool-result", at: 2_000, content: [{ type: "text", text: "ok\nPASS" }], callId: "call_1", isError: false },
+  ]);
+  assert.equal(steps.length, 1);
+  // The row still gets the one-liner; the block under it gets the whole call.
+  assert.equal(steps[0].label, "go test ./...");
+  assert.match(steps[0].args ?? "", /"command": "go test \.\/\.\.\."/);
+  assert.equal(steps[0].output, "ok\nPASS");
+  assert.equal(steps[0].state, "ok");
+});
+
+test("a failed call keeps its error, and a long answer is cut", () => {
+  const steps = stepsFromTranscript([
+    {
+      id: 21,
+      kind: "pi.assistant",
+      at: 1_000,
+      content: [{ type: "toolCall", id: "call_2", name: "bash", arguments: { command: "npm test" } }],
+      callId: null,
+      isError: false,
+    },
+    { id: 22, kind: "pi.tool-result", at: 2_000, content: [{ type: "text", text: "x".repeat(2_000) }], callId: "call_2", isError: true },
+  ]);
+  assert.equal(steps[0].state, "failed");
+  assert.equal(steps[0].output?.length, 1_001);
+  assert.ok(steps[0].output?.endsWith("…"));
+});
+
+test("a call with nothing to open carries no args key", () => {
+  const steps = stepsFromTranscript([
+    { id: 31, kind: "pi.assistant", at: 1_000, content: [{ type: "toolCall", id: "call_3", name: "now" }], callId: null, isError: false },
+  ]);
+  assert.equal(steps[0].args, undefined);
+  assert.equal("args" in steps[0], false);
+});
