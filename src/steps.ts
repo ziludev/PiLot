@@ -138,10 +138,16 @@ export function skillOf(hint: string | undefined): string | undefined {
  * (psql), a file (cat). On this agent nearly every call is `bash`, so an icon that only looked at
  * the tool name put a keyboard on every line and the emoji explained nothing.
  */
-function commandIcon(command: string): string | undefined {
-  // Leading `cd … &&` is bookkeeping; the verb that follows is the thing being done.
+/** `cd /repo && go test ./...` → `go test ./...`: the directory is bookkeeping, the verb is the work. */
+function stripCd(command: string): string {
   let head = command.trim();
   for (let i = 0; i < 3; i += 1) head = head.replace(/^cd\s+[^&;|]+(&&|;)\s*/, "");
+  return head;
+}
+
+function commandIcon(command: string): string | undefined {
+  // Leading `cd … &&` is bookkeeping; the verb that follows is the thing being done.
+  const head = stripCd(command);
   const verb = head.split(/[\s|;&<>]+/)[0]?.toLowerCase() ?? "";
   if (verb === "") return undefined;
   const table: Record<string, string> = {
@@ -213,11 +219,24 @@ export function withIcons(label: string, hint?: string): string {
 export function hintLine(hint: string | undefined, limit = 46): string {
   const flat = (hint ?? "").replace(/\s+/g, " ").replace(/`/g, "'").trim();
   if (flat.length === 0) return "";
-  return flat.length > limit ? `${flat.slice(0, limit - 1).trimEnd()}…` : flat;
+  if (flat.length <= limit) return flat;
+  // When the budget is tight, spend it on the verb: `cd ~/.presence/projects/sitin-server && sed -…`
+  // said where, and then ran out of room for what. A short `cd client-go && go test` keeps its
+  // directory, because there it fits and the directory is the point.
+  const body = stripCd(flat) || flat;
+  return body.length > limit ? `${body.slice(0, limit - 1).trimEnd()}…` : body;
 }
 
+/**
+ * A round's clock, empty when the round was shorter than the clock can say.
+ *
+ * A real card carried three `0s` on six lines: sub-second rounds are the normal case for a shell
+ * that just greps a file, and printing the zero spends a third of each line on "that was quick".
+ * The reader already knows — it is not the line with `▸` on it.
+ */
 function seconds(ms: number): string {
-  const value = Math.max(0, Math.round(ms / 1000));
+  if (ms < 1_000) return "";
+  const value = Math.round(ms / 1000);
   if (value < 60) return `${value}s`;
   return `${Math.floor(value / 60)}m${String(value % 60).padStart(2, "0")}s`;
 }
@@ -238,14 +257,24 @@ export function renderSteps(trail: Trail, now: number, options: { limit?: number
 }
 
 /** `🌿 bash \`git log --oneline -3\` · 2s`: the name, what it ran, how long, and the last thing it said. */
+/**
+ * The last output line, or nothing when it does not read as anything.
+ *
+ * A tool's tail is whatever its output ended on, and that is often the shape of a value rather
+ * than a fact: a query's last line is the word `dev`. A bare word shorter than a phrase is
+ * dropped; a path, a sentence or a Chinese phrase still earns the room next to the clock.
+ */
+function tailLine(tail: string | undefined): string {
+  const said = hintLine(tail, 32);
+  if (said.length < 10 && !/[\s　]/.test(said) && !/[\u4e00-\u9fff]/.test(said)) return "";
+  return said;
+}
+
 function stepLine(label: string, hint: string | undefined, elapsed: string, tail?: string): string {
   // A skill call says which skill; its `export SKILL_DIR=…` says nothing twice over.
   const what = skillOf(hint) ?? hintLine(hint);
   const head = `${withIcons(label, hint)}${what.length === 0 ? "" : ` \`${what}\``}`;
-  // The tail is one glance, not a transcript: a raw path used to fold the line into four. Cut it
-  // the way an argument is cut — the head identifies the thing, the rest was the 87th file name.
-  const said = hintLine(tail, 32);
-  return `${head} · ${elapsed}${said.length === 0 ? "" : ` · ${said}`}`;
+  return [head, elapsed, tailLine(tail)].filter((part) => part.length > 0).join(" · ");
 }
 
 /** How many steps to report: rounds that ended, and whether one is running. */

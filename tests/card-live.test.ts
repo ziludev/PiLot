@@ -56,3 +56,14 @@ test("each bash round on the card says which command it ran, with the icon that 
   assert.match(out, /🌐 bash `curl -s https:\/\/example\.com`/);
   assert.match(out, /🧪 bash `cd client-go && go test \.\/\.\.\.`/);
 });
+
+test("a clipped thought starts on a sentence, not mid-markdown", async () => {
+  const { renderLive } = await import("../src/feishu.ts");
+  // What a reader saw: "…**, trigger 是 aichat 生成时带的…" — a slice that opened inside `**`.
+  const long = `${"推敲一下分支名。".repeat(60)}**结论**：先删孤儿。`;
+  const out = renderLive({ text: "", tools: [], thinking: long, busy: true } as never);
+  const line = out.split("\n").find((entry) => entry.includes("💭")) ?? "";
+  assert.ok(line.length > 0, `no thought on the card:\n${out}`);
+  assert.ok(!line.includes("*"), `emphasis markers survived the clip: ${line}`);
+  assert.match(line, /💭 …[\s\S]*结论：先删孤儿。_$/);
+});

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { advance, renderSteps, skillOf, stepCount, toolIcon, withIcons, type Trail } from "../src/steps.ts";
+import { advance, hintLine, renderSteps, skillOf, stepCount, toolIcon, withIcons, type Trail } from "../src/steps.ts";
 
 /** A running card has to answer "what did it do so far", not just "something is happening". */
 
@@ -148,4 +148,35 @@ test("the last output line is cut like an argument, so a path cannot fold the ca
   assert.match(line, /^✓ ⌨️ bash ×2 · 2s · \.\/chat-service-infra\/src\/m/);
   assert.ok(!line.includes("ReplyOnBehalfVisibility"), `tail was not cut: ${line}`);
   assert.ok(line.length < 64, `line still too long (${line.length}): ${line}`);
+});
+
+test("a round that took less than a second does not print a zero", () => {
+  // A real card showed three `0s` on six lines; the clock earns its place only when it says something.
+  let trail: Trail = { rounds: [], since: 0 };
+  trail = advance(trail, live(["bash"], ["a"]), 0);
+  trail = advance(trail, live(["read"], ["b"]), 400);
+  trail = advance(trail, live(["grep"], ["c"]), 2_400);
+  const lines = renderSteps(trail, 3_000).split("\n");
+  assert.equal(lines[0], "✓ ⌨️ bash", "400ms: no clock at all");
+  assert.equal(lines[1], "✓ 📄 read · 2s");
+});
+
+test("an output tail that is a bare word is not worth the room", () => {
+  // `db_query` on dev ends its output with the word `dev` — the shape of a value, not a fact.
+  let trail: Trail = { rounds: [], since: 0 };
+  trail = advance(trail, live(["db_query"], ["a"], "dev"), 0);
+  trail = advance(trail, live(["db_query"], ["b"], "ok pitta/internal/app"), 1_000);
+  trail = advance(trail, live(["read"], ["c"]), 3_000);
+  const lines = renderSteps(trail, 4_000).split("\n");
+  assert.equal(lines[0], "✓ 🗄️ db_query · 1s");
+  assert.equal(lines[1], "✓ 🗄️ db_query · 2s · ok pitta/internal/app");
+});
+
+test("a command too long for the line drops its cd preamble, not its verb", () => {
+  // Three of five lines on a real card began `cd ~/.presence/projects/sitin-server &&` and were
+  // cut before the command they were announcing.
+  const long = "cd /Users/alexwang/.presence/projects/sitin-server && sed -n 1,120p proto/chat.proto";
+  assert.equal(hintLine(long), "sed -n 1,120p proto/chat.proto");
+  // A short one fits whole and keeps its directory: that is where the run happened.
+  assert.equal(hintLine("cd client-go && go test ./..."), "cd client-go && go test ./...");
 });

@@ -829,6 +829,25 @@ type CardTrace = { digest: string };
 const THINKING_TAIL = 280;
 
 /**
+ * How much of a thought fits on a card before it stops being a card.
+ *
+ * The newest end is the part worth keeping, but cut at a fixed offset it opened mid-sentence and
+ * mid-markdown — a reader saw `◌ ...**, trigger 是 aichat 生成时带的…`. So: strip the emphasis the
+ * card cannot render inline, then start on a sentence boundary.
+ */
+function thinkingTail(flat: string): string {
+  if (flat.length <= THINKING_TAIL) return flat;
+  const window = flat.slice(flat.length - THINKING_TAIL);
+  // Only a hard stop counts: a full stop here is as often a version number or an abbreviation.
+  const boundary = /[。！？；!?;]\s*/.exec(window);
+  if (boundary !== null && boundary.index < THINKING_TAIL / 3) {
+    const rest = window.slice(boundary.index + boundary[0].length).trim();
+    if (rest.length > THINKING_TAIL / 2) return `…${rest}`;
+  }
+  return `…${window.trim()}`;
+}
+
+/**
  * The model's thinking, flattened to one italic line.
  *
  * Thinking is the only part of a run that says *why*, and it is worth showing while the card is the
@@ -837,9 +856,13 @@ const THINKING_TAIL = 280;
  * end of it, and the same clip the answer text gets.
  */
 function thinkingLine(thinking: string | undefined): string {
-  const flat = (thinking ?? "").replace(/\s+/g, " ").trim();
+  const flat = (thinking ?? "")
+    .replace(/\s+/g, " ")
+    .replace(/\*\*|__|`/g, "")
+    .replace(/^[.\s]+/, "")
+    .trim();
   if (flat.length === 0) return "";
-  return `_💭 ${flat.length > THINKING_TAIL ? `…${flat.slice(-THINKING_TAIL)}` : flat}_`;
+  return `_💭 ${thinkingTail(flat)}_`;
 }
 
 export function renderLive(live: LiveSnapshot, trace?: CardTrace, trail?: Trail, stages?: string[]): string {
