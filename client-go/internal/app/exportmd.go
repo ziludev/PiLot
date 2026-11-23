@@ -76,6 +76,11 @@ func chatMarkdown(title string, rows []threadRow, at time.Time) string {
 				continue
 			}
 			b.WriteString("\n## " + "PiLot" + "\n\n" + text + "\n")
+		case rowThinking:
+			if text == "" {
+				continue
+			}
+			b.WriteString("\n<details><summary>" + i18n.T("thinking") + "</summary>\n\n" + text + "\n\n</details>\n")
 		case rowSteps:
 			if len(row.steps) == 0 {
 				continue

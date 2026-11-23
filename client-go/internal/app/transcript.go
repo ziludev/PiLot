@@ -161,6 +161,8 @@ func (a *App) threadRow(c *ui.Context, t theme.Tokens, row threadRow) {
 		a.userRow(c, t, row)
 	case rowAssistant:
 		a.assistantRow(c, t, row)
+	case rowThinking:
+		a.thinkingRow(c, t, row)
 	case rowSteps:
 		a.stepsRow(c, t, row)
 	case rowError:
@@ -208,8 +210,53 @@ func (a *App) assistantRow(c *ui.Context, t theme.Tokens, row threadRow) {
 	})
 }
 
-// stepsRow folds one run's thinking and tool calls into a line the reader can
-// open when they want the detail.
+// lastLineText is where a thought currently is: the start has already been
+// read, and one line is all the live row has room for.
+func lastLineText(text string) string {
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if line := strings.TrimSpace(lines[i]); line != "" {
+			return clip(oneLine(line), 140)
+		}
+	}
+	return ""
+}
+
+// thinkingRow is the model's reasoning as a block of its own. Folded it is a
+// line with the first thing it thought; open it is the whole trace, markdown
+// and all. The tool calls stay a separate fold, the way assistant-ui keeps
+// Reasoning and ToolGroup apart: "4 步" should mean four calls.
+func (a *App) thinkingRow(c *ui.Context, t theme.Tokens, row threadRow) {
+	key := row.id
+	open := a.vm.folds[key]
+	header := ui.ButtonBase(c).FillWidth().Height(22).Radius(5).Padding(0, 4).
+		Cursor(ui.CursorPointer).Gap(4).AlignItems(ui.Center).Label(i18n.T("thinking"))
+	header.Children(func() {
+		if open {
+			ui.Icon(c, icons.ChevronDown).Size(11, 11).TextColor(t.MutedFg)
+		} else {
+			ui.Icon(c, icons.ChevronRight).Size(11, 11).TextColor(t.MutedFg)
+		}
+		ui.Text(c, i18n.T("thinking")).FontSize(11.5).TextColor(t.MutedFg)
+		if !open {
+			ui.Text(c, oneLine(row.text)).FontSize(10.5).TextColor(t.MutedFg).
+				MaxLines(1).Grow(1)
+		}
+	})
+	header.OnClick(func() {
+		a.vm.folds[key] = !open
+		a.invalidate()
+	})
+	if !open {
+		return
+	}
+	ui.Column(c).FillWidth().Padding(0, 0, 2, 18).Children(func() {
+		markdown.View(c, row.text, nil)
+	})
+}
+
+// stepsRow folds one run's tool calls into a line the reader can open when they
+// want the detail.
 func (a *App) stepsRow(c *ui.Context, t theme.Tokens, row threadRow) {
 	key := row.id
 	open := a.vm.folds[key]
@@ -487,6 +534,10 @@ func (a *App) liveRowView(c *ui.Context, t theme.Tokens, row threadRow) {
 	ui.Row(c).FillWidth().Padding(6, 0).Gap(9).AlignItems(ui.Start).Children(func() {
 		a.avatarView(c, avatarSize)
 		ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
+			if row.liveThinking != "" && row.text == "" {
+				ui.Text(c, i18n.T("thinkingRunning")+" "+lastLineText(row.liveThinking)).
+					FontSize(11).TextColor(t.MutedFg).MaxLines(2)
+			}
 			if row.liveStep != "" {
 				ui.Text(c, i18n.TF("runningStep", map[string]any{"name": liveStepName(row.liveStep, row.liveHint)})).
 					FontSize(11).TextColor(t.MutedFg)
@@ -512,19 +563,24 @@ func (a *App) liveRow() (threadRow, bool) {
 	var generation struct {
 		Message struct {
 			Content []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
+				Type     string `json:"type"`
+				Text     string `json:"text"`
+				Thinking string `json:"thinking"`
 			} `json:"content"`
 		} `json:"message"`
 	}
 	if json.Unmarshal(th.live.Generation, &generation) == nil {
-		var said []string
+		var said, thought []string
 		for _, part := range generation.Message.Content {
 			if part.Type == "text" && strings.TrimSpace(part.Text) != "" {
 				said = append(said, part.Text)
 			}
+			if part.Type == "thinking" && strings.TrimSpace(part.Thinking) != "" {
+				thought = append(thought, part.Thinking)
+			}
 		}
 		row.text = strings.Join(said, "")
+		row.liveThinking = strings.Join(thought, "\n\n")
 	}
 	// The last slot that is still running is the one to name; a round queues
 	// its calls up front, so the earlier ones read pending or done.
@@ -540,7 +596,7 @@ func (a *App) liveRow() (threadRow, bool) {
 			row.liveHint = liveStepHint(slot.Output, slot.Details)
 		}
 	}
-	if row.text == "" && row.liveStep == "" {
+	if row.text == "" && row.liveStep == "" && row.liveThinking == "" {
 		return threadRow{}, false
 	}
 	return row, true

@@ -411,6 +411,9 @@ type threadRowKind int
 const (
 	rowUser threadRowKind = iota
 	rowAssistant
+	// rowThinking is the model's reasoning, kept out of rowSteps so the step
+	// count stays a count of calls.
+	rowThinking
 	rowSteps
 	rowError
 	rowLive
@@ -436,6 +439,8 @@ type step struct {
 	// result belongs to the first call still waiting, not to the last call.
 	awaiting bool
 	at       time.Time
+	// done is when the result arrived, which is how long the call took.
+	done time.Time
 }
 
 type imageRef struct {
@@ -465,6 +470,8 @@ type threadRow struct {
 	// place the line that marks what arrived since the last visit.
 	entry int
 
+	// liveThinking is what the turn in flight has thought so far, for rowLive.
+	liveThinking string
 	// liveStep is the tool the turn in flight is running now, for rowLive.
 	liveStep string
 	// liveHint is what that call is doing: the tail of its output, or the
@@ -511,7 +518,8 @@ func projectEntries(conversationID int, entries []protocol.Entry) ([]threadRow, 
 	rows := make([]threadRow, 0, len(ordered))
 	var turns []int
 	turn := 0
-	stepRows := map[int]int{} // turn id → index in rows
+	stepRows := map[int]int{}  // turn id → index in rows
+	thinkRows := map[int]int{} // turn id → index of its thinking row
 
 	for _, entry := range ordered {
 		view := parseEntry(entry)
@@ -537,6 +545,23 @@ func projectEntries(conversationID int, entries []protocol.Entry) ([]threadRow, 
 					turn:   turn,
 					entry:  entry.ID,
 				})
+			case "thinking":
+				if turn == 0 {
+					turn = entry.ID
+				}
+				if idx, ok := thinkRows[turn]; ok {
+					// A turn can think, call, and think again; it is one trace.
+					rows[idx].text += "\n\n" + block.text
+					continue
+				}
+				rows = append(rows, threadRow{
+					kind:  rowThinking,
+					id:    foldKey(conversationID, turn) + ":thinking",
+					text:  block.text,
+					turn:  turn,
+					entry: entry.ID,
+				})
+				thinkRows[turn] = len(rows) - 1
 			case "tool-result":
 				// A result belongs to the call above it: one line per step.
 				if turn == 0 {
@@ -552,7 +577,7 @@ func projectEntries(conversationID int, entries []protocol.Entry) ([]threadRow, 
 						last.failed = last.failed || block.failed
 						last.awaiting = false
 						if !block.at.IsZero() {
-							last.at = block.at
+							last.done = block.at
 						}
 						continue
 					}
@@ -616,13 +641,16 @@ func awaitingStep(steps *[]step) *step {
 func stepsSpan(steps []step) (time.Duration, bool) {
 	var first, last time.Time
 	for _, s := range steps {
-		if s.at.IsZero() {
-			continue
-		}
-		if first.IsZero() {
+		if !s.at.IsZero() && (first.IsZero() || s.at.Before(first)) {
 			first = s.at
 		}
-		last = s.at
+		end := s.done
+		if end.IsZero() {
+			end = s.at
+		}
+		if !end.IsZero() && (last.IsZero() || end.After(last)) {
+			last = end
+		}
 	}
 	if first.IsZero() || last.IsZero() || last.Before(first) {
 		return 0, false
@@ -686,7 +714,9 @@ func parseEntry(entry protocol.Entry) entryView {
 					blockIndex++
 				}
 			case "thinking":
-				view.blocks = append(view.blocks, entryBlock{kind: "step", name: i18n.T("thinking"), text: oneLine(part.Thinking), thinking: true, at: at})
+				// Whole, not one line: the point of opening a thought is to read
+				// it, and a summary is what the folded row already has.
+				view.blocks = append(view.blocks, entryBlock{kind: "thinking", text: part.Thinking, at: at})
 			case "toolCall":
 				view.blocks = append(view.blocks, entryBlock{
 					kind: "step", name: part.Name, text: argsSummary(part.Arguments),

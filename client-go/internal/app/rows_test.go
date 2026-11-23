@@ -33,35 +33,43 @@ func TestProjectEntriesFoldsSteps(t *testing.T) {
 		entryJSON(t, 4, "pi.assistant", start.Add(12*time.Second), `[{"role":"assistant","content":[{"type":"text","text":"Shorter wavelengths scatter more."}],"timestamp":__ts}]`),
 	}
 	rows, turns := projectEntries(7, entries)
-	if len(rows) != 3 {
-		t.Fatalf("got %d rows, want user + steps + assistant: %+v", len(rows), rows)
+	if len(rows) != 4 {
+		t.Fatalf("got %d rows, want user + thinking + steps + assistant: %+v", len(rows), rows)
 	}
 	if rows[0].kind != rowUser || rows[0].text != "why is the sky blue" {
 		t.Fatalf("row 0 = %+v", rows[0])
 	}
-	if rows[1].kind != rowSteps || len(rows[1].steps) != 2 {
+	// Reasoning is its own row, so the step count below stays a count of calls.
+	if rows[1].kind != rowThinking || rows[1].text != "Rayleigh scattering" {
 		t.Fatalf("row 1 = %+v", rows[1])
+	}
+	if rows[2].kind != rowSteps || len(rows[2].steps) != 1 {
+		t.Fatalf("row 2 = %+v", rows[2])
 	}
 	// The tool result joins the call it answers instead of taking a line, and
 	// is kept whole for the output block rather than clipped into the summary.
-	if got := rows[1].steps[1].body; got != "echo blue" {
+	if got := rows[2].steps[0].body; got != "echo blue" {
 		t.Fatalf("tool step body = %q", got)
 	}
-	if got := rows[1].steps[1].out; got != "blue" {
+	if got := rows[2].steps[0].out; got != "blue" {
 		t.Fatalf("tool step out = %q", got)
 	}
 	// The span runs from the first step to the tool result that closed it.
-	if rows[1].noSpan || rows[1].span != 3*time.Second {
-		t.Fatalf("span = %v (noSpan %v), want 3s", rows[1].span, rows[1].noSpan)
+	if rows[2].noSpan || rows[2].span != 3*time.Second {
+		t.Fatalf("span = %v (noSpan %v), want 3s", rows[2].span, rows[2].noSpan)
 	}
-	if rows[1].id != foldKey(7, 1) {
-		t.Fatalf("fold key = %q, want the first entry of the turn", rows[1].id)
+	if rows[2].id != foldKey(7, 1) {
+		t.Fatalf("fold key = %q, want the first entry of the turn", rows[2].id)
+	}
+	// The thought keeps its own disclosure, addressable apart from the calls.
+	if rows[1].id != foldKey(7, 1)+":thinking" {
+		t.Fatalf("thinking fold key = %q", rows[1].id)
 	}
 	if len(turns) != 1 || turns[0] != 1 {
 		t.Fatalf("turns = %v", turns)
 	}
-	if rows[2].kind != rowAssistant || rows[2].text != "Shorter wavelengths scatter more." {
-		t.Fatalf("row 2 = %+v", rows[2])
+	if rows[3].kind != rowAssistant || rows[3].text != "Shorter wavelengths scatter more." {
+		t.Fatalf("row 3 = %+v", rows[3])
 	}
 }
 

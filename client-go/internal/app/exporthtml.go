@@ -77,6 +77,13 @@ func chatHTML(title string, rows []threadRow, at time.Time) string {
 			b.WriteString("<section class=\"turn pil\">\n<h2>PiLot</h2>\n")
 			b.WriteString(paragraphs(text))
 			b.WriteString("</section>\n")
+		case rowThinking:
+			if text == "" {
+				continue
+			}
+			b.WriteString("<details>\n<summary>" + html.EscapeString(i18n.T("thinking")) + "</summary>\n")
+			b.WriteString(paragraphs(text))
+			b.WriteString("</details>\n")
 		case rowSteps:
 			if len(row.steps) == 0 {
 				continue
