@@ -125,6 +125,7 @@ async function runChild(
     // Snapshot before the stage writes anything: "did it change the tree" is unanswerable later.
     const gateCwd = gate === undefined ? undefined : await stageCwdOf(conversationId, context);
     const before = gateCwd === undefined ? undefined : await collectSnapshot(gateCwd);
+    const startedAt = Date.now();
 
     api.output(`→ ${role}（${ROLES[role].title}）开始…\n`);
     const submission = await child.submit(
@@ -160,6 +161,7 @@ async function runChild(
       });
       text = gated.text;
       gateResult = gated.result;
+      gateResult.ms = Date.now() - startedAt;
       api.output(`${gateResult.ok ? "✔" : "❌"} ${gate.replace("feature-", "")} 脚本核验${gateResult.ok ? "通过" : "未通过"}\n`);
       if (!gateResult.ok) {
         log("subagent", `${role} failed the gate`, { key, lines: gateResult.lines });
@@ -381,8 +383,15 @@ async function runStage(
     // judges the changes this stage made, not everything that happens to be dirty in the repo.
     const stageCwd = await stageCwdOf(childId as never, context);
     const before = await collectSnapshot(stageCwd);
+    const startedAt = Date.now();
 
-    const prompt = buildStagePrompt(key, spec, previous);
+    // A reviewer gets the spec and the machine's list of changed files, never the implementer's
+    // account of what it did: a verifier that inherits the producer's view misses what it missed.
+    const scope =
+      key === "feature-review"
+        ? ((await runtime.memo<GateResult>("gate:feature-implement", context))?.touched ?? [])
+        : [];
+    const prompt = buildStagePrompt(key, spec, previous, scope);
     const submission = await child.submit(
       { type: "input", content: prompt, requestId: `feature:${String(task.id)}:${key}` },
       context,
@@ -441,6 +450,7 @@ async function runStage(
       },
     });
     gate = gated.result;
+    gate.ms = Date.now() - startedAt;
     text = gated.text;
     if (!gate.ok) {
       log("feature", `${role} failed the gate`, { key, lines: gate.lines });
@@ -455,7 +465,13 @@ async function runStage(
   }
 }
 
-export function buildStagePrompt(key: StageKey, spec: string, previous: Record<string, string>): string {
+export function buildStagePrompt(
+  key: StageKey,
+  spec: string,
+  previous: Record<string, string>,
+  /** Files the implement stage changed, from the gate — the review's only trusted scope. */
+  changed: string[] = [],
+): string {
   const design = previous["feature-design"] ?? "";
   const implementation = previous["feature-implement"] ?? "";
   if (key === "feature-design") {
@@ -465,8 +481,8 @@ export function buildStagePrompt(key: StageKey, spec: string, previous: Record<s
     return `需求：\n${spec}\n\n设计文档与注意事项：\n${design}\n\n请实现并自测，然后按约定格式汇报。`;
   }
   if (key === "feature-review") {
-    const tests = previous["feature-test"] ?? "";
-    return `需求：\n${spec}\n\n设计摘要：\n${design}\n\n实现者的汇报：\n${implementation}\n\n测试者的汇报：\n${tests}\n\n请直接读仓库里的改动（git diff / git status）评审：只列真正必须改的问题，最多三条，说清在哪、为什么、怎么改；没有必须改的就一句话说通过。`;
+    const scope = changed.length === 0 ? "（脚本没取到清单：自己用 git status / git diff 找）" : changed.map((path) => `- ${path}`).join("\n");
+    return `需求：\n${spec}\n\n设计摘要：\n${design}\n\n本次改动文件（脚本从 git 取的范围）：\n${scope}\n\n实现者和测试者的自述故意不给你——那会带偏你看到的东西。自己读 git diff 和这些文件，然后：\n- 每条问题必须带 文件:行 和理由；查不到的单独列 UNKNOWN。\n- 只列真正必须改的，最多三条；没有就一句话说通过。`;
   }
   return `需求：\n${spec}\n\n设计摘要：\n${design}\n\n实现者的汇报：\n${implementation}\n\n请按约定写测试并运行一次。`;
 }
@@ -505,7 +521,8 @@ function buildSummary(
             const gate = gates[stage.key]!;
             const name = stage.key.replace("feature-", "");
             const flags = gate.checks.map((check) => `${check.ok ? "✅" : "⚠️"}${check.name}`).join(" " );
-            return `- ${name} ${gate.ok ? "✅" : "❌"} ${flags}`;
+            const seconds = gate.ms === undefined ? "" : `（${Math.round(gate.ms / 1000)}s）`;
+            return `- ${name} ${gate.ok ? "✅" : "❌"} ${flags}${seconds}`;
           })
           .join("\n")}\n其余结论来自各角色自述，未经脚本核验${soft.length === 0 ? "" : `；另有 ${soft.length} 项只有自述`}。\n\n`;
   return `需求：${spec.slice(0, 200)}\n\n${block}${body}`;
@@ -641,11 +658,7 @@ const buildFeature = defineTool({
         context,
         "feature-review",
         "reviewer",
-        buildStagePrompt("feature-review", args.spec, {
-          "feature-design": design.text,
-          "feature-implement": implementation.text,
-          "feature-test": testText,
-        }),
+        buildStagePrompt("feature-review", args.spec, { "feature-design": design.text }, implementation.gate?.touched ?? []),
         "feature-review",
       );
       report.push(

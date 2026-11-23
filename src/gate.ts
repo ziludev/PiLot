@@ -36,7 +36,16 @@ export type GateCheck = {
   detail?: string;
 };
 
-export type GateResult = { stage: GateStage; ok: boolean; checks: GateCheck[]; lines: string[] };
+export type GateResult = {
+  stage: GateStage;
+  ok: boolean;
+  checks: GateCheck[];
+  lines: string[];
+  /** Paths the stage changed, as git saw them: the scope a review has to look at. */
+  touched?: string[];
+  /** Wall time the stage took, so a report can say what the run cost. */
+  ms?: number;
+};
 
 async function git(cwd: string, args: string[]): Promise<string | undefined> {
   try {
@@ -284,7 +293,13 @@ async function runOnce(
   const after = await collectSnapshot(cwd);
   const touched = await touchedFiles(cwd, before, after);
   const checks = await evaluateGate(stage, { cwd, touched, text, repo: before.repo && after.repo });
-  return { stage, ok: checks.every((check) => !check.hard || check.ok), checks, lines: checks.map(line) };
+  return {
+    stage,
+    ok: checks.every((check) => !check.hard || check.ok),
+    checks,
+    lines: checks.map(line),
+    touched,
+  };
 }
 
 /** What a stage is told when its own work fails the script's checks. */

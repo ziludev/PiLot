@@ -33,9 +33,14 @@ test("the review stage reads the diff, not just the reports", () => {
     "feature-design": "设计要点",
     "feature-implement": "实现了",
     "feature-test": "12 个测试通过",
-  });
+  }, ["src/button.ts"]);
   assert.match(prompt, /git diff/);
-  assert.match(prompt, /12 个测试通过/, "the reviewer has to see what the change had to pass");
+  // Reversed on purpose: the reviewer used to be handed the implementer's and tester's accounts,
+  // and a verifier that inherits the producer's view misses what the producer missed. It gets the
+  // machine's file list instead and reads the change itself.
+  assert.doesNotMatch(prompt, /12 个测试通过/);
+  assert.doesNotMatch(prompt, /实现了/);
+  assert.match(prompt, /src\/button\.ts/);
   assert.match(prompt, /最多三条/, "a review that lists everything is a review nobody reads");
 });
 
