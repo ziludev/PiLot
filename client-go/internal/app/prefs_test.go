@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"pitta/internal/i18n"
+	"pitta/internal/protocol"
 )
 
 // withPrefsFile points the window's preference file at a temp dir for one test.
@@ -92,5 +95,37 @@ func TestPrefsWrittenKeysAreTheReadKeys(t *testing.T) {
 		if _, ok := raw[key]; !ok {
 			t.Fatalf("saved file has no %q; keys are %v", key, raw)
 		}
+	}
+}
+
+// TestDraftSurvivesSwitchingChats: half a message written in one chat is still
+// there on the way back, and the chat left with an empty composer keeps none.
+func TestDraftSurvivesSwitchingChats(t *testing.T) {
+	i18n.Set(i18n.EN)
+	withPrefsFile(t)
+	a := fixtureApp(t, false)
+	a.setSurfaces([]protocol.Surface{
+		{ConversationID: 1, Kind: "client", Title: "one"},
+		{ConversationID: 2, Kind: "client", Title: "two"},
+	})
+	a.active = 1
+	a.draft = "half a question"
+	a.selectConversation(2)
+	if a.draft != "" {
+		t.Fatalf("chat two opened with %q", a.draft)
+	}
+	a.selectConversation(1)
+	if a.draft != "half a question" {
+		t.Fatalf("chat one came back with %q", a.draft)
+	}
+	if got := readPrefs().Drafts["1"]; got != "half a question" {
+		t.Fatalf("draft was not written to the file: %q", got)
+	}
+	// Answering empties the box and the store: reopening must not restore it.
+	a.draft = ""
+	a.prefs.setDraft(1, "")
+	savePrefs(a.prefs)
+	if _, ok := readPrefs().Drafts["1"]; ok {
+		t.Fatal("a sent message stayed in the draft store")
 	}
 }

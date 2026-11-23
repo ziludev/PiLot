@@ -78,7 +78,12 @@ var zh = map[string]string{
 
 	"approvalTitle":  "需要批准：{tool}",
 	"allow":          "允许",
+	"allowSession":   "本会话允许",
 	"deny":           "拒绝",
+	"today":          "今天",
+	"yesterday":      "昨天",
+	"monthDay":       "{m}月{d}日",
+	"yearMonthDay":   "{y}年{m}月{d}日",
 	"approvalFailed": "审批失败",
 	"morePending":    "还有 {n} 条",
 
@@ -366,7 +371,12 @@ var en = map[string]string{
 
 	"approvalTitle":  "Approval needed: {tool}",
 	"allow":          "Allow",
+	"allowSession":   "Allow in this chat",
 	"deny":           "Deny",
+	"today":          "Today",
+	"yesterday":      "Yesterday",
+	"monthDay":       "{m}/{d}",
+	"yearMonthDay":   "{y}/{m}/{d}",
 	"approvalFailed": "Couldn't answer the approval",
 	"morePending":    "{n} more",
 

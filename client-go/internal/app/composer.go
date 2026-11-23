@@ -28,6 +28,11 @@ func (a *App) composerArea(c *ui.Context, t theme.Tokens) {
 func (a *App) composerCard(c *ui.Context, t theme.Tokens) {
 	card := ui.Column(c).FillWidth().Padding(10, 12, 8, 12).Radius(12).
 		Border(1, t.Border).Background(t.Card).Gap(6)
+	// Keep the preference mirror current while typing, so leaving the window
+	// without switching chats still files what was written.
+	if a.active != 0 {
+		a.prefs.setDraft(a.active, a.draft)
+	}
 	card.Children(func() {
 		a.attachmentChips(c, t)
 		input := ui.TextAreaBase(c, &a.draft).FillWidth().Lines(1, 8).MinHeight(22).FontSize(12.5).
@@ -216,11 +221,26 @@ func (a *App) approvalCard(c *ui.Context, t theme.Tokens, approval protocol.Pend
 			}
 			ui.Row(c).FillWidth().Justify(ui.End).Gap(6).Children(func() {
 				a.approvalButton(c, t, i18n.T("deny"), false, approval.CallID, false)
+				if approval.GrantKey != "" {
+					a.approvalSessionButton(c, t, approval.CallID)
+				}
 				a.approvalButton(c, t, i18n.T("allow"), true, approval.CallID, true)
 			})
 		})
 	})
 	_ = card
+}
+
+// approvalSessionButton answers "yes, and stop asking for this kind of call in
+// this chat": the bridge keeps the grant per conversation and per risk class.
+func (a *App) approvalSessionButton(c *ui.Context, t theme.Tokens, callID string) {
+	button := ui.ButtonBase(c).Height(26).Padding(0, 10).Radius(7).Justify(ui.Center).
+		AlignItems(ui.Center).Cursor(ui.CursorPointer).Border(1, t.Border).
+		Label(i18n.T("allowSession"))
+	button.Children(func() {
+		ui.Text(c, i18n.T("allowSession")).FontSize(11.5).TextColor(t.MutedFg)
+	})
+	button.OnClick(func() { a.decideSession(callID) })
 }
 
 func (a *App) approvalButton(c *ui.Context, t theme.Tokens, label string, primary bool, callID string, approved bool) {

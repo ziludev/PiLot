@@ -417,6 +417,10 @@ const (
 	rowSteps
 	rowError
 	rowLive
+	// rowDay is the date rule that opens a day's messages. It is a row, not a
+	// property of the message under it, because it has to survive scrolling
+	// past the first message of the day.
+	rowDay
 )
 
 type step struct {
@@ -520,9 +524,20 @@ func projectEntries(conversationID int, entries []protocol.Entry) ([]threadRow, 
 	turn := 0
 	stepRows := map[int]int{}  // turn id → index in rows
 	thinkRows := map[int]int{} // turn id → index of its thinking row
+	lastDay := ""
 
 	for _, entry := range ordered {
 		view := parseEntry(entry)
+		// The rule belongs to the day, not to the entry that happens to open
+		// it: the same day printed once, however many entries share it. The
+		// first day needs no rule — whatever is above it is the chat's start.
+		day := dayKey(view.at)
+		if day != "" && lastDay != "" && day != lastDay {
+			rows = append(rows, threadRow{kind: rowDay, id: "day-" + day, text: dayLabel(view.at)})
+		}
+		if day != "" {
+			lastDay = day
+		}
 		if view.userText != "" || len(view.images) > 0 {
 			turn = entry.ID
 			rows = append(rows, threadRow{
@@ -672,6 +687,8 @@ type entryBlock struct {
 }
 
 type entryView struct {
+	// at is the entry's first message time, which is what places it in a day.
+	at       time.Time
 	userText string
 	images   []imageRef
 	blocks   []entryBlock
@@ -692,6 +709,9 @@ func parseEntry(entry protocol.Entry) entryView {
 	blockIndex := 0
 	for _, msg := range messages {
 		at := unixTime(msg.Timestamp)
+		if view.at.IsZero() && !at.IsZero() {
+			view.at = at
+		}
 		if msg.Role == "user" {
 			text, images := userContent(msg.Content)
 			view.userText = text

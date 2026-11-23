@@ -517,3 +517,32 @@ func TestAutoArchiveOldChats(t *testing.T) {
 		t.Fatalf("the take-back was not remembered")
 	}
 }
+
+// TestProjectEntriesMarksNewDays: the date rule opens the second day and only
+// the second day — the chat's first day needs no rule above it, and a day with
+// several entries prints one.
+func TestProjectEntriesMarksNewDays(t *testing.T) {
+	i18n.Set(i18n.EN)
+	late := time.Date(2026, 11, 19, 23, 50, 0, 0, time.Local)
+	afterMidnight := late.Add(20 * time.Minute)
+	entries := []protocol.Entry{
+		entryJSON(t, 1, "pi.user", late, `[{"role":"user","content":"one","timestamp":__ts}]`),
+		entryJSON(t, 2, "pi.user", late.Add(time.Minute), `[{"role":"user","content":"two","timestamp":__ts}]`),
+		entryJSON(t, 3, "pi.user", afterMidnight, `[{"role":"user","content":"three","timestamp":__ts}]`),
+	}
+	rows, _ := projectEntries(7, entries)
+	var kinds []threadRowKind
+	var days []string
+	for _, row := range rows {
+		kinds = append(kinds, row.kind)
+		if row.kind == rowDay {
+			days = append(days, row.text)
+		}
+	}
+	if len(days) != 1 || days[0] != "11/20" {
+		t.Fatalf("day rules %v, want one reading 11/20; rows %v", days, kinds)
+	}
+	if kinds[0] != rowUser || kinds[1] != rowUser || kinds[2] != rowDay || kinds[3] != rowUser {
+		t.Fatalf("day rule is not between the two days: %v", kinds)
+	}
+}

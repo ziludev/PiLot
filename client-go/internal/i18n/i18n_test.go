@@ -45,7 +45,7 @@ import (
 // and the "started from" label on the one row that began a task, and the live
 // "thinking" line the transcript shows while a turn reasons. 256 keys: the
 // stage meter's own name, which only assistive technology reads.
-const maxKeys = 262
+const maxKeys = 267
 
 func TestDictionariesMatch(t *testing.T) {
 	keys := Keys()

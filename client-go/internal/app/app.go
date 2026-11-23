@@ -893,12 +893,16 @@ func (a *App) selectConversation(convID int) {
 		return
 	}
 	a.remember(a.active)
+	// The draft belongs to the chat being left, so it is filed before the
+	// window starts pointing at the one being opened.
+	a.prefs.setDraft(a.active, a.draft)
 	a.active = convID
 	a.vm.newFrom[convID] = a.vm.seen[convID]
 	a.revealChatSection(convID)
 	a.vm.unread[convID] = false
 	delete(a.vm.unread, convID)
-	a.draft, a.draftImage = "", nil
+	a.draft, a.draftImage = a.prefs.draftAt(convID), nil
+	savePrefs(a.prefs)
 	a.histIndex = len(a.history)
 	a.vm.threadList.FollowEnd = true
 	a.focusComposer = true

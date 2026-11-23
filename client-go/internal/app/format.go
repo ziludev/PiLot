@@ -143,3 +143,34 @@ func dollars(cost float64) string {
 	}
 	return fmt.Sprintf("$%.2f", cost)
 }
+
+// dayKey names the calendar day an instant falls on in the reader's zone. It
+// is the string the transcript keys its date rules by, so two entries minutes
+// apart across midnight still get a rule between them.
+func dayKey(ts time.Time) string {
+	if ts.IsZero() {
+		return ""
+	}
+	return ts.Local().Format("2006-01-02")
+}
+
+// dayLabel is what the rule above a day's messages says: "today" and
+// "yesterday" while those words are still shorter than a date, a date after.
+func dayLabel(ts time.Time) string {
+	now := time.Now()
+	local := ts.Local()
+	ny, nm, nd := now.Date()
+	y, m, d := local.Date()
+	yesterday := now.AddDate(0, 0, -1)
+	yy, ym, yd := yesterday.Date()
+	switch {
+	case y == ny && m == nm && d == nd:
+		return i18n.T("today")
+	case y == yy && m == ym && d == yd:
+		return i18n.T("yesterday")
+	case y == ny:
+		return i18n.TF("monthDay", map[string]any{"m": int(m), "d": d})
+	default:
+		return i18n.TF("yearMonthDay", map[string]any{"y": y, "m": int(m), "d": d})
+	}
+}

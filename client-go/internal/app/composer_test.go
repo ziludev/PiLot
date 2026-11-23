@@ -261,3 +261,53 @@ func TestStepsExpand(t *testing.T) {
 		t.Fatalf("expanded steps lost their summary; drew %v", tt.Texts())
 	}
 }
+
+// TestApprovalCardOffersSessionGrant: when the bridge names a risk class, the
+// card offers "allow in this chat", and that answer goes out with session set.
+// A call with no grant key has no class to remember, so the extra button is
+// absent rather than a no-op.
+func TestApprovalCardOffersSessionGrant(t *testing.T) {
+	i18n.Set(i18n.EN)
+	var decision api.ApprovalDecision
+	var decided bool
+	var mu sync.Mutex
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/approvals" && r.Method == http.MethodPost {
+			raw, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			_ = json.Unmarshal(raw, &decision)
+			decided = true
+			mu.Unlock()
+		}
+		io.WriteString(w, `{}`)
+	}))
+	t.Cleanup(server.Close)
+
+	a := newApp(Config{BaseURL: server.URL})
+	a.api = api.New(server.URL, "")
+	a.setSurfaces([]protocol.Surface{{ConversationID: 5, Kind: "client", Title: "sky"}})
+	a.active = 5
+	a.pending = []protocol.PendingApproval{{
+		CallID: "call-1", Tool: "bash", Summary: "rm -rf ./build", GrantKey: "bash:rm",
+	}}
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	if !tt.HasText("Allow in this chat") {
+		t.Fatalf("a grantable approval drew no session answer; drew %v", tt.Texts())
+	}
+	a.decideSession("call-1")
+	waitFor(t, func() bool { mu.Lock(); defer mu.Unlock(); return decided })
+	mu.Lock()
+	defer mu.Unlock()
+	if decision.CallID != "call-1" || !decision.Approved || !decision.Session {
+		t.Fatalf("decision %+v", decision)
+	}
+
+	a.pending = []protocol.PendingApproval{{CallID: "call-2", Tool: "bash", Summary: "ls"}}
+	tt2 := ui.NewTester(a.View, 1180, 820)
+	tt2.Frame()
+	if tt2.HasText("Allow in this chat") {
+		t.Fatal("an approval without a grant key offered a session grant")
+	}
+}

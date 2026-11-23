@@ -51,6 +51,11 @@ type prefs struct {
 	// Seen is the newest entry the user had on screen in each chat, keyed by
 	// conversation: what makes the line in the transcript survive a restart.
 	Seen map[string]int `json:"seen,omitempty"`
+	// Drafts is what the composer held in each chat when the user last left
+	// it, keyed by conversation. Writing half a message and going to answer
+	// something else is the normal way this window is used, so leaving must
+	// not be the same as discarding.
+	Drafts map[string]string `json:"drafts,omitempty"`
 }
 
 // prefsPath is this window's own file. The earlier client's ~/.pitta/ui.json is
@@ -124,6 +129,25 @@ func (p prefs) sectionClosed(key string) bool {
 		return false
 	}
 	return true
+}
+
+// draftAt is what the composer held in a chat, empty when it held nothing.
+func (p prefs) draftAt(convID int) string {
+	return p.Drafts[itoa(convID)]
+}
+
+// setDraft records a chat's composer text; an empty draft is a deletion, so the
+// file does not fill with blank entries for every chat ever visited.
+func (p *prefs) setDraft(convID int, text string) {
+	key := itoa(convID)
+	if text == "" {
+		delete(p.Drafts, key)
+		return
+	}
+	if p.Drafts == nil {
+		p.Drafts = map[string]string{}
+	}
+	p.Drafts[key] = text
 }
 
 // pinnedChat is whether this chat sits at the top of the rail.

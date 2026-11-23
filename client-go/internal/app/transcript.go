@@ -169,7 +169,19 @@ func (a *App) threadRow(c *ui.Context, t theme.Tokens, row threadRow) {
 		a.errorRow(c, t, row)
 	case rowLive:
 		a.liveRowView(c, t, row)
+	case rowDay:
+		a.dayRow(c, t, row)
 	}
+}
+
+// dayRow is the rule between two days of a conversation: a hairline either
+// side of the date, so the eye reads a break rather than a heading.
+func (a *App) dayRow(c *ui.Context, t theme.Tokens, row threadRow) {
+	ui.Row(c).FillWidth().Padding(12, 0).Gap(10).AlignItems(ui.Center).Children(func() {
+		ui.Box(c).Height(1).Grow(1).Background(t.Border)
+		ui.Text(c, row.text).FontSize(10.5).TextColor(t.MutedFg)
+		ui.Box(c).Height(1).Grow(1).Background(t.Border)
+	})
 }
 
 // userRow is the right-aligned bubble: the user's own words, tinted so they are
