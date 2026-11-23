@@ -79,6 +79,7 @@ import {
   type ProactiveMode,
 } from "./access.ts";
 import { dropAllApprovals, getApproval, pendingCount, registerApproval, resolveApproval } from "./approvals.ts";
+import { BLANKET } from "./grants.ts";
 import { addChatNote, chatNotes, clearChatNotes, removeChatNote } from "./memory.ts";
 
 type IncomingMessage = {
@@ -586,15 +587,22 @@ export function approvalCard(request: ApprovalRequest): Record<string, unknown> 
       value: { approval: request.callId, ok: true },
     },
     // One chat deliberately writing outside the workspace should not raise this
-    // card per file: grant the class for the rest of the conversation.
+    // card per file. Two answers: this class of call, or everything but the
+    // classes that destroy data.
     ...(request.grantKey === undefined
       ? []
       : [
           {
             tag: "button",
-            text: { tag: "plain_text", content: "本会话内全部允许" },
+            text: { tag: "plain_text", content: "本会话允许这类" },
             type: "default",
             value: { approval: request.callId, ok: true, session: true, key: request.grantKey },
+          },
+          {
+            tag: "button",
+            text: { tag: "plain_text", content: "本会话全部允许" },
+            type: "default",
+            value: { approval: request.callId, ok: true, session: true, all: true, key: request.grantKey },
           },
         ]),
     {
@@ -2431,8 +2439,12 @@ const continuing = new Set<string>();
     if (!isOwnerOperator(operator)) return { toast: { type: "warning", content: "只有 alex 可以确认" } };
 
     const approved = value["ok"] === true;
-    if (approved && value["session"] === true && typeof value["key"] === "string" && entry.conversationId !== undefined) {
-      void runtime.grantSession(entry.conversationId, value["key"]).catch((error) =>
+    // `all` is the blanket answer: one grant that covers every risk class in this
+    // conversation except the ones that still ask (sudo, rm -rf, …).
+    const blanket = value["all"] === true;
+    const grantedKey = blanket ? BLANKET : value["key"];
+    if (approved && (blanket || value["session"] === true) && typeof grantedKey === "string" && entry.conversationId !== undefined) {
+      void runtime.grantSession(entry.conversationId, grantedKey).catch((error) =>
         logError("feishu", "could not store session grant", error),
       );
     }

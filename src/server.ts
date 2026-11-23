@@ -12,6 +12,7 @@ import { lastStops } from "./turn-status.ts";
 import { collectChanges, commitChanges, ensureRepo } from "./changes.ts";
 import { mergeWorktree } from "./worktree.ts";
 import { listApprovals, resolveApproval } from "./approvals.ts";
+import { BLANKET } from "./grants.ts";
 import { surfaceMeta, updateSurfaceMeta } from "./surface-meta.ts";
 import { chatAccess, ownerChatId, setChatLevel, type ChatLevel } from "./access.ts";
 import { recent } from "./audit.ts";
@@ -739,11 +740,13 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         const approved = body["approved"] === true;
         if (callId.length === 0) return send(res, 400, { error: "callId required" });
         // "Allow for the rest of this conversation": worth doing before the resolve, so a
-        // run that resumes immediately already sees the grant.
+        // run that resumes immediately already sees the grant. `all` broadens the grant from
+        // the call's risk class to the whole conversation (high-risk classes still ask).
         const pending = listApprovals().find((entry) => entry.callId === callId);
-        if (approved && body["session"] === true && pending?.grantKey !== undefined) {
+        const blanket = body["all"] === true;
+        if (approved && pending?.grantKey !== undefined && (blanket || body["session"] === true)) {
           const conversationId = Number(body["conversationId"] ?? pending.conversationId ?? 0);
-          if (conversationId > 0) await runtime.grantSession(conversationId, pending.grantKey);
+          if (conversationId > 0) await runtime.grantSession(conversationId, blanket ? BLANKET : pending.grantKey);
         }
         const handled = resolveApproval(callId, approved, "client");
         return send(res, handled ? 200 : 404, { ok: handled });

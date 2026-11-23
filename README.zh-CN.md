@@ -121,7 +121,7 @@ git clone https://github.com/ziludev/PiLot.git && cd PiLot && ./bin/durable setu
 - **访客工具面是代码，不是提示词。** 非 owner 的 turn 只有上面那些，`bash`、`write`、`edit`、`feishu_*`、`mcp__*`、`delegate` 都在 `beforeTool` 里被拒。记忆是同一道篱笆：访客 turn 既不读 `global_memory`，也不往自己会话外写。
 - 每条消息带着说话人（`[owner …]` / `[member …]`）。模型不信提示词里的身份声明，它读这个标注，工具面跟着标注走。
 - **审批**落在你的私聊，不在群里。决定存进 durable memo，重启不会再问一遍；只有名单上的 open_id 能点；**十分钟没人点等于拒绝**，走的是和手动拒绝同一个回调，卡片上写着。同一个待审批也出现在客户端的琥珀色条上，哪边点都算数；没有任何审批通道时，答案是「不」。
-- **本会话内全部允许**按风险类别记（`rm`、`force-push`、`write-outside`、`chmod-777`……）在 `app.session-grants`，重启后还在；别的会话、别的类别照问。
+- **本会话允许**有两个按钮：「本会话允许这类」按风险类别记（`rm`、`force-push`、`write-outside`、`chmod-777`……）；「本会话全部允许」一次放行这个会话里除 `sudo`、`rm`、`pipe-to-shell`、写磁盘、关机之外的所有类别。都存 `app.session-grants`，重启后还在；别的会话照问。
 - **审计**：拒绝、级别变更、审批结果和两个只读查询，各写一行到 `app.audit`（环形 300 条），用 `durable audit` 读。
 - **预算**：`pi.usage` 累加成每日上限（`AGENT_DAILY_BUDGET_USD`），超了当天的新请求被拒，跨天恢复。
 

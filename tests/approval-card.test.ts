@@ -32,15 +32,23 @@ test("the approval card is 2.0, because 1.0 cannot show a collapsible panel", ()
   assert.ok(Array.isArray((built["body"] as { elements?: unknown[] }).elements));
 });
 
-test("a grantable call offers the conversation-wide answer", () => {
+test("a grantable call offers both conversation-wide answers", () => {
   const buttons = buttonsOf(approvalCard({ ...request, grantKey: "rm" }));
   const labels = buttons.map((button) => button.text.content);
-  assert.deepEqual(labels, ["允许", "本会话内全部允许", "拒绝"]);
-  const session = buttons.find((button) => button.text.content === "本会话内全部允许");
+  assert.deepEqual(labels, ["允许", "本会话允许这类", "本会话全部允许", "拒绝"]);
+  const session = buttons.find((button) => button.text.content === "本会话允许这类");
   assert.equal(session?.value["approval"], "call-1");
   assert.equal(session?.value["ok"], true);
   assert.equal(session?.value["session"], true);
   assert.equal(session?.value["key"], "rm");
+  assert.equal(session?.value["all"], undefined);
+  // The blanket button carries `all`: the handler stores "*" for the conversation
+  // and the class key is only there because the card is built from one.
+  const blanket = buttons.find((button) => button.text.content === "本会话全部允许");
+  assert.equal(blanket?.value["approval"], "call-1");
+  assert.equal(blanket?.value["ok"], true);
+  assert.equal(blanket?.value["session"], true);
+  assert.equal(blanket?.value["all"], true);
 });
 
 test("a call with no grantable class keeps the two buttons", () => {
