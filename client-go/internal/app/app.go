@@ -328,6 +328,7 @@ const (
 	evTaskDetail
 	evTaskLog
 	evTaskStop
+	evTaskReschedule
 	evUsage
 	// A file's text, for the preview beside a patch.
 	evFile
@@ -373,6 +374,9 @@ type event struct {
 	// and what came back.
 	taskID int
 	task   *api.TaskDetail
+	// newID is the task a reschedule created: the bridge replaces a sleeping
+	// routine rather than moving its deadline.
+	newID int
 	// stages is the task's step list, fetched separately because it is read from
 	// the store rather than from the task's own record.
 	stages []api.TaskLogStage
@@ -741,6 +745,8 @@ func (a *App) apply(ev event) {
 		a.applyTaskLog(ev.taskID, ev.seq, ev.stages, ev.err)
 	case evTaskStop:
 		a.applyTaskStop(ev.taskID, ev.seq, ev.err)
+	case evTaskReschedule:
+		a.applyTaskReschedule(ev.taskID, ev.seq, ev.newID, ev.err)
 	case evUsage:
 		a.applyUsage(ev.seq, ev.usage, ev.err)
 	case evZoom:

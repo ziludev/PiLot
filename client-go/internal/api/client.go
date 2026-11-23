@@ -582,6 +582,20 @@ func (c *Client) CancelTask(ctx context.Context, id int) error {
 	}{ID: id}, nil)
 }
 
+// RescheduleTask moves a routine to a new schedule. A sleeping task's deadline
+// belongs to the sleep it is in, so the bridge replaces the task and answers
+// with the id of the one that now carries the schedule; the old id is dead.
+func (c *Client) RescheduleTask(ctx context.Context, id int, schedule string) (int, error) {
+	var reply struct {
+		ID int `json:"id"`
+	}
+	err := c.post(ctx, "/api/task/reschedule", struct {
+		ID       int    `json:"id"`
+		Schedule string `json:"schedule"`
+	}{ID: id, Schedule: schedule}, &reply)
+	return reply.ID, err
+}
+
 // UsageDay is one day of spend, oldest first in the calendar.
 type UsageDay struct {
 	Date   string  `json:"date"`

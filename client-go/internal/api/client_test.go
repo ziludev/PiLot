@@ -443,3 +443,21 @@ func TestConversationBeforePagesBackwards(t *testing.T) {
 		t.Fatalf("path %s", got.path)
 	}
 }
+
+func TestRescheduleTaskPostsTheLine(t *testing.T) {
+	var got capture
+	client := serve(t, `{"ok":true,"id":12}`, &got)
+	id, err := client.RescheduleTask(context.Background(), 7, "weekly mon 08:30")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.method != http.MethodPost || got.path != "/api/task/reschedule" {
+		t.Fatalf("got %s %s", got.method, got.path)
+	}
+	if got.body["schedule"] != "weekly mon 08:30" {
+		t.Fatalf("body %v", got.body)
+	}
+	if id != 12 {
+		t.Fatalf("the replacement's id is %d", id)
+	}
+}

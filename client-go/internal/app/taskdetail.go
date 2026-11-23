@@ -11,6 +11,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -45,6 +46,14 @@ type taskDetailPanel struct {
 	// read as one line or as what it was told and what it answered; the row
 	// above is the index, this is the evidence.
 	stepOpen map[int]bool
+	// A routine's schedule, being read or being typed: editing swaps the
+	// dialog's buttons for one field and keeps the list behind it untouched.
+	// saving is the replace in flight, saveErr what the bridge said about the
+	// last attempt.
+	editing  bool
+	schedule string
+	saving   bool
+	saveErr  string
 	// scroll is the body's offset, kept across frames so the dialog stays where
 	// the reader left it while the task's log streams in.
 	scroll ui.ScrollState
@@ -153,6 +162,115 @@ func (a *App) applyTaskStop(id, seq int, err error) {
 // content the dialog is trying to shrink.
 const taskDialogMaxHeight = 700
 
+// canReschedule is whether this task has a clock to move: only a routine keeps
+// one, and only while it is asleep. A round in flight is already deciding what
+// it says, so its schedule waits for the next sleep.
+func (a *App) canReschedule() bool {
+	task := a.detail.task
+	if task == nil || task.Kind != "app.routine" || a.detail.saving {
+		return false
+	}
+	switch task.Status {
+	case "sleeping", "waiting", "pending":
+		return true
+	}
+	return false
+}
+
+// scheduleText reads a routine's schedule back as the line a person wrote, so
+// the field opens on what is running instead of empty. An unknown shape shows
+// nothing rather than a guess that would be saved over the real one.
+func scheduleText(input json.RawMessage) string {
+	var raw struct {
+		Schedule struct {
+			Kind    string `json:"kind"`
+			At      int    `json:"at"`
+			Weekday int    `json:"weekday"`
+			EveryMs int64  `json:"everyMs"`
+		} `json:"schedule"`
+	}
+	if len(input) == 0 || json.Unmarshal(input, &raw) != nil {
+		return ""
+	}
+	schedule := raw.Schedule
+	clock := fmt.Sprintf("%02d:%02d", schedule.At/60, schedule.At%60)
+	switch schedule.Kind {
+	case "daily", "weekdays":
+		return schedule.Kind + " " + clock
+	case "weekly":
+		days := []string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}
+		if schedule.Weekday >= 0 && schedule.Weekday < len(days) {
+			return "weekly " + days[schedule.Weekday] + " " + clock
+		}
+	case "every":
+		switch {
+		case schedule.EveryMs >= 86_400_000 && schedule.EveryMs%86_400_000 == 0:
+			return "every " + itoa(int(schedule.EveryMs/86_400_000)) + "d"
+		case schedule.EveryMs >= 3_600_000 && schedule.EveryMs%3_600_000 == 0:
+			return "every " + itoa(int(schedule.EveryMs/3_600_000)) + "h"
+		case schedule.EveryMs >= 60_000:
+			return "every " + itoa(int(schedule.EveryMs/60_000)) + "m"
+		}
+	}
+	return ""
+}
+
+// startReschedule opens the field on the schedule that is running now.
+func (a *App) startReschedule() {
+	task := a.detail.task
+	if task == nil {
+		return
+	}
+	a.detail.editing = true
+	a.detail.schedule = scheduleText(task.Input)
+	a.detail.saveErr = ""
+	a.invalidate()
+}
+
+// submitReschedule hands the typed line to the bridge, which replaces the
+// sleeping task: a deadline belongs to the sleep it is in, so moving it means
+// a new task with the same text and the same chat.
+func (a *App) submitReschedule() {
+	task := a.detail.task
+	if task == nil || a.detail.saving {
+		return
+	}
+	line := strings.TrimSpace(a.detail.schedule)
+	if line == "" {
+		a.detail.saveErr = i18n.T("taskScheduleEmpty")
+		a.invalidate()
+		return
+	}
+	a.detail.saving = true
+	seq := a.detail.seq
+	go func() {
+		ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
+		defer cancel()
+		id, err := a.api.RescheduleTask(ctx, task.ID, line)
+		a.post(event{kind: evTaskReschedule, taskID: task.ID, seq: seq, newID: id, err: err})
+	}()
+	a.invalidate()
+}
+
+// applyTaskReschedule turns the dialog onto the task that now owns the clock.
+// The old id is dead the moment the bridge aborted it, so staying on it would
+// show a schedule nobody is keeping.
+func (a *App) applyTaskReschedule(id, seq, newID int, err error) {
+	if a.detail.id != id || a.detail.seq != seq {
+		return
+	}
+	a.detail.saving = false
+	if err != nil {
+		a.detail.saveErr = err.Error()
+		a.invalidate()
+		return
+	}
+	a.post(event{kind: evNotice, notice: i18n.T("taskRescheduled")})
+	a.detail = taskDetailPanel{open: true, id: newID, seq: seq + 1, busy: true}
+	a.loadTaskDetail(newID)
+	a.invalidate()
+}
+
 // taskDetailDialog draws the task the rail's list opened.
 func (a *App) taskDetailDialog(c *ui.Context, t theme.Tokens) {
 	if !a.detail.open {
@@ -192,20 +310,46 @@ func (a *App) taskDetailDialog(c *ui.Context, t theme.Tokens) {
 			// Stopping is the one thing here that cannot be undone, so it does not sit
 			// eight points from the button every hand reaches for: it takes the far
 			// end of the row, and close keeps the near one.
-			justify := ui.End
-			if a.canStop() {
-				justify = ui.SpaceBetween
-			}
-			ui.Row(c).FillWidth().Justify(justify).Gap(8).Children(func() {
-				if a.canStop() {
-					a.dialogButton(c, t, i18n.T("taskStop"), false, func() {
-						a.stopTask(a.detail.id)
+			// A routine asleep on a clock is the one task whose setting a person can
+			// change from here, so it takes the far end beside stop. While the field
+			// is open it replaces the row: two buttons beside a text field is a form
+			// with no room for the text.
+			if a.detail.editing {
+				ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+					ui.TextInput(c, &a.detail.schedule).FillWidth().FontSize(11)
+					a.dialogButton(c, t, i18n.T("save"), true, func() {
+						a.submitReschedule()
 					})
-				}
-				a.dialogButton(c, t, i18n.T("close"), true, func() {
-					a.detail.open = false
+					a.dialogButton(c, t, i18n.T("cancel"), false, func() {
+						a.detail.editing = false
+						a.detail.saveErr = ""
+						a.invalidate()
+					})
 				})
-			})
+				if a.detail.saveErr != "" {
+					ui.Text(c, a.detail.saveErr).FontSize(10.5).TextColor(t.Destructive).MaxLines(3)
+				}
+			} else {
+				justify := ui.End
+				if a.canStop() || a.canReschedule() {
+					justify = ui.SpaceBetween
+				}
+				ui.Row(c).FillWidth().Justify(justify).Gap(8).Children(func() {
+					if a.canReschedule() {
+						a.dialogButton(c, t, i18n.T("taskReschedule"), false, func() {
+							a.startReschedule()
+						})
+					}
+					if a.canStop() {
+						a.dialogButton(c, t, i18n.T("taskStop"), false, func() {
+							a.stopTask(a.detail.id)
+						})
+					}
+					a.dialogButton(c, t, i18n.T("close"), true, func() {
+						a.detail.open = false
+					})
+				})
+			}
 		})
 	})
 }
@@ -265,6 +409,9 @@ func (a *App) taskFacts(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
 		}
 		if task.Until > 0 {
 			a.fact(c, t, i18n.T("taskNext"), unixTime(task.Until).Format("01-02 15:04"))
+		}
+		if line := scheduleText(task.Input); line != "" {
+			a.fact(c, t, i18n.T("taskSchedule"), line)
 		}
 		if task.Background {
 			a.fact(c, t, i18n.T("taskMode"), i18n.T("taskBackground"))

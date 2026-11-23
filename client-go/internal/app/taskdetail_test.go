@@ -404,3 +404,116 @@ func TestLongTaskInputIsAllThere(t *testing.T) {
 		t.Fatal("the dialog has no room to scroll, so its tail is unreachable")
 	}
 }
+
+// TestRescheduleReplacesTheRoutine: a routine's clock is the one setting the
+// dialog can change. The bridge replaces the sleeping task rather than moving
+// its deadline, so the dialog has to follow the id it gets back — staying on
+// the old one would show a schedule nobody is keeping.
+func TestRescheduleReplacesTheRoutine(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	tt := ui.NewTester(a.View, 1180, 820)
+
+	input := json.RawMessage(`{"schedule":{"kind":"daily","at":540},"text":"看红灯","surfaceId":"feishu:1","anchor":1}`)
+	detailWithLog(t, a, tt, api.TaskDetail{
+		ID: 7, Kind: "app.routine", ConversationID: 11, Status: "sleeping",
+		Until: time.Now().Add(6 * time.Hour).UnixMilli(), Title: "每天早上看红灯", Input: input,
+	}, nil)
+	tt.Frame()
+
+	// The schedule is stated, not just editable: "when" is the question a
+	// sleeping task is opened to answer.
+	if !tt.HasText("daily 09:00") {
+		t.Fatalf("the dialog does not say the schedule; drew %v", tt.Texts())
+	}
+	if err := tt.Click("改日程"); err != nil {
+		t.Fatalf("the change button was not clickable: %v", err)
+	}
+	tt.Frame()
+	if !a.detail.editing {
+		t.Fatal("clicking the button did not open the field")
+	}
+	if a.detail.schedule != "daily 09:00" {
+		t.Fatalf("the field opened on %q", a.detail.schedule)
+	}
+
+	posted := make(chan map[string]any, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/task/reschedule" {
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			posted <- body
+			_, _ = io.WriteString(w, `{"ok":true,"id":12}`)
+			return
+		}
+		_, _ = io.WriteString(w, "{}")
+	}))
+	t.Cleanup(server.Close)
+	a.api = api.New(server.URL, "")
+
+	a.detail.schedule = "weekly mon 08:30"
+	tt.Frame()
+	if err := tt.Click("保存"); err != nil {
+		t.Fatalf("the save button was not clickable: %v", err)
+	}
+	select {
+	case body := <-posted:
+		if body["schedule"] != "weekly mon 08:30" {
+			t.Fatalf("posted %v", body)
+		}
+		if id, _ := body["id"].(float64); id != 7 {
+			t.Fatalf("posted for task %v", body["id"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the save never reached the bridge")
+	}
+
+	a.applyTaskReschedule(7, a.detail.seq, 12, nil)
+	if !a.detail.open || a.detail.id != 12 {
+		t.Fatalf("the dialog stayed on %d", a.detail.id)
+	}
+	if a.detail.editing {
+		t.Fatal("the field stayed open after the swap")
+	}
+}
+
+// TestRescheduleIsOnlyForASleepingRoutine: a round in flight is already
+// deciding what it says, and a non-routine has no clock at all.
+func TestRescheduleIsOnlyForASleepingRoutine(t *testing.T) {
+	a := fixtureApp(t, false)
+	cases := []struct {
+		kind, status string
+		want         bool
+	}{
+		{"app.routine", "sleeping", true},
+		{"app.routine", "running", false},
+		{"app.routine", "terminal", false},
+		{"pi.generation", "sleeping", false},
+	}
+	for _, c := range cases {
+		a.detail = taskDetailPanel{open: true, id: 1, task: &api.TaskDetail{Kind: c.kind, Status: c.status}}
+		if got := a.canReschedule(); got != c.want {
+			t.Errorf("%s/%s: canReschedule = %v", c.kind, c.status, got)
+		}
+	}
+}
+
+// TestScheduleTextReadsBackWhatWasWritten: the field opens on the schedule
+// that is running, in the same words the routine tool takes.
+func TestScheduleTextReadsBackWhatWasWritten(t *testing.T) {
+	cases := []struct{ input, want string }{
+		{`{"schedule":{"kind":"daily","at":540}}`, "daily 09:00"},
+		{`{"schedule":{"kind":"weekdays","at":570}}`, "weekdays 09:30"},
+		{`{"schedule":{"kind":"weekly","weekday":1,"at":510}}`, "weekly mon 08:30"},
+		{`{"schedule":{"kind":"every","everyMs":21600000}}`, "every 6h"},
+		{`{"schedule":{"kind":"every","everyMs":1800000}}`, "every 30m"},
+		{`{"schedule":{"kind":"every","everyMs":172800000}}`, "every 2d"},
+		{`{"prompt":"no schedule here"}`, ""},
+		{``, ""},
+	}
+	for _, c := range cases {
+		if got := scheduleText(json.RawMessage(c.input)); got != c.want {
+			t.Errorf("%s → %q, want %q", c.input, got, c.want)
+		}
+	}
+}
