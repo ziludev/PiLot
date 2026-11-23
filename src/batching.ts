@@ -51,10 +51,10 @@ export function forgetReads(conversationId: number): void {
 /** The line appended to the result the model is about to read. */
 export function batchingHint(): string {
   return (
-    `\n\n（自动提醒，不是 alex 说的）刚才 ${READ_RUN} 次调用都是一次一个的只读查询。` +
-    "如果它们本来就不互相依赖——查不同的文件、不同的服务、不同的库表——下次把这几条放进同一条消息里一起发，" +
-    "能省掉中间的来回；搜代码用 project_search 一次给 200 条，比 grep 一遍一遍加参数快。" +
-    "真有先后依赖（读完这个才知道该读哪个）就照旧，别硬凑。"
+    `\n\n（自动提醒，不是 alex 说的）刚才 ${READ_RUN} 次只读调用是一条一条发的。` +
+    "**现在**就把这一轮剩下的只读查询合成一个请求一起发：同一条消息里放多个工具调用，别一条条等结果。" +
+    "查文件用 read、搜代码用 project_search（一次给 200 条），比反复 grep 快。" +
+    "只有前一条的答案决定了下一条该查什么，才保持一条条来——除此之外都是白等。"
   );
 }
 

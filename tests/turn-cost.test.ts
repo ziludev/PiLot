@@ -77,10 +77,10 @@ test("a write, or a different conversation, breaks the streak", () => {
 
 test("the hint asks for batching without demanding it", () => {
   const hint = batchingHint();
-  assert.match(hint, /一次一个/);
+  assert.match(hint, /一条一条/);
   assert.match(hint, /project_search/);
   // A genuine read-then-decide is not the thing being discouraged.
-  assert.match(hint, /先后依赖/);
+  assert.match(hint, /前一条的答案决定了下一条/);
 });
 
 test("a run's shape is counted from the entries it left, not from a clock", () => {

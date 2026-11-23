@@ -46,18 +46,45 @@ function cliEnv(): NodeJS.ProcessEnv {
   return { ...process.env, PATH: path };
 }
 
+/**
+ * The CLI writes its failure envelope to stdout and exits non-zero, so `execFile` throws with the
+ * command line and nothing else. Swallowing that gave the model 28 identical "Command failed: …"
+ * lines in two days — every one of them a real psql error ("column status does not exist") it could
+ * not see, so it guessed the SQL again. The reason is one field away; say it.
+ */
+export function cliFailure(stdout: string): string | undefined {
+  try {
+    const parsed = JSON.parse(stdout) as {
+      error?: { code?: string; message?: string; detail?: { stderr?: string } };
+    };
+    const error = parsed.error;
+    if (error === undefined) return undefined;
+    const stderr = (error.detail?.stderr ?? "").trim();
+    const head = error.message ?? (error.code === undefined ? "presence CLI 返回失败" : `${error.code}`);
+    return stderr.length === 0 ? head : `${head}：${stderr.split("\n").slice(0, 3).join(" ")}`;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Runs the presence CLI and returns its parsed `data` payload. */
 async function presence(args: string[]): Promise<Record<string, unknown>> {
   const cli = presenceCli();
   if (cli === undefined) throw new Error("找不到 presence CLI：设 PRESENCE_CLI，或放到 ~/work/presence-cli/dist/index.js");
   // process.execPath, not "node": the agent can be started with a node that is not on PATH.
-  const { stdout } = await run(process.execPath, [cli, ...args, "--json"], {
-    timeout: TIMEOUT_MS,
-    maxBuffer: 8 * 1024 * 1024,
-    env: cliEnv(),
-  });
+  let stdout: string;
+  try {
+    ({ stdout } = await run(process.execPath, [cli, ...args, "--json"], {
+      timeout: TIMEOUT_MS,
+      maxBuffer: 8 * 1024 * 1024,
+      env: cliEnv(),
+    }));
+  } catch (error) {
+    const reason = cliFailure(String((error as { stdout?: string }).stdout ?? ""));
+    throw new Error(reason ?? (error as Error).message);
+  }
   const parsed = JSON.parse(stdout) as { ok?: boolean; data?: Record<string, unknown>; error?: { message?: string } };
-  if (parsed.ok === false) throw new Error(parsed.error?.message ?? "presence CLI 返回失败");
+  if (parsed.ok === false) throw new Error(cliFailure(stdout) ?? "presence CLI 返回失败");
   return parsed.data ?? {};
 }
 
