@@ -16,6 +16,14 @@ import { notify, surfaceForConversation } from "./channel.ts";
 import { reportSurface, ChatPolicy, isIsolatedPolicy } from "./access.ts";import { getHarness } from "./runtime-ref.ts";
 import { log, logError } from "./log.ts";
 import { AGENT_TASKS, AGENT_TOOLS, setAgentBoundary } from "./agents.ts";
+import { config } from "./config.ts";
+import {
+  collectSnapshot,
+  gateStage,
+  renderGate,
+  type GateResult,
+  type GateStage,
+} from "./gate.ts";
 
 const ROLE_NAMES = Object.keys(ROLES) as RoleName[];
 /** How many times a stage is asked for the rest of its work before the pipeline gives up on it. */
@@ -24,7 +32,7 @@ const CHILD_MAP = "subagents:children";
 
 // 失败也带着子会话号：一轮没答出来的孩子，它的会话恰恰是最该被翻的。
 type SubagentResult =
-  | { ok: true; text: string; conversationId: number }
+  | { ok: true; text: string; conversationId: number; gate?: GateResult }
   | { ok: false; error: string; conversationId?: number };
 
 function isRole(value: unknown): value is RoleName {
@@ -54,6 +62,20 @@ async function configureChild(
     const doc = await tx.doc(ChatPolicy, id as never);
     doc.isolated = true;
   }
+}
+
+/**
+ * Where a stage actually writes. A task-owned child is configured without its own cwd, so the
+ * environment falls back to the workspace; ask the harness only to catch a child that was given one.
+ */
+async function stageCwdOf(id: ConversationId, context: Context): Promise<string> {
+  const harness = getHarness();
+  if (harness !== undefined) {
+    const full = await harness.conversation(id, context).catch(() => undefined);
+    const agent = full === undefined ? undefined : await full.agent(context).catch(() => undefined);
+    if (agent?.cwd !== undefined && agent.cwd.length > 0) return agent.cwd;
+  }
+  return config.workspace;
 }
 
 async function ensureChild(
@@ -89,6 +111,8 @@ async function runChild(
   key: string,
   role: RoleName,
   task: string,
+  /** Set only by the pipeline: a plain delegate has no artefact to check. */
+  gate?: GateStage,
 ): Promise<SubagentResult> {
   // 记住孩子是谁：后面每条失败路径都要把它报回去。
   let spawned: ConversationId | undefined;
@@ -97,6 +121,10 @@ async function runChild(
     spawned = conversationId;
     const child = await api.conversation(conversationId, context);
     if (child === undefined) return { ok: false, error: `子会话 ${conversationId} 丢失`, conversationId: conversationId as unknown as number };
+
+    // Snapshot before the stage writes anything: "did it change the tree" is unanswerable later.
+    const gateCwd = gate === undefined ? undefined : await stageCwdOf(conversationId, context);
+    const before = gateCwd === undefined ? undefined : await collectSnapshot(gateCwd);
 
     api.output(`→ ${role}（${ROLES[role].title}）开始…\n`);
     const submission = await child.submit(
@@ -109,10 +137,42 @@ async function runChild(
     }
     // The stage's own text, not just the last entry: a subagent that finishes with a tool call
     // would otherwise hand back only the line it wrote after that call.
-    const text = await api.commit((tx) => answerTextInTx(tx, conversationId, settled.answer as never, settled.entry), context);
+    let text = await api.commit((tx) => answerTextInTx(tx, conversationId, settled.answer as never, settled.entry), context);
+    let gateResult: GateResult | undefined;
+    if (gate !== undefined && gateCwd !== undefined && before !== undefined) {
+      const gated = await gateStage({
+        stage: gate,
+        cwd: gateCwd,
+        before,
+        text,
+        ask: async (message) => {
+          const again = await child.submit(
+            { type: "input", content: message, requestId: `subagent:${api.taskId}:${key}:gate` },
+            context,
+          );
+          const settledAgain = await again.wait(context);
+          if (settledAgain.status !== "done" || settledAgain.answer === undefined) return undefined;
+          return api.commit(
+            (tx) => answerTextInTx(tx, conversationId, settledAgain.answer as never, settledAgain.entry),
+            context,
+          );
+        },
+      });
+      text = gated.text;
+      gateResult = gated.result;
+      api.output(`${gateResult.ok ? "✔" : "❌"} ${gate.replace("feature-", "")} 脚本核验${gateResult.ok ? "通过" : "未通过"}\n`);
+      if (!gateResult.ok) {
+        log("subagent", `${role} failed the gate`, { key, lines: gateResult.lines });
+        return {
+          ok: false,
+          error: `${role} 没过脚本核验：\n${gateResult.lines.join("\n")}`,
+          conversationId: conversationId as unknown as number,
+        };
+      }
+    }
     log("subagent", `${role} answered`, { key, chars: text.length });
     api.output(`✔ ${role} 完成（${text.length} 字）\n`);
-    return { ok: true, text, conversationId: conversationId as unknown as number };
+    return { ok: true, text, conversationId: conversationId as unknown as number, gate: gateResult };
   } catch (error) {
     logError("subagent", `${role} failed`, error);
     return { ok: false, error: `${role}: ${(error as Error).message}`, conversationId: spawned as unknown as number };
@@ -210,7 +270,7 @@ type FeatureInput = {
   skipReview: boolean;
 };
 
-type StageKey = "feature-design" | "feature-implement" | "feature-test" | "feature-review";
+type StageKey = GateStage;
 
 /**
  * The same pipeline as the synchronous tool, but as a background durable task:
@@ -238,10 +298,13 @@ const FeatureTask = defineTask<FeatureInput, { phase: "run" }, string>({
       }
 
       const outputs: Record<string, string> = {};
+      const gates: Record<string, GateResult> = {};
       for (const stage of stages) {
         const done = await runtime.memo<string>(`stage:${stage.key}`, context);
         if (done !== undefined) {
           outputs[stage.key] = done;
+          const remembered = await runtime.memo<GateResult>(`gate:${stage.key}`, context);
+          if (remembered !== undefined) gates[stage.key] = remembered;
           continue;
         }
         const result = await runStage(runtime, task, context, stage.key, stage.role, stage.title, outputs, task.input.spec);
@@ -256,9 +319,13 @@ const FeatureTask = defineTask<FeatureInput, { phase: "run" }, string>({
           return;
         }
         outputs[stage.key] = result.text;
+        if (result.gate !== undefined) {
+          gates[stage.key] = result.gate;
+          await runtime.memo(`gate:${stage.key}`, result.gate, context);
+        }
       }
 
-      const summary = buildSummary(task.input.spec, outputs, stages);
+      const summary = buildSummary(task.input.spec, outputs, stages, gates);
       await report(runtime, task, context, summary);
       await settle("app.feature", () =>
         runtime.commit(
@@ -283,7 +350,7 @@ async function runStage(
   title: string,
   previous: Record<string, string>,
   spec: string,
-): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; text: string; gate?: GateResult } | { ok: false; error: string }> {
   try {
     const existing = await runtime.memo<number>(`child:${key}`, context);
     let childId = existing;
@@ -309,6 +376,11 @@ async function runStage(
 
     const child = await runtime.conversation(childId as never, context);
     if (child === undefined) return { ok: false, error: `子会话 ${childId} 丢失` };
+
+    // The stage's own working directory, and the tree as it stood before the stage ran: the gate
+    // judges the changes this stage made, not everything that happens to be dirty in the repo.
+    const stageCwd = await stageCwdOf(childId as never, context);
+    const before = await collectSnapshot(stageCwd);
 
     const prompt = buildStagePrompt(key, spec, previous);
     const submission = await child.submit(
@@ -345,9 +417,38 @@ async function runStage(
       return undefined;
     }, context);
     if (text.length === 0) return { ok: false, error: `${role} 产出为空` };
+    // The report is not the verdict: a script looks at what actually landed, and a stage that
+    // missed an artefact gets one message to add it before the pipeline calls the work failed.
+    let gate: GateResult | undefined;
+    const gated = await gateStage({
+      stage: key,
+      cwd: stageCwd,
+      before,
+      text,
+      ask: async (message) => {
+        const again = await child.submit(
+          { type: "input", content: message, requestId: `feature:${String(task.id)}:${key}:gate` },
+          context,
+        );
+        const settledAgain = await again.wait(context);
+        if (settledAgain.status !== "done" || settledAgain.answer === undefined) return undefined;
+        let more = "";
+        await runtime.commit(async (tx) => {
+          more = await answerTextInTx(tx, childId as never, settledAgain.answer as never, settledAgain.entry);
+          return undefined;
+        }, context);
+        return more;
+      },
+    });
+    gate = gated.result;
+    text = gated.text;
+    if (!gate.ok) {
+      log("feature", `${role} failed the gate`, { key, lines: gate.lines });
+      return { ok: false, error: `${role} 没过脚本核验：\n${gate.lines.join("\n")}` };
+    }
     await runtime.memo(`stage:${key}`, text, context);
-    log("feature", `${role} done`, { key, chars: text.length });
-    return { ok: true, text };
+    log("feature", `${role} done`, { key, chars: text.length, gate: gate.ok });
+    return { ok: true, text, gate };
   } catch (error) {
     logError("feature", `${title} failed`, error);
     return { ok: false, error: `${role}: ${(error as Error).message}` };
@@ -380,14 +481,34 @@ export function cutAtLine(text: string, max: number): string {
   return `${kept}\n…（还有约 ${Math.round(left / 100) * 100} 字，完整版在客户端这一轮里）`;
 }
 
-function buildSummary(spec: string, outputs: Record<string, string>, stages: ReadonlyArray<{ key: string }>): string {
+function buildSummary(
+  spec: string,
+  outputs: Record<string, string>,
+  stages: ReadonlyArray<{ key: string }>,
+  gates: Record<string, GateResult>,
+): string {
   const body = stages
     .map((stage) => {
       const text = outputs[stage.key] ?? "";
       return `**${stage.key.replace("feature-", "")}**\n${text.slice(0, 900)}`;
     })
     .join("\n\n");
-  return `需求：${spec.slice(0, 200)}\n\n${body}`;
+  // Say which parts a script checked and which are only the stage's own claim: a report that reads
+  // the same whether or not the work was verified is how "做完了" stopped meaning anything.
+  const checked = stages.filter((stage) => gates[stage.key] !== undefined);
+  const soft = checked.flatMap((stage) => gates[stage.key]!.checks.filter((check) => !check.ok));
+  const block =
+    checked.length === 0
+      ? ""
+      : `**机器核验（脚本判定）**\n${checked
+          .map((stage) => {
+            const gate = gates[stage.key]!;
+            const name = stage.key.replace("feature-", "");
+            const flags = gate.checks.map((check) => `${check.ok ? "✅" : "⚠️"}${check.name}`).join(" " );
+            return `- ${name} ${gate.ok ? "✅" : "❌"} ${flags}`;
+          })
+          .join("\n")}\n其余结论来自各角色自述，未经脚本核验${soft.length === 0 ? "" : `；另有 ${soft.length} 项只有自述`}。\n\n`;
+  return `需求：${spec.slice(0, 200)}\n\n${block}${body}`;
 }
 
 async function report(
@@ -419,7 +540,7 @@ async function report(
 const buildFeature = defineTool({
   name: "build_feature",
   description:
-    "把需求跑完整流水线：designer 写设计文档 → implementer 实现自测 → tester 写测试 → reviewer 评审改动。background=\"1\" 时丢到后台跑，立即返回，完成后主动发消息（推荐，尤其是要几分钟的活）；否则同步等待结果。",
+    "把需求跑完整流水线：designer 写设计文档 → implementer 实现自测 → tester 写测试 → reviewer 评审改动。每个阶段结束都有脚本核验（设计文档真的落盘、代码真的有改动、测试文件真的有改动、评审提问题必须带 文件:行），核验不过先给该阶段一次补充机会，仍不过就把任务判失败并在报告里写清哪项没过。background=\"1\" 时丢到后台跑，立即返回，完成后主动发消息（推荐，尤其是要几分钟的活）；否则同步等待结果。",
   parameters: obj({
     spec: str({ description: "需求描述：要做什么、边界、验收标准" }),
     background: opt(str({ description: '传 "1" 后台跑（推荐）' })),
@@ -471,11 +592,12 @@ const buildFeature = defineTool({
       "feature-design",
       "designer",
       buildStagePrompt("feature-design", args.spec, {}),
+      "feature-design",
     );
     if (!design.ok) {
       return { output: [{ type: "text" as const, text: `设计阶段失败：${design.error}` }], isError: true };
     }
-    report.push(`【designer】\n${design.text}`);
+    report.push(`【designer】\n${design.text}${design.gate === undefined ? "" : `\n\n${renderGate(design.gate)}`}`);
 
     api.output("② implementer 实现…");
     const implementation = await runChild(
@@ -484,6 +606,7 @@ const buildFeature = defineTool({
       "feature-implement",
       "implementer",
       buildStagePrompt("feature-implement", args.spec, { "feature-design": design.text }),
+      "feature-implement",
     );
     if (!implementation.ok) {
       return {
@@ -491,7 +614,7 @@ const buildFeature = defineTool({
         isError: true,
       };
     }
-    report.push(`【implementer】\n${implementation.text}`);
+    report.push(`【implementer】\n${implementation.text}${implementation.gate === undefined ? "" : `\n\n${renderGate(implementation.gate)}`}`);
 
     let testText = "";
     if (args.skipTests !== "1") {
@@ -505,9 +628,10 @@ const buildFeature = defineTool({
           "feature-design": design.text,
           "feature-implement": implementation.text,
         }),
+        "feature-test",
       );
       testText = tests.ok ? tests.text : `失败：${tests.error}`;
-      report.push(`【tester】\n${testText}`);
+      report.push(`【tester】\n${testText}${tests.ok && tests.gate !== undefined ? `\n\n${renderGate(tests.gate)}` : ""}`);
     }
 
     if (args.skipReview !== "1") {
@@ -522,8 +646,13 @@ const buildFeature = defineTool({
           "feature-implement": implementation.text,
           "feature-test": testText,
         }),
+        "feature-review",
       );
-      report.push(review.ok ? `【reviewer】\n${review.text}` : `【reviewer】失败：${review.error}`);
+      report.push(
+        review.ok
+          ? `【reviewer】\n${review.text}${review.gate === undefined ? "" : `\n\n${renderGate(review.gate)}`}`
+          : `【reviewer】失败：${review.error}`,
+      );
     }
 
     return {
