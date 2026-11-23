@@ -23,6 +23,7 @@ import { ChatMemory, GlobalMemory, WorkMemory } from "./memory.ts";
 import { healthReport } from "./health.ts";
 import { topicTitle, type ThreadInfo } from "./threads.ts";
 import { TaskSpend } from "./spend.ts";
+import { Routine, parseSchedule } from "./routines.ts";
 import { taskTitle } from "./task-title.ts";
 
 /**
@@ -875,6 +876,39 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         await runtime.harness.abortTask(id as never, context);
         log("http", "task cancelled", { id });
         return send(res, 200, { ok: true });
+      }
+
+      if (req.method === "POST" && path === "/api/task/reschedule") {
+        // Moving a routine's clock replaces it: a sleeping task's deadline belongs to the sleep it is
+        // in, and the ledger has no way to rewrite one. The replacement keeps the text, the chat and
+        // the watch baseline, so the only thing that changes is when it fires next.
+        const body = await readJson(req);
+        const id = Number(body["id"]);
+        if (!Number.isFinite(id)) return send(res, 400, { error: "id required" });
+        const record = await runtime.harness.getTask(id as never, context);
+        if (record === undefined) return send(res, 404, { error: "no such task" });
+        if (record.kind !== "app.routine") return send(res, 400, { error: "only a routine has a schedule" });
+        const state = record.state as unknown as { status?: string; kind?: string };
+        const status = state.status ?? state.kind ?? "";
+        if (status !== "sleeping" && status !== "waiting" && status !== "pending") {
+          return send(res, 409, { error: "it is running — change the schedule after this round ends" });
+        }
+        const schedule = parseSchedule(String(body["schedule"] ?? ""));
+        if (typeof schedule === "string") return send(res, 400, { error: schedule });
+        const input = record.input as Record<string, unknown>;
+        const conversationId = record.conversationId;
+        await runtime.harness.abortTask(id as never, context);
+        const newId = await runtime.harness.commit(
+          (tx) =>
+            tx.createTask(Routine, { ...input, schedule, anchor: Date.now() } as never, {
+              ownership: { kind: "conversation" },
+              background: true,
+              conversationId,
+            }),
+          context,
+        );
+        log("http", "routine rescheduled", { from: id, to: String(newId) });
+        return send(res, 200, { ok: true, id: newId });
       }
 
       if (req.method === "GET" && path === "/api/access") {
