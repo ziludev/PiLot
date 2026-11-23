@@ -248,7 +248,10 @@ func lastLineText(text string) string {
 // Reasoning and ToolGroup apart: "4 步" should mean four calls.
 func (a *App) thinkingRow(c *ui.Context, t theme.Tokens, row threadRow) {
 	key := row.id
-	open := a.vm.folds[key]
+	open, seen := a.vm.folds[key]
+	if !seen {
+		open = row.newest
+	}
 	// In the answer's own column: a thought belongs to the message it led to,
 	// not to the middle of the page.
 	ui.Row(c).FillWidth().Padding(6, 0).Gap(9).AlignItems(ui.Start).Children(func() {
@@ -292,7 +295,10 @@ func (a *App) thinkingRow(c *ui.Context, t theme.Tokens, row threadRow) {
 // the message rather than as a caption under it.
 func (a *App) stepsRow(c *ui.Context, t theme.Tokens, row threadRow) {
 	key := row.id
-	open := a.vm.folds[key]
+	open, seen := a.vm.folds[key]
+	if !seen {
+		open = row.newest
+	}
 	ui.Row(c).FillWidth().Padding(6, 0).Gap(9).AlignItems(ui.Start).Children(func() {
 		ui.Box(c).Width(avatarSize)
 		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
@@ -400,8 +406,10 @@ func (a *App) stepLines(c *ui.Context, t theme.Tokens, steps []step) {
 				if !s.thinking {
 					a.stepsStatusIcon(c, t, []step{s})
 				}
+				// The tool's name is the one dark thing on the line: at a
+				// glance the reader wants which tool, then what it was given.
 				ui.Text(c, s.label).FontSize(10.5).FontWeight(500).
-					TextColor(t.MutedFg).MaxLines(1).MaxWidth(160)
+					TextColor(t.Foreground).MaxLines(1).MaxWidth(160)
 				lines := 1
 				if s.thinking {
 					lines = 2

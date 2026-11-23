@@ -484,6 +484,10 @@ type threadRow struct {
 	liveHint string
 	span     time.Duration
 	noSpan   bool
+	// newest marks the run of the latest turn. It opens by default: after a
+	// turn ends, the tools it used are the thing worth reading without a
+	// click, while the runs above it stay folded away.
+	newest bool
 }
 
 // foldKey addresses one turn's disclosure state.
@@ -637,6 +641,12 @@ func projectEntries(conversationID int, entries []protocol.Entry) ([]threadRow, 
 		span, ok := stepsSpan(rows[idx].steps)
 		rows[idx].span = span
 		rows[idx].noSpan = !ok
+	}
+	for i := len(rows) - 1; i >= 0; i-- {
+		if rows[i].kind == rowSteps {
+			rows[i].newest = true
+			break
+		}
 	}
 	return rows, turns
 }

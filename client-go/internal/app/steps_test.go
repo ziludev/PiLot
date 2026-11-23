@@ -226,3 +226,44 @@ func TestSingleKeyArgumentsStayOnTheHeader(t *testing.T) {
 		t.Fatalf("a single-key call was given an arguments block; drew %v", tt.Texts())
 	}
 }
+
+// TestTheNewestRunOpensByItself: without a click, the run of the latest turn
+// shows the tools it used, while the run above it stays folded — so what the
+// agent just did is readable and the history stays short.
+func TestTheNewestRunOpensByItself(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	now := time.Now().Add(-time.Minute)
+	a.thread(11).upsert(entryJSON(t, 700, "pi.user", now,
+		`[{"role":"user","content":"check the build","timestamp":__ts}]`))
+	a.thread(11).upsert(entryJSON(t, 701, "pi.assistant", now.Add(time.Second),
+		`[{"role":"assistant","content":[{"type":"toolCall","name":"bash","arguments":{"command":"echo old"}}],"timestamp":__ts}]`))
+	a.thread(11).upsert(entryJSON(t, 702, "pi.user", now.Add(2*time.Second),
+		`[{"role":"user","content":"and again","timestamp":__ts}]`))
+	a.thread(11).upsert(entryJSON(t, 703, "pi.assistant", now.Add(3*time.Second),
+		`[{"role":"assistant","content":[{"type":"toolCall","name":"bash","arguments":{"command":"echo newest"}}],"timestamp":__ts}]`))
+
+	var newest threadRow
+	for _, row := range a.threadRows(11) {
+		if row.kind == rowSteps {
+			newest = row
+		}
+	}
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	if !tt.HasText("echo newest") {
+		t.Fatalf("the newest run did not open on itself; drew %v", tt.Texts())
+	}
+	if tt.HasText("echo old") {
+		t.Fatalf("the run above the newest one opened without a click; drew %v", tt.Texts())
+	}
+
+	// A fold the reader makes is theirs: the newest run folded by hand stays
+	// folded, even though it is the newest.
+	a.vm.folds[newest.id] = false
+	tt.Frame()
+	if tt.HasText("echo newest") {
+		t.Fatalf("the run reopened after the reader folded it; drew %v", tt.Texts())
+	}
+}
