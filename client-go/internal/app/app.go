@@ -854,7 +854,7 @@ func (a *App) remember(convID int) {
 		return
 	}
 	a.prefs.Seen[key] = a.vm.seen[convID]
-	go savePrefs(a.prefs)
+	savePrefs(a.prefs)
 }
 
 // noteSeen records that the user has had this entry on screen. Only the open

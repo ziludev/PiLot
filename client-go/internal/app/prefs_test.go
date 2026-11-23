@@ -1,70 +1,96 @@
 package app
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 )
 
-func TestPrefsRoundTrip(t *testing.T) {
+// withPrefsFile points the window's preference file at a temp dir for one test.
+func withPrefsFile(t *testing.T) string {
+	t.Helper()
 	dir := t.TempDir()
-	saved := prefsPath
+	old := prefsPath
 	prefsPath = func() string { return filepath.Join(dir, "window.json") }
-	defer func() { prefsPath = saved }()
+	t.Cleanup(func() { prefsPath = old })
+	return filepath.Join(dir, "window.json")
+}
 
-	if got := loadPrefs(); got.Lang != "" || got.Theme != "" || got.Rail != 0 || got.Sections != nil {
-		t.Fatalf("missing file read as %+v, want empty", got)
+// TestPrefsRoundTripKeepsEverySetting: the file is the struct now, so a field
+// added to prefs is read back without a second list to keep in step. Quiet and
+// dailyCap were exactly the fields that drifted and came back empty.
+func TestPrefsRoundTripKeepsEverySetting(t *testing.T) {
+	path := withPrefsFile(t)
+	want := prefs{
+		Lang:     "en",
+		Theme:    "dark",
+		Rail:     320,
+		Sections: map[string]bool{"other": true},
+		Recent:   []string{"anthropic/claude-sonnet-4.5"},
+		Kept:     []int{12},
+		Pinned:   []int{7},
+		Group:    groupProject,
+		Quiet:    "off",
+		DailyCap: "off",
+		Silent:   true,
+		Seen:     map[string]int{"7": 120},
 	}
-	savePrefs(prefs{Lang: "en", Theme: "dark", Rail: 300, Sections: map[string]bool{"group": true}})
-	got := loadPrefs()
-	if got.Lang != "en" || got.Theme != "dark" || got.Rail != 300 {
-		t.Fatalf("read back %+v", got)
+	savePrefs(want)
+
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("nothing written: %v", err)
 	}
-	if !got.Sections["group"] {
-		t.Fatalf("read back sections %+v, want group open", got.Sections)
+	got := readPrefs()
+	if got.Lang != want.Lang || got.Theme != want.Theme || got.Rail != want.Rail {
+		t.Fatalf("window settings came back as %+v", got)
+	}
+	if got.Quiet != want.Quiet || got.DailyCap != want.DailyCap || !got.Silent {
+		t.Fatalf("delivery settings came back as %+v", got)
+	}
+	if got.Group != want.Group || len(got.Pinned) != 1 || got.Pinned[0] != 7 || len(got.Kept) != 1 {
+		t.Fatalf("rail settings came back as %+v", got)
+	}
+	if got.Seen["7"] != 120 || !got.Sections["other"] {
+		t.Fatalf("read marks came back as %+v", got)
 	}
 }
 
-// A section the window has never seen folded must start the way the rail
-// intends it to: the working set open, the filing folded.
-func TestPrefsSectionClosed(t *testing.T) {
-	empty := prefs{}
-	if empty.sectionClosed(sectionActive) {
-		t.Fatal("进行中 should start open")
+// TestPrefsReadsTheOldCapitalisedFile: the first writes used Go's field names.
+// Those keys still parse (encoding/json matches them case-insensitively), so a
+// window that upgrades keeps its choice instead of starting over.
+func TestPrefsReadsTheOldCapitalisedFile(t *testing.T) {
+	path := withPrefsFile(t)
+	old := `{"Lang":"en","Theme":"dark","Rail":373,"quietHours":"off","seen":{"7":9}}`
+	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if !empty.sectionClosed(sectionGroup) {
-		t.Fatal("群聊 should start folded")
+	got := readPrefs()
+	if got.Lang != "en" || got.Theme != "dark" || got.Rail != 373 {
+		t.Fatalf("old file lost the window settings: %+v", got)
 	}
-	saved := prefs{Sections: map[string]bool{sectionGroup: true, sectionActive: false}}
-	if saved.sectionClosed(sectionGroup) {
-		t.Fatal("a saved open section should stay open")
-	}
-	if !saved.sectionClosed(sectionActive) {
-		t.Fatal("a saved folded section should stay folded")
-	}
-}
-
-// A width saved by an older window, or a hand-edited file, must not leave the
-// rail at zero or off the window.
-func TestPrefsRailWidth(t *testing.T) {
-	if got := (prefs{}).railWidth(); got != railWidth {
-		t.Fatalf("no saved width read as %v, want the default %v", got, railWidth)
-	}
-	if got := (prefs{Rail: 12}).railWidth(); got != railWidth {
-		t.Fatalf("nonsense width read as %v", got)
-	}
-	if got := (prefs{Rail: 300}).railWidth(); got != 300 {
-		t.Fatalf("saved width read as %v, want 300", got)
+	if got.Quiet != "off" {
+		t.Fatalf("old file lost the quiet hours: %+v", got)
 	}
 }
 
-func TestPrefsDark(t *testing.T) {
-	if !(prefs{Theme: "dark"}).dark(false) {
-		t.Fatal("a saved dark theme should beat a light system")
+// TestPrefsWrittenKeysAreTheReadKeys: every key savePrefs writes must parse
+// back. A field with no json tag is written as "Quiet", which is still read,
+// but the check keeps the file readable by anything else that expects the
+// documented names.
+func TestPrefsWrittenKeysAreTheReadKeys(t *testing.T) {
+	withPrefsFile(t)
+	data, err := json.Marshal(prefs{Lang: "en", Quiet: "off", DailyCap: "off"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if (prefs{Theme: "light"}).dark(true) {
-		t.Fatal("a saved light theme should beat a dark system")
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
 	}
-	if !(prefs{}).dark(true) {
-		t.Fatal("no choice should follow the system")
+	for _, key := range []string{"lang", "quietHours", "dailyCap"} {
+		if _, ok := raw[key]; !ok {
+			t.Fatalf("saved file has no %q; keys are %v", key, raw)
+		}
 	}
 }

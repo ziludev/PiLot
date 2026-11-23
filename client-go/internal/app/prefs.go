@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"pitta/internal/i18n"
 )
@@ -15,9 +16,9 @@ import (
 // the language and the theme have no dialog here, so they need somewhere to live
 // between launches.
 type prefs struct {
-	Lang  string
-	Theme string // "dark", "light", or "" to follow macOS
-	Rail  int    // the rail's width in points; 0 for the default
+	Lang  string `json:"lang,omitempty"`
+	Theme string `json:"theme,omitempty"` // "dark", "light", or "" to follow macOS
+	Rail  int    `json:"rail,omitempty"`  // the rail's width in points; 0 for the default
 	// Sections is which chat sections the user has opened, by key. Absent means
 	// the section's default, so a section added later gets a sane first run.
 	Sections map[string]bool `json:"sections"`
@@ -75,25 +76,14 @@ func readPrefs() prefs {
 		}
 		return prefs{}
 	}
-	var p struct {
-		Lang     string          `json:"lang"`
-		Theme    string          `json:"theme"`
-		Rail     int             `json:"rail"`
-		Sections map[string]bool `json:"sections"`
-		Recent   []string        `json:"recentModels"`
-		Kept     []int           `json:"keptChats"`
-		Pinned   []int           `json:"pinnedChats"`
-		Group    string          `json:"railGroup"`
-		Silent   bool            `json:"silent"`
-		Seen     map[string]int  `json:"seen"`
-	}
+	// The file is the struct: a hand-written copy of the field list is how
+	// quietHours and dailyCap were saved but never read back.
+	var p prefs
 	if err := json.Unmarshal(data, &p); err != nil {
 		log.Printf("prefs: parse %s: %v", path, err)
 		return prefs{}
 	}
-	return prefs{Lang: p.Lang, Theme: p.Theme, Rail: p.Rail, Sections: p.Sections,
-		Recent: p.Recent, Kept: p.Kept, Pinned: p.Pinned, Group: p.Group,
-		Silent: p.Silent, Seen: p.Seen}
+	return p
 }
 
 // loadPrefs reads the two settings this window keeps.
@@ -236,8 +226,16 @@ func (p prefs) dark(systemDark bool) bool {
 	return systemDark
 }
 
-// savePrefs writes them back, whole-file: the file is this window's own.
+// prefsMu serialises writes. Two saves can overlap when one lands while
+// another is still renaming the temp file, and the loser's write is gone.
+var prefsMu sync.Mutex
+
+// savePrefs writes them back, whole-file: the file is this window's own. It is
+// called on the frame thread, not in a goroutine: a save that is still queued
+// when the window closes is a setting the next launch never sees.
 func savePrefs(p prefs) {
+	prefsMu.Lock()
+	defer prefsMu.Unlock()
 	path := prefsPath()
 	if path == "" {
 		return

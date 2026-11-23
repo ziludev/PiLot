@@ -271,7 +271,7 @@ func (a *App) setLang(lang i18n.Lang) {
 	i18n.Set(lang)
 	a.prefs.Lang = string(lang)
 	a.stamp++
-	go savePrefs(a.prefs)
+	savePrefs(a.prefs)
 	a.invalidate()
 }
 
@@ -283,7 +283,7 @@ func (a *App) setTheme(mode string) {
 		return
 	}
 	a.prefs.Theme = mode
-	go savePrefs(a.prefs)
+	savePrefs(a.prefs)
 	a.invalidate()
 }
 
@@ -294,7 +294,7 @@ func (a *App) setSilent(silent bool) {
 		return
 	}
 	a.prefs.Silent = silent
-	go savePrefs(a.prefs)
+	savePrefs(a.prefs)
 	a.invalidate()
 }
 
@@ -312,7 +312,7 @@ func (a *App) setQuiet(on bool) {
 	day, spent := a.delivery.day, a.delivery.spent
 	a.delivery = deliveryFor(a.prefs, a.delivery.now)
 	a.delivery.day, a.delivery.spent = day, spent
-	go savePrefs(a.prefs)
+	savePrefs(a.prefs)
 	a.invalidate()
 }
 
@@ -331,7 +331,7 @@ func (a *App) setCap(on bool) {
 	day, spent := a.delivery.day, a.delivery.spent
 	a.delivery = deliveryFor(a.prefs, a.delivery.now)
 	a.delivery.day, a.delivery.spent = day, spent
-	go savePrefs(a.prefs)
+	savePrefs(a.prefs)
 	a.invalidate()
 }
 
@@ -342,7 +342,7 @@ func (a *App) setRailGroup(group string) {
 		return
 	}
 	a.prefs.Group = group
-	go savePrefs(a.prefs)
+	savePrefs(a.prefs)
 	a.invalidate()
 }
 
