@@ -497,7 +497,22 @@ export function cutAtLine(text: string, max: number): string {
   return `${kept}\n…（还有约 ${Math.round(left / 100) * 100} 字，完整版在客户端这一轮里）`;
 }
 
-function buildSummary(
+/** The design's "需要拍板" section, lifted to the top of the report: a decision buried on page 4 is a decision nobody makes. */
+export function decisionsFrom(design: string): string {
+  const lines = design.split("\n");
+  const start = lines.findIndex((line) => line.includes("需要拍板"));
+  if (start === -1) return "";
+  const body: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^#{1,6}\s/.test(line)) break;
+    if (line.includes("需要拍板")) continue;
+    body.push(line);
+  }
+  const text = body.join("\n").trim();
+  return /^(无|没有|none)\.?$/i.test(text) ? "" : text;
+}
+
+export function buildSummary(
   spec: string,
   outputs: Record<string, string>,
   stages: ReadonlyArray<{ key: string }>,
@@ -525,7 +540,9 @@ function buildSummary(
             return `- ${name} ${gate.ok ? "✅" : "❌"} ${flags}${seconds}`;
           })
           .join("\n")}\n其余结论来自各角色自述，未经脚本核验${soft.length === 0 ? "" : `；另有 ${soft.length} 项只有自述`}。\n\n`;
-  return `需求：${spec.slice(0, 200)}\n\n${block}${body}`;
+  const decisions = decisionsFrom(outputs["feature-design"] ?? "");
+  const ask = decisions.length === 0 ? "" : `**要你拍板**\n${decisions}\n\n`;
+  return `需求：${spec.slice(0, 200)}\n\n${ask}${block}${body}`;
 }
 
 async function report(

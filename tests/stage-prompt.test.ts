@@ -32,3 +32,24 @@ test("the other stages still see the work they build on", () => {
   });
   assert.match(tester, /改了 src\/login\.ts/);
 });
+
+test("a decision buried in the design is lifted to the top of the report", async () => {
+  const { buildSummary } = await import("../src/subagents.ts");
+  const summary = buildSummary(
+    "加限流",
+    {
+      "feature-design": "## 目标\n做限流\n\n## 需要拍板\n- 限流阈值：60/min 还是 120/min？建议 60。\n- 要不要同时改网关：建议先不动。\n\n## 方案\n令牌桶",
+    },
+    [{ key: "feature-design" }],
+    {},
+  );
+  assert.match(summary, /要你拍板/);
+  assert.match(summary, /60\/min/);
+  assert.ok(summary.indexOf("要你拍板") < summary.indexOf("需求：加限流") + 40, "拍板在最上面");
+});
+
+test("a design that says nothing needs a decision adds no empty block", async () => {
+  const { buildSummary } = await import("../src/subagents.ts");
+  const summary = buildSummary("加限流", { "feature-design": "## 需要拍板\n无\n\n## 方案\n令牌桶" }, [], {});
+  assert.doesNotMatch(summary, /要你拍板/);
+});
