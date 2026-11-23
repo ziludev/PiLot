@@ -84,7 +84,7 @@ func (a *App) abort() {
 // decide answers one pending approval. The protocol addresses a decision by
 // call id alone; approvals are global, not tied to the chat on screen.
 func (a *App) decide(callID string, approved bool) {
-	a.decideWith(callID, approved, false)
+	a.decideWith(callID, approved, false, false)
 }
 
 // decideSession allows the call and every later one of its risk class for the
@@ -92,10 +92,17 @@ func (a *App) decide(callID string, approved bool) {
 // grantKey; a call without one has no class to remember, so the card does not
 // offer this answer for it.
 func (a *App) decideSession(callID string) {
-	a.decideWith(callID, true, true)
+	a.decideWith(callID, true, true, false)
 }
 
-func (a *App) decideWith(callID string, approved, session bool) {
+// decideSessionAll answers "yes, and stop asking anything else in this chat".
+// The bridge keeps the blanket grant per conversation but still asks for the
+// classes that destroy data (sudo, rm -rf, piping a download into a shell).
+func (a *App) decideSessionAll(callID string) {
+	a.decideWith(callID, true, false, true)
+}
+
+func (a *App) decideWith(callID string, approved, session, all bool) {
 	if callID == "" || a.busy[callID] {
 		return
 	}
@@ -103,7 +110,7 @@ func (a *App) decideWith(callID string, approved, session bool) {
 	go func() {
 		ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 		defer cancel()
-		err := a.api.DecideApproval(ctx, api.ApprovalDecision{CallID: callID, Approved: approved, Session: session})
+		err := a.api.DecideApproval(ctx, api.ApprovalDecision{CallID: callID, Approved: approved, Session: session, All: all})
 		if err != nil {
 			a.post(event{kind: evNotice, notice: i18n.T("approvalFailed") + " · " + err.Error()})
 		}

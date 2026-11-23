@@ -78,7 +78,8 @@ var zh = map[string]string{
 
 	"approvalTitle":   "需要批准：{tool}",
 	"allow":           "允许",
-	"allowSession":    "本会话允许",
+	"allowSession":    "本会话允许这类",
+	"allowSessionAll": "本会话全部允许",
 	"usageTurns":      "{n} 轮对话的花费",
 	"runningNow":      "进行中",
 	"deny":            "拒绝",
@@ -384,7 +385,8 @@ var en = map[string]string{
 
 	"approvalTitle":   "Approval needed: {tool}",
 	"allow":           "Allow",
-	"allowSession":    "Allow in this chat",
+	"allowSession":    "Allow this kind",
+	"allowSessionAll": "Allow all in this chat",
 	"usageTurns":      "Spend over {n} turns",
 	"runningNow":      "Running",
 	"deny":            "Deny",

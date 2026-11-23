@@ -236,7 +236,8 @@ func (a *App) approvalCard(c *ui.Context, t theme.Tokens, approval protocol.Pend
 			ui.Row(c).FillWidth().Justify(ui.End).Gap(6).Children(func() {
 				a.approvalButton(c, t, i18n.T("deny"), false, approval.CallID, false)
 				if approval.GrantKey != "" {
-					a.approvalSessionButton(c, t, approval.CallID)
+					a.approvalSessionButton(c, t, approval.CallID, i18n.T("allowSession"), a.decideSession)
+					a.approvalSessionButton(c, t, approval.CallID, i18n.T("allowSessionAll"), a.decideSessionAll)
 				}
 				a.approvalButton(c, t, i18n.T("allow"), true, approval.CallID, true)
 			})
@@ -245,16 +246,17 @@ func (a *App) approvalCard(c *ui.Context, t theme.Tokens, approval protocol.Pend
 	_ = card
 }
 
-// approvalSessionButton answers "yes, and stop asking for this kind of call in
-// this chat": the bridge keeps the grant per conversation and per risk class.
-func (a *App) approvalSessionButton(c *ui.Context, t theme.Tokens, callID string) {
+// approvalSessionButton answers "yes, and stop asking for a while": the bridge
+// keeps the grant per conversation, either for this risk class or, with `all`,
+// for every class that does not destroy data.
+func (a *App) approvalSessionButton(c *ui.Context, t theme.Tokens, callID, label string, decide func(string)) {
 	button := ui.ButtonBase(c).Height(26).Padding(0, 10).Radius(7).Justify(ui.Center).
 		AlignItems(ui.Center).Cursor(ui.CursorPointer).Border(1, t.Border).
-		Label(i18n.T("allowSession"))
+		Label(label)
 	button.Children(func() {
-		ui.Text(c, i18n.T("allowSession")).FontSize(11.5).TextColor(t.MutedFg)
+		ui.Text(c, label).FontSize(11.5).TextColor(t.MutedFg)
 	})
-	button.OnClick(func() { a.decideSession(callID) })
+	button.OnClick(func() { decide(callID) })
 }
 
 func (a *App) approvalButton(c *ui.Context, t theme.Tokens, label string, primary bool, callID string, approved bool) {

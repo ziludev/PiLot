@@ -296,6 +296,7 @@ type ApprovalDecision struct {
 	CallID   string `json:"callId"`
 	Approved bool   `json:"approved"`
 	Session  bool   `json:"session,omitempty"`
+	All      bool   `json:"all,omitempty"`
 }
 
 // DecideApproval approves or rejects a pending tool call.
