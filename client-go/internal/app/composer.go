@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/egoist/mygo/transfer"
@@ -33,8 +34,10 @@ func (a *App) composerCard(c *ui.Context, t theme.Tokens) {
 	if a.active != 0 {
 		a.prefs.setDraft(a.active, a.draft)
 	}
+	a.syncMentions()
 	card.Children(func() {
 		a.attachmentChips(c, t)
+		a.mentionList(c, t)
 		input := ui.TextAreaBase(c, &a.draft).FillWidth().Lines(1, 8).MinHeight(22).FontSize(12.5).
 			Placeholder(i18n.T("composerPlaceholder"))
 		if a.focusComposer {
@@ -51,6 +54,7 @@ func (a *App) composerCard(c *ui.Context, t theme.Tokens) {
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
 			a.attachButton(c, t)
 			a.modelChip(c, t)
+			a.usageChip(c, t)
 			if cue := a.composerCue(); cue == "" {
 				ui.Box(c).Grow(1)
 			} else {
@@ -64,6 +68,9 @@ func (a *App) composerCard(c *ui.Context, t theme.Tokens) {
 // composerKey takes Enter (send), Shift+Enter (newline, left to the input), and
 // the arrows that walk back through what was already said.
 func (a *App) composerKey(k ui.TextKey) bool {
+	if a.mentionKey(k) {
+		return true
+	}
 	switch {
 	case k.Key == ui.KeyEnter && k.Mods&ui.Shift == 0:
 		a.submit()
@@ -272,4 +279,25 @@ func approvalSummary(approval protocol.PendingApproval) string {
 		summary = strings.TrimSpace(summary + " · " + clip(oneLine(approval.Reason), 120))
 	}
 	return summary
+}
+
+// usageChip is the chat's running cost and spend, next to the model that is
+// spending it: the number a person checks before sending one more long prompt.
+func (a *App) usageChip(c *ui.Context, t theme.Tokens) {
+	th := a.threads[a.active]
+	if th == nil || th.usage == nil || th.usage.Turns == 0 {
+		return
+	}
+	ui.Text(c, compactCost(th.usage.Cost)+" · "+compactTokens(int64(th.usage.Tokens))+" tok").
+		FontSize(10.5).TextColor(t.MutedFg).MaxLines(1).
+		Tooltip(i18n.TF("usageTurns", map[string]any{"n": th.usage.Turns}))
+}
+
+// compactCost keeps the cents of a normal bill and a third digit while a chat
+// is still cheap enough that two decimals would read as zero.
+func compactCost(cost float64) string {
+	if cost < 0.1 {
+		return fmt.Sprintf("$%.3f", cost)
+	}
+	return fmt.Sprintf("$%.2f", cost)
 }

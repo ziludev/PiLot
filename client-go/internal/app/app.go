@@ -118,6 +118,8 @@ type App struct {
 
 	// repoFiles is what ⌘P lists: the checkout's paths, fetched when it opens.
 	repoFiles repoFiles
+	// mention is the @ popover in the composer.
+	mention mentionState
 
 	// search is the cross-chat search behind the filter box. Its hits belong to
 	// query, and seq retires the replies of queries the user has typed past.
@@ -187,6 +189,9 @@ type threadStore struct {
 	loaded  bool
 	failed  bool
 	version uint64
+	// usage is the chat's running total: what it has cost and spent, as the
+	// bridge last stated it on the page.
+	usage *protocol.Usage
 }
 
 // New builds the window state and starts the work that feeds it: a five-second
@@ -386,6 +391,7 @@ type pageResult struct {
 	// composer draws them, and this page is where the bridge states them.
 	model    *protocol.ModelRef
 	thinking string
+	usage    *protocol.Usage
 	err      error
 }
 
@@ -592,6 +598,7 @@ func (a *App) loadThread(convID int) {
 			result.entries = conversation.Entries
 			result.model = conversation.Model
 			result.thinking = conversation.ThinkingLevel
+			result.usage = conversation.Usage
 		}
 		a.post(event{kind: evThread, page: result})
 	}()
@@ -781,6 +788,7 @@ func (a *App) applyPage(result *pageResult) {
 	th.loaded = true
 	a.model = result.model
 	a.thinking = result.thinking
+	th.usage = result.usage
 	th.entries = result.entries
 	th.rev = make(map[int]uint64, len(result.entries))
 	for _, entry := range result.entries {

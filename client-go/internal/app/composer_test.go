@@ -311,3 +311,23 @@ func TestApprovalCardOffersSessionGrant(t *testing.T) {
 		t.Fatal("an approval without a grant key offered a session grant")
 	}
 }
+
+// TestComposerShowsChatSpend: the chat's running total sits beside the model
+// that is spending it, and a chat that has not answered yet shows nothing
+// rather than a row of zeroes.
+func TestComposerShowsChatSpend(t *testing.T) {
+	i18n.Set(i18n.EN)
+	a := fixtureApp(t, false)
+	a.active = 5
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	if tt.HasText("tok") {
+		t.Fatal("a chat with no turns drew a spend")
+	}
+	a.thread(5).usage = &protocol.Usage{Cost: 0.0423, Tokens: 12400, Turns: 3}
+	tt2 := ui.NewTester(a.View, 1180, 820)
+	tt2.Frame()
+	if !tt2.HasText("$0.042 · 12.4K tok") {
+		t.Fatalf("spend missing; drew %v", tt2.Texts())
+	}
+}
