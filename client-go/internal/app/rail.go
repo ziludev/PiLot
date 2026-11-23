@@ -308,7 +308,16 @@ func (a *App) railChatRow(c *ui.Context, t theme.Tokens, row railRow) {
 		if when := relTime(a.now, row.at); when != "" {
 			ui.Text(c, when).FontSize(9).TextColor(t.MutedFg)
 		}
-		if row.unread {
+		// One status per row, where the unread dot lives: a spinner while a turn
+		// is in flight, the dot once it has finished and nobody has read it.
+		// The bridge's health names every chat at work; the open chat is also
+		// known here from its own live document, which covers a bridge that
+		// predates the field.
+		switch {
+		case a.runningConvs[row.conv.ConversationID] ||
+			(row.conv.ConversationID == a.active && a.running()):
+			ui.Spinner(c).Size(10, 10).TextColor(t.Warning).Label(i18n.T("runningNow"))
+		case row.unread:
 			ui.Box(c).Size(5, 5).Radius(3).Background(t.Primary)
 		}
 		ui.Box(c).Size(14, 14).Children(func() {

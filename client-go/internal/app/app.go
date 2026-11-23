@@ -56,7 +56,11 @@ type App struct {
 	// queued is the bridge's queue split by conversation: the rail badges the
 	// chat a waiting message sits behind.
 	queued map[int]int
-	online bool
+	// runningConvs is the chats with a turn in flight, from the bridge's
+	// health: the rail marks them so a chat that is working does not look
+	// idle.
+	runningConvs map[int]bool
+	online       bool
 	// stamp changes whenever the rail's inputs change, so railRows can be cached.
 	stamp uint64
 
@@ -395,6 +399,7 @@ type snapshotResult struct {
 	tasks     []protocol.Task
 	pending   []protocol.PendingApproval
 	queued    map[int]int
+	running   map[int]bool
 	ok        bool
 	tasksOK   bool
 	pendingOK bool
@@ -504,6 +509,13 @@ func (a *App) requestRefresh() {
 					}
 				}
 				result.queued = queued
+				running := make(map[int]bool, len(health.RunningNow))
+				for id, on := range health.RunningNow {
+					if conversation, err := strconv.Atoi(id); err == nil && conversation > 0 && on {
+						running[conversation] = true
+					}
+				}
+				result.running = running
 			}
 		}()
 		wg.Wait()
@@ -766,6 +778,10 @@ func (a *App) applySnapshot(result *snapshotResult) {
 	}
 	if result.queued != nil {
 		a.queued = result.queued
+		a.stamp++
+	}
+	if result.running != nil {
+		a.runningConvs = result.running
 		a.stamp++
 	}
 

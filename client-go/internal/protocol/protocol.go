@@ -54,6 +54,10 @@ type Health struct {
 	// Queued is the same queue split by conversation, so the rail can badge the
 	// chat a waiting message actually sits behind.
 	Queued map[string]int `json:"queued"`
+	// RunningNow is the conversations with a turn in flight, by id: the rail
+	// spins on those rows rather than making the user open each chat to see
+	// whether the agent is still working.
+	RunningNow map[string]bool `json:"running"`
 }
 
 // Task is a background or sleeping task the agent runs.

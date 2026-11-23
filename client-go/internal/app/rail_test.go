@@ -138,3 +138,30 @@ func countChats(rows []railRow) int {
 	}
 	return n
 }
+
+// TestRailSpinsOnARunningChat: a chat with a turn in flight carries a spinner
+// where the unread dot will sit when it finishes, and an idle one carries
+// nothing, so the two are told apart without opening either.
+func TestRailSpinsOnARunningChat(t *testing.T) {
+	i18n.Set(i18n.EN)
+	a := openRailSections(railApp(t, "http://127.0.0.1:1"))
+	a.setSurfaces([]protocol.Surface{
+		{ConversationID: 12, Kind: "feishu", Title: "sky"},
+		{ConversationID: 11, Kind: "client", Title: "why is the sky blue"},
+	})
+	a.runningConvs = map[int]bool{11: true}
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	if !tt.HasText("why is the sky blue") {
+		t.Fatalf("the running chat's row is missing; drew %v", tt.Texts())
+	}
+	if _, ok := tt.Find("Running"); !ok {
+		t.Fatalf("a running chat drew no spinner; drew %v", tt.Texts())
+	}
+	a.runningConvs = nil
+	tt2 := ui.NewTester(a.View, 1180, 820)
+	tt2.Frame()
+	if _, ok := tt2.Find("Running"); ok {
+		t.Fatal("an idle chat drew the running spinner")
+	}
+}

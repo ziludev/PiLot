@@ -30,6 +30,12 @@ export type Health = {
    * actually sit behind instead.
    */
   queued: Record<string, number>;
+  /**
+   * The conversations with a run in flight right now, by id. The rail draws a
+   * spinner on those rows instead of making the owner open each chat to see
+   * whether the agent is still working on it.
+   */
+  running: Record<string, true>;
   runningTurns: number;
   conversations: number;
   /**
@@ -70,7 +76,13 @@ export async function healthReport(
     const conversation = String(submission.conversationId);
     queued[conversation] = (queued[conversation] ?? 0) + 1;
   }
-  const runningTurns = inspection?.tasks.filter((task) => task.state.kind === "running").length ?? 0;
+  const runningTasks = inspection?.tasks.filter((task) => task.state.kind === "running") ?? [];
+  const runningTurns = runningTasks.length;
+  const running: Record<string, true> = {};
+  for (const task of runningTasks) {
+    const conversation = Number(task.record?.conversationId);
+    if (Number.isFinite(conversation) && conversation > 0) running[String(conversation)] = true;
+  }
   const chats = (await runtime.harness.snapshot(ChatsToken, context).catch(() => undefined)) as
     | { chats: Record<string, number> }
     | undefined;
@@ -81,6 +93,7 @@ export async function healthReport(
     version: bridgeVersion(),
     queueDepth,
     queued,
+    running,
     runningTurns,
     // One surface can be counted twice only if two chats share a conversation,
     // which is how a thread and its parent look: count the conversations.
