@@ -17,6 +17,12 @@ import (
 // eye can follow, so the column is capped and centred.
 const maxContent = 820
 
+// transcriptMarkdown is how a message's Markdown is drawn. Code wraps rather
+// than scrolling sideways: a log line or a long URL is read to its end or not
+// at all, and a sideways scroller inside a message shows no bar at rest, so
+// the tail of the line simply vanished.
+var transcriptMarkdown = &markdown.Options{WrapCode: true}
+
 // transcriptView draws the open chat. It is read-only: the only things a click
 // does here are unfold a run's steps and scroll.
 func (a *App) transcriptView(c *ui.Context, t theme.Tokens) {
@@ -93,10 +99,12 @@ func (a *App) transcriptView(c *ui.Context, t theme.Tokens) {
 
 // centeredRow is one transcript row inside the reading column: the list spans
 // the whole pane so its scroll bar sits against the pane's edge, and each row
-// puts the capped column back in the middle.
+// puts the capped column back in the middle. The gutter rides inside the cap,
+// so a pane narrower than the column keeps its breathing room instead of
+// running text up against the rail's divider and the window's edge.
 func centeredRow(c *ui.Context, draw func()) {
 	ui.Row(c).FillWidth().Justify(ui.Center).Children(func() {
-		ui.Column(c).Grow(1).MaxWidth(maxContent).Children(draw)
+		ui.Column(c).Grow(1).MaxWidth(maxContent+2*gutter).Padding(0, gutter).Children(draw)
 	})
 }
 
@@ -232,11 +240,15 @@ func (a *App) assistantRow(c *ui.Context, t theme.Tokens, row threadRow) {
 	outer := ui.Row(c).FillWidth().Padding(6, 0).Gap(9).AlignItems(ui.Start)
 	hovered := outer.Hovered()
 	outer.Children(func() {
-		a.avatarView(c, avatarSize)
+		if row.lead {
+			a.avatarView(c, avatarSize)
+		} else {
+			ui.Box(c).Width(avatarSize)
+		}
 		ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
 			a.images(c, row.images, 240, 160)
 			if row.text != "" {
-				markdown.View(c, row.text, nil)
+				markdown.View(c, row.text, transcriptMarkdown)
 			}
 			a.messageActions(c, t, row, hovered, false)
 		})
@@ -295,7 +307,7 @@ func (a *App) thinkingRow(c *ui.Context, t theme.Tokens, row threadRow) {
 				ui.Row(c).FillWidth().Padding(2, 0).Gap(8).AlignItems(ui.Stretch).Children(func() {
 					ui.Box(c).Width(2).Radius(1).Background(t.Border)
 					ui.Column(c).Grow(1).MinWidth(0).Children(func() {
-						markdown.View(c, row.text, nil)
+						markdown.View(c, row.text, transcriptMarkdown)
 					})
 				})
 			}
@@ -605,7 +617,7 @@ func (a *App) liveRowView(c *ui.Context, t theme.Tokens, row threadRow) {
 			if row.text != "" {
 				// View, not Stream: the bytes already arrive in chunks, and a
 				// typewriter on top of that is animation for its own sake.
-				markdown.View(c, row.text, nil)
+				markdown.View(c, row.text, transcriptMarkdown)
 			}
 		})
 	})

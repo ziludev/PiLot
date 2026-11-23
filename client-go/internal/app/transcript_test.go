@@ -63,3 +63,26 @@ func rightmostLitColumn(img *image.RGBA, x0, x1, y0, y1 int) int {
 	}
 	return rightmost
 }
+
+// The reading column is capped at maxContent, but a pane narrower than that cap
+// has to keep the gutter: without it the text starts on the rail's divider and
+// ends on the window's edge, which reads as a rendering fault rather than a
+// layout. The gutter rides inside the cap, so this only shows below 860 wide.
+func TestNarrowPaneKeepsItsGutter(t *testing.T) {
+	const width, height = 900, 700
+	a := fixtureApp(t, false)
+	tt := ui.NewTester(a.View, width, height)
+	tt.SetDark(true)
+	tt.Frame()
+	img := tt.Image()
+	// The divider is at railWidth; the transcript starts one pixel after it.
+	divider := railWidth + 1
+	for x := divider + 1; x < divider+gutter-4; x++ {
+		for y := 60; y < height-120; y++ {
+			r, g, b, _ := img.At(x, y).RGBA()
+			if r>>8 > 40 || g>>8 > 40 || b>>8 > 40 {
+				t.Fatalf("painted pixel at x=%d y=%d: the transcript is running into the rail", x, y)
+			}
+		}
+	}
+}

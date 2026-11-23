@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -544,5 +545,44 @@ func TestProjectEntriesMarksNewDays(t *testing.T) {
 	}
 	if kinds[0] != rowUser || kinds[1] != rowUser || kinds[2] != rowDay || kinds[3] != rowUser {
 		t.Fatalf("day rule is not between the two days: %v", kinds)
+	}
+}
+
+// A turn that says something, runs tools, then says more is one message to
+// read: the avatar belongs to the first text row, and the later blocks leave
+// its column empty rather than repeating it.
+func TestOnlyTheFirstRowOfATurnCarriesTheAvatar(t *testing.T) {
+	a := fixtureApp(t, false)
+	th := a.thread(11)
+	now := time.Now()
+	model := fmt.Sprintf(`[{"role":"assistant","content":[{"type":"text","text":%q},{"type":"text","text":%q}],"timestamp":__ts}]`,
+		"first", "second")
+	// A turn of its own, or the answer would continue the one above it — which
+	// is the case the rule is about.
+	ask := entryJSON(t, 998, "pi.user", now, `[{"role":"user","content":"and then?","timestamp":__ts}]`)
+	entry := entryJSON(t, 999, "pi.assistant", now, model)
+	th.entries = append(th.entries, ask, entry)
+	th.rev[ask.ID] = fingerprint(ask)
+	th.rev[entry.ID] = fingerprint(entry)
+	th.version++
+
+	rows := a.threadRows(11)
+	lead := 0
+	for _, row := range rows {
+		if row.kind != rowAssistant {
+			continue
+		}
+		if row.text != "first" && row.text != "second" {
+			continue
+		}
+		if row.lead {
+			lead++
+		}
+		if row.text == "second" && row.lead {
+			t.Fatal("the second block of a turn drew its own avatar")
+		}
+	}
+	if lead == 0 {
+		t.Fatal("no row carried the avatar")
 	}
 }

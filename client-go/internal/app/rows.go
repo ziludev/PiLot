@@ -488,6 +488,11 @@ type threadRow struct {
 	// turn ends, the tools it used are the thing worth reading without a
 	// click, while the runs above it stay folded away.
 	newest bool
+	// lead marks the first text row of a turn, the one that carries the
+	// avatar. A turn that says something, runs tools, then says more is one
+	// message to read, and an avatar before every block turns that message
+	// into a column of identical faces.
+	lead bool
 }
 
 // foldKey addresses one turn's disclosure state.
@@ -646,6 +651,16 @@ func projectEntries(conversationID int, entries []protocol.Entry) ([]threadRow, 
 		if rows[i].kind == rowSteps {
 			rows[i].newest = true
 			break
+		}
+	}
+	leadTurn := 0
+	for i := range rows {
+		switch rows[i].kind {
+		case rowUser:
+			leadTurn = 0
+		case rowAssistant:
+			rows[i].lead = rows[i].turn != leadTurn
+			leadTurn = rows[i].turn
 		}
 	}
 	return rows, turns
