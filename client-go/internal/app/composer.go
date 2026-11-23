@@ -18,11 +18,18 @@ import (
 // top of a composer would hide the message it is about.
 func (a *App) composerArea(c *ui.Context, t theme.Tokens) {
 	ui.Column(c).FillWidth().Padding(0, gutter, 14, gutter).Children(func() {
-		if len(a.pending) > 0 {
-			a.approvalCard(c, t, a.pending[0], len(a.pending)-1)
-			return
-		}
-		a.composerCard(c, t)
+		// The box is as wide as the transcript reads: at a wide window a composer
+		// stretched to the pane's edge leaves the text it sends hanging over an
+		// empty right margin, and the two measures no longer line up.
+		ui.Row(c).FillWidth().Justify(ui.Center).Children(func() {
+			ui.Column(c).Grow(1).MaxWidth(maxContent).Children(func() {
+				if len(a.pending) > 0 {
+					a.approvalCard(c, t, a.pending[0], len(a.pending)-1)
+					return
+				}
+				a.composerCard(c, t)
+			})
+		})
 	})
 }
 
