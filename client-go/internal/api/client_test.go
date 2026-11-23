@@ -35,7 +35,8 @@ const (
 		`"reason":"needs the shell","surfaceId":"cli","createdAt":1794819200000}]}`
 
 	healthBody = `{"pid":39217,"startedAt":"2026-11-18T02:05:11.412Z","uptimeMs":11520000,"version":"0.4.2",` +
-		`"queueDepth":2,"runningTurns":1,"conversations":7,"somethingNew":true}`
+		`"queueDepth":2,"queued":{"7":2},"running":{"7":true,"9":true},` +
+		`"runningTurns":1,"conversations":7,"somethingNew":true}`
 )
 
 type capture struct {
@@ -217,6 +218,11 @@ func TestHealth(t *testing.T) {
 	}
 	if got.path != "/api/health" || health.QueueDepth != 2 {
 		t.Fatalf("health %+v", health)
+	}
+	// The rail marks the chats at work from this map, so the keys have to
+	// survive the trip as strings.
+	if !health.RunningNow["9"] || health.RunningNow["8"] {
+		t.Fatalf("running %v", health.RunningNow)
 	}
 }
 
