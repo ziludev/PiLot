@@ -729,10 +729,14 @@ func (a *App) olderLoader(th *threadStore) {
 	if th == nil || !th.hasMore || th.loadingOlder {
 		return
 	}
-	if a.vm.threadList.FollowEnd {
+	first, last := a.vm.threadList.Visible()
+	if last < 0 || first > 2 {
+		// Not laid out yet, or the top of this page is not on screen.
 		return
 	}
-	if first, _ := a.vm.threadList.Visible(); first > 2 {
+	if a.vm.threadList.AtEnd() {
+		// Still reading the end of the chat: the page behind this one can
+		// wait until the reader walks up to it.
 		return
 	}
 	if !th.olderTried.IsZero() && time.Since(th.olderTried) < 2*time.Second {
