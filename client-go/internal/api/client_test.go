@@ -424,3 +424,16 @@ func TestUsageCalendarReportsANon200(t *testing.T) {
 		t.Fatalf("status %+v", status)
 	}
 }
+
+// TestConversationBeforePagesBackwards: reading older entries names the entry
+// to read before, so a chat longer than a page is reachable rather than cut.
+func TestConversationBeforePagesBackwards(t *testing.T) {
+	var got capture
+	client := serve(t, conversationBody, &got)
+	if _, err := client.ConversationBefore(context.Background(), 2, 41); err != nil {
+		t.Fatal(err)
+	}
+	if got.path != "/api/conversation?id=2&limit=120&before=41" {
+		t.Fatalf("path %s", got.path)
+	}
+}

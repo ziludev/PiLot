@@ -125,8 +125,18 @@ const conversationPage = 120
 
 // Conversation reads the newest page of one chat.
 func (c *Client) Conversation(ctx context.Context, conversationID int) (*protocol.Conversation, error) {
+	return c.ConversationBefore(ctx, conversationID, 0)
+}
+
+// ConversationBefore reads the page of entries older than before, or the newest
+// page when before is 0. Paging backwards is how a long chat is read whole: the
+// newest page arrives first and the rest is fetched as the reader walks up.
+func (c *Client) ConversationBefore(ctx context.Context, conversationID, before int) (*protocol.Conversation, error) {
 	var conversation protocol.Conversation
 	path := fmt.Sprintf("/api/conversation?id=%d&limit=%d", conversationID, conversationPage)
+	if before > 0 {
+		path += fmt.Sprintf("&before=%d", before)
+	}
 	if err := c.get(ctx, path, &conversation); err != nil {
 		return nil, err
 	}

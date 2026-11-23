@@ -21,6 +21,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"pitta/internal/api"
+	"pitta/internal/i18n"
 	"pitta/internal/protocol"
 	"pitta/internal/theme"
 )
@@ -192,6 +193,13 @@ type threadStore struct {
 	// usage is the chat's running total: what it has cost and spent, as the
 	// bridge last stated it on the page.
 	usage *protocol.Usage
+	// hasMore says the bridge holds entries older than this page, and
+	// loadingOlder keeps one fetch of them in flight.
+	hasMore      bool
+	loadingOlder bool
+	// olderTried is when the last read backwards started: a page that failed
+	// must not be retried on every frame.
+	olderTried time.Time
 }
 
 // New builds the window state and starts the work that feeds it: a five-second
@@ -276,6 +284,7 @@ type eventKind int
 const (
 	evSnapshot eventKind = iota
 	evThread
+	evOlder
 	evFrame
 	evWatchDown
 	evTail
@@ -328,6 +337,7 @@ type event struct {
 
 	snapshot *snapshotResult
 	page     *pageResult
+	older    *olderResult
 	frame    *frameResult
 	tail     *tailResult
 	notice   string
@@ -392,6 +402,7 @@ type pageResult struct {
 	model    *protocol.ModelRef
 	thinking string
 	usage    *protocol.Usage
+	hasMore  bool
 	err      error
 }
 
@@ -599,6 +610,7 @@ func (a *App) loadThread(convID int) {
 			result.model = conversation.Model
 			result.thinking = conversation.ThinkingLevel
 			result.usage = conversation.Usage
+			result.hasMore = conversation.HasMore
 		}
 		a.post(event{kind: evThread, page: result})
 	}()
@@ -644,6 +656,8 @@ func (a *App) apply(ev event) {
 		a.applySnapshot(ev.snapshot)
 	case evThread:
 		a.applyPage(ev.page)
+	case evOlder:
+		a.applyOlder(ev.older)
 	case evFrame:
 		a.applyFrame(ev.frame)
 	case evWatchDown:
@@ -789,6 +803,7 @@ func (a *App) applyPage(result *pageResult) {
 	a.model = result.model
 	a.thinking = result.thinking
 	th.usage = result.usage
+	th.hasMore = result.hasMore
 	th.entries = result.entries
 	th.rev = make(map[int]uint64, len(result.entries))
 	for _, entry := range result.entries {
@@ -1057,3 +1072,74 @@ func attachmentImages(images []imageRef) []api.Image {
 }
 
 // NewChat, AttachImages and RestartAgent are the menu's verbs; they run the
+
+// olderResult is one page read backwards from the oldest entry on screen.
+type olderResult struct {
+	convID  int
+	entries []protocol.Entry
+	hasMore bool
+	err     error
+}
+
+// loadOlder reads the page before the oldest entry on screen. The bridge pages
+// backwards by entry id, so a chat longer than one page is read whole by
+// walking up rather than by asking for everything at once.
+func (a *App) loadOlder(convID int) {
+	th := a.threads[convID]
+	if th == nil || !th.hasMore || th.loadingOlder || len(th.entries) == 0 {
+		return
+	}
+	oldest := th.entries[0].ID
+	for _, entry := range th.entries {
+		if entry.ID < oldest {
+			oldest = entry.ID
+		}
+	}
+	th.loadingOlder = true
+	a.invalidate()
+	go func() {
+		ctx, cancel := context.WithTimeout(a.ctx, 20*time.Second)
+		defer cancel()
+		page, err := a.api.ConversationBefore(ctx, convID, oldest)
+		result := &olderResult{convID: convID, err: err}
+		if err == nil {
+			result.entries = page.Entries
+			result.hasMore = page.HasMore
+		}
+		a.post(event{kind: evOlder, older: result})
+	}()
+}
+
+// applyOlder prepends the page read backwards, keeping the entries already on
+// screen: a page overlaps nothing by the bridge's contract, but the check is
+// cheap and a duplicate would double a message.
+func (a *App) applyOlder(result *olderResult) {
+	if result == nil {
+		return
+	}
+	th := a.threads[result.convID]
+	if th == nil {
+		return
+	}
+	th.loadingOlder = false
+	if result.err != nil {
+		a.notice = i18n.T("loadOlderFailed") + " · " + result.err.Error()
+		a.noticeOK = false
+		a.invalidate()
+		return
+	}
+	seen := make(map[int]bool, len(th.entries))
+	for _, entry := range th.entries {
+		seen[entry.ID] = true
+	}
+	for _, entry := range result.entries {
+		if seen[entry.ID] {
+			continue
+		}
+		seen[entry.ID] = true
+		th.entries = append(th.entries, entry)
+	}
+	th.hasMore = result.hasMore
+	th.version++
+	a.invalidate()
+}

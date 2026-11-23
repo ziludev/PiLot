@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
@@ -44,6 +45,10 @@ func (a *App) transcriptView(c *ui.Context, t theme.Tokens) {
 		// frame: appending in place would grow the cache with streaming text.
 		rows = append(rows[:len(rows):len(rows)], live)
 	}
+	// A chat longer than one page opens on its newest page; walking up to the
+	// top reads the page behind it, so the whole chat is reachable by
+	// scrolling and nobody presses a button to read their own messages.
+	a.olderLoader(th)
 	if len(rows) == 0 {
 		ui.Row(c).Grow(1).FillWidth().Justify(ui.Center).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, i18n.T("emptyThread")).FontSize(11.5).TextColor(t.MutedFg)
@@ -64,6 +69,9 @@ func (a *App) transcriptView(c *ui.Context, t theme.Tokens) {
 	}
 	ui.Row(c).Grow(1).FillWidth().Justify(ui.Center).Children(func() {
 		ui.Column(c).Grow(1).FillHeight().MaxWidth(maxContent).Children(func() {
+			if th.loadingOlder {
+				a.olderLine(c, t)
+			}
 			ui.List(c, &a.vm.threadList, len(rows), func(row int) {
 				if row != divider {
 					a.threadRowMarked(c, t, rows[row], a.findMark(row))
@@ -712,4 +720,32 @@ func (img *imageRef) bitmap() *ui.Bitmap {
 	}
 	img.cache = bitmap
 	return bitmap
+}
+
+// olderLoader starts reading the page behind the first one when the reader has
+// walked up to it. Following the end means they are at the bottom, so the check
+// waits until they are not: opening a chat must not fetch two pages for one.
+func (a *App) olderLoader(th *threadStore) {
+	if th == nil || !th.hasMore || th.loadingOlder {
+		return
+	}
+	if a.vm.threadList.FollowEnd {
+		return
+	}
+	if first, _ := a.vm.threadList.Visible(); first > 2 {
+		return
+	}
+	if !th.olderTried.IsZero() && time.Since(th.olderTried) < 2*time.Second {
+		return
+	}
+	th.olderTried = time.Now()
+	a.loadOlder(th.convID)
+}
+
+// olderLine says a page is being read, at the top of where it will land, so a
+// slow bridge looks like reading rather than like a chat that ends there.
+func (a *App) olderLine(c *ui.Context, t theme.Tokens) {
+	ui.Row(c).FillWidth().Padding(8, 0).Justify(ui.Center).Children(func() {
+		ui.Text(c, i18n.T("loadingOlder")).FontSize(10.5).TextColor(t.MutedFg)
+	})
 }
