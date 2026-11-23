@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"encoding/json"
 	"sort"
 	"time"
@@ -418,10 +419,23 @@ const (
 type step struct {
 	label string
 	body  string
+	// args is the call's arguments as they arrived: the summary on the header
+	// is the index, this is the page under it.
+	args string
 	// out is the tool's result, unclipped: the fold shows a summary of the
 	// call, and the output block under it is drawn from this.
 	out string
-	at  time.Time
+	// failed is what the result said about itself, not what its text looks
+	// like: an error is a state, not a string match.
+	failed bool
+	// thinking marks the run's own reasoning among its tool calls, so the row
+	// does not hand a thought a tool's checkmark.
+	thinking bool
+	// awaiting is true until a result has been attached. A round queues its
+	// calls up front and its results arrive as separate messages, so the next
+	// result belongs to the first call still waiting, not to the last call.
+	awaiting bool
+	at       time.Time
 }
 
 type imageRef struct {
@@ -528,24 +542,28 @@ func projectEntries(conversationID int, entries []protocol.Entry) ([]threadRow, 
 				if turn == 0 {
 					turn = entry.ID
 				}
-				if idx, ok := stepRows[turn]; ok && len(rows[idx].steps) > 0 {
-					last := &rows[idx].steps[len(rows[idx].steps)-1]
-					if last.out == "" {
-						last.out = block.text
-					} else {
-						last.out += "\n" + block.text
+				if idx, ok := stepRows[turn]; ok {
+					if last := awaitingStep(&rows[idx].steps); last != nil {
+						if last.out == "" {
+							last.out = block.text
+						} else {
+							last.out += "\n" + block.text
+						}
+						last.failed = last.failed || block.failed
+						last.awaiting = false
+						if !block.at.IsZero() {
+							last.at = block.at
+						}
+						continue
 					}
-					if !block.at.IsZero() {
-						last.at = block.at
-					}
-					continue
 				}
 				fallthrough
 			default: // step
 				if turn == 0 {
 					turn = entry.ID
 				}
-				step := step{label: block.name, body: block.text, at: block.at}
+				step := step{label: block.name, body: block.text, args: block.args,
+					thinking: block.thinking, awaiting: !block.thinking, at: block.at}
 				if step.label == "" {
 					step.label = i18n.T("thinking")
 				}
@@ -583,6 +601,17 @@ func projectEntries(conversationID int, entries []protocol.Entry) ([]threadRow, 
 	return rows, turns
 }
 
+// awaitingStep is the call a result belongs to: the first one still waiting.
+// Results arrive in the order their calls were made, and thinking never waits.
+func awaitingStep(steps *[]step) *step {
+	for i := 0; i < len(*steps); i++ {
+		if s := &(*steps)[i]; s.awaiting {
+			return s
+		}
+	}
+	return nil
+}
+
 // stepsSpan is the time the folded steps took: first step to last.
 func stepsSpan(steps []step) (time.Duration, bool) {
 	var first, last time.Time
@@ -603,12 +632,15 @@ func stepsSpan(steps []step) (time.Duration, bool) {
 
 // entryBlock is one drawable piece of an entry, in source order.
 type entryBlock struct {
-	kind   string // text, step, tool-result
-	index  int
-	text   string
-	name   string
-	at     time.Time
-	images []imageRef
+	kind     string // text, step, tool-result
+	index    int
+	text     string
+	name     string
+	args     string
+	failed   bool
+	thinking bool
+	at       time.Time
+	images   []imageRef
 }
 
 type entryView struct {
@@ -641,6 +673,7 @@ func parseEntry(entry protocol.Entry) entryView {
 			view.blocks = append(view.blocks, entryBlock{
 				kind:   "tool-result",
 				text:   contentText(msg.Content),
+				failed: msg.IsError,
 				images: contentImages(msg.Content),
 				at:     at,
 			})
@@ -653,9 +686,12 @@ func parseEntry(entry protocol.Entry) entryView {
 					blockIndex++
 				}
 			case "thinking":
-				view.blocks = append(view.blocks, entryBlock{kind: "step", name: i18n.T("thinking"), text: oneLine(part.Thinking), at: at})
+				view.blocks = append(view.blocks, entryBlock{kind: "step", name: i18n.T("thinking"), text: oneLine(part.Thinking), thinking: true, at: at})
 			case "toolCall":
-				view.blocks = append(view.blocks, entryBlock{kind: "step", name: part.Name, text: argsSummary(part.Arguments), at: at})
+				view.blocks = append(view.blocks, entryBlock{
+					kind: "step", name: part.Name, text: argsSummary(part.Arguments),
+					args: prettyArgs(part.Arguments), at: at,
+				})
 			case "image":
 				// A user's pictures belong to their bubble; one that comes back
 				// inside an assistant message is drawn with the answer.
@@ -682,6 +718,9 @@ type modelMessage struct {
 	Timestamp    int64           `json:"timestamp"`
 	StopReason   string          `json:"stopReason"`
 	ErrorMessage string          `json:"errorMessage"`
+	// IsError is the tool result's own verdict; the bridge writes it on the
+	// message, not on a content part.
+	IsError bool `json:"isError"`
 }
 
 type modelPart struct {
@@ -764,6 +803,33 @@ func imageRefs(part modelPart) []imageRef {
 		mime = "image/png"
 	}
 	return []imageRef{{mime: mime, data: data}}
+}
+
+// prettyArgs is a call's arguments as JSON a reader can scan: indented, one key
+// per line. The one-line summary on the call's header stays the index; this is
+// what the fold opens onto.
+func prettyArgs(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var out bytes.Buffer
+	if err := json.Indent(&out, raw, "", "  "); err != nil {
+		return string(raw)
+	}
+	return out.String()
+}
+
+// argsDetail is the arguments worth drawing under the summary: a single key is
+// already on the header in full, so repeating it as a block is only height.
+func argsDetail(args string) string {
+	if args == "" {
+		return ""
+	}
+	var object map[string]any
+	if err := json.Unmarshal([]byte(args), &object); err == nil && len(object) <= 1 {
+		return ""
+	}
+	return args
 }
 
 // argsSummary is a tool call's arguments on one line, for the folded step.

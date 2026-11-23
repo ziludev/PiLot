@@ -12,7 +12,7 @@ import (
 	"pitta/internal/i18n"
 )
 
-// openFolds unfolds every step row of a chat, the way a click on ⋯ n 步 does.
+// openFolds unfolds every step row of a chat, the way a click on n 步 does.
 func openFolds(a *App, conv int) {
 	for _, row := range a.threadRows(conv) {
 		if row.kind == rowSteps {
@@ -124,5 +124,105 @@ func TestToolOutputCopiesWithoutTheAnswer(t *testing.T) {
 	tt.Frame()
 	if got := tt.Clipboard(); got != "FAIL src/queue.test.ts\n  Expected: 5\n  Received: 3" {
 		t.Fatalf("clipboard holds %q", got)
+	}
+}
+
+// TestFailedToolShowsWithTheFoldShut: a failed call is a state the line can
+// state, not something the reader has to open the fold to discover.
+func TestFailedToolShowsWithTheFoldShut(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	now := time.Now().Add(-time.Minute)
+	a.thread(11).upsert(entryJSON(t, 630, "pi.user", now,
+		`[{"role":"user","content":"build it","timestamp":__ts}]`))
+	a.thread(11).upsert(entryJSON(t, 631, "pi.assistant", now,
+		`[{"role":"assistant","content":[{"type":"toolCall","name":"bash","arguments":{"command":"go build ./..."}}],"timestamp":__ts}]`))
+	a.thread(11).upsert(entryJSON(t, 632, "pi.tool-result", now,
+		`[{"role":"toolResult","content":[{"type":"text","text":"build failed"}],"isError":true,"timestamp":__ts}]`))
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	if !hasAnyText(tt, "1 步 · 1 个失败") {
+		t.Fatalf("the failed call did not say so with the fold shut; drew %v", tt.Texts())
+	}
+}
+
+// TestStepsGroupByConsecutiveTool: five calls alternating bash and read are five
+// stretches, not two tools with counts. The order is the story of the turn.
+func TestStepsGroupByConsecutiveTool(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	now := time.Now().Add(-time.Minute)
+	a.thread(11).upsert(entryJSON(t, 640, "pi.user", now,
+		`[{"role":"user","content":"read then build","timestamp":__ts}]`))
+	a.thread(11).upsert(entryJSON(t, 641, "pi.assistant", now,
+		`[{"role":"assistant","content":[`+
+			`{"type":"toolCall","name":"bash","arguments":{"command":"echo 0"}},`+
+			`{"type":"toolCall","name":"read","arguments":{"path":"/tmp/a.go"}},`+
+			`{"type":"toolCall","name":"bash","arguments":{"command":"echo 1"}},`+
+			`{"type":"toolCall","name":"read","arguments":{"path":"/tmp/b.go"}},`+
+			`{"type":"toolCall","name":"bash","arguments":{"command":"echo 2"}}`+
+			`],"timestamp":__ts}]`))
+	openFolds(a, 11)
+	a.vm.groups = map[string]bool{}
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	// The head records its own Label and the text inside it, so a group shows up
+	// twice; what matters is that no stretch was merged into a ×2.
+	seen := map[string]bool{}
+	for _, text := range tt.Texts() {
+		seen[text] = true
+		if strings.HasPrefix(text, "bash ×") && text != "bash ×1" {
+			t.Fatalf("bash stretches merged into %q; drew %v", text, tt.Texts())
+		}
+	}
+	if !seen["bash ×1"] || !seen["read ×1"] {
+		t.Fatalf("the alternating stretches did not all draw; drew %v", tt.Texts())
+	}
+}
+
+// TestStepArgsOpenAboveTheResult: the call's arguments are what the fold opens
+// onto, and they sit above the answer the way the request does.
+func TestStepArgsOpenAboveTheResult(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	now := time.Now().Add(-time.Minute)
+	a.thread(11).upsert(entryJSON(t, 650, "pi.user", now,
+		`[{"role":"user","content":"build it","timestamp":__ts}]`))
+	a.thread(11).upsert(entryJSON(t, 651, "pi.assistant", now,
+		`[{"role":"assistant","content":[{"type":"toolCall","name":"bash","arguments":{"command":"go build ./...","timeout":30}}],"timestamp":__ts}]`))
+	a.thread(11).upsert(entryJSON(t, 652, "pi.tool-result", now,
+		`[{"role":"toolResult","content":[{"type":"text","text":"build ok"}],"timestamp":__ts}]`))
+	openFolds(a, 11)
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	if !tt.HasText(i18n.T("toolArgs")) {
+		t.Fatalf("the arguments block was not drawn; drew %v", tt.Texts())
+	}
+	if !hasAnyText(tt, `"timeout": 30`) {
+		t.Fatalf("the arguments block lost a key the summary cannot show; drew %v", tt.Texts())
+	}
+}
+
+// TestSingleKeyArgumentsStayOnTheHeader: one key is already the header's line,
+// so repeating it as a block is only height.
+func TestSingleKeyArgumentsStayOnTheHeader(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	now := time.Now().Add(-time.Minute)
+	a.thread(11).upsert(entryJSON(t, 660, "pi.user", now,
+		`[{"role":"user","content":"build it","timestamp":__ts}]`))
+	a.thread(11).upsert(entryJSON(t, 661, "pi.assistant", now,
+		`[{"role":"assistant","content":[{"type":"toolCall","name":"read","arguments":{"path":"/tmp/a.go"}}],"timestamp":__ts}]`))
+	a.thread(11).upsert(entryJSON(t, 662, "pi.tool-result", now,
+		`[{"role":"toolResult","content":[{"type":"text","text":"package main"}],"timestamp":__ts}]`))
+	openFolds(a, 11)
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	if tt.HasText(i18n.T("toolArgs")) {
+		t.Fatalf("a single-key call was given an arguments block; drew %v", tt.Texts())
 	}
 }

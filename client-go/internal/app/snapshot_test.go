@@ -149,7 +149,7 @@ func TestSnapshotWindow(t *testing.T) {
 				t.Fatalf("%s: a folded group leaked its chats", c.name)
 			}
 		}
-		if !tt.HasText("⋯ 2 步 · 12s") {
+		if !tt.HasText("2 步 · 12s") {
 			t.Fatalf("%s: folded summary missing; drew %v", c.name, tt.Texts())
 		}
 		if c.pending {

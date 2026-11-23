@@ -257,7 +257,7 @@ func TestStepsExpand(t *testing.T) {
 	if !tt.HasText("bash") {
 		t.Fatalf("expanded steps drew no tool line; drew %v", tt.Texts())
 	}
-	if !hasAnyText(tt, "⋯ 2 steps") {
+	if !hasAnyText(tt, "2 steps") {
 		t.Fatalf("expanded steps lost their summary; drew %v", tt.Texts())
 	}
 }

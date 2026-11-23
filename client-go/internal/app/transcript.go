@@ -221,6 +221,7 @@ func (a *App) stepsRow(c *ui.Context, t theme.Tokens, row threadRow) {
 		} else {
 			ui.Icon(c, icons.ChevronRight).Size(11, 11).TextColor(t.MutedFg)
 		}
+		a.stepsStatusIcon(c, t, row.steps)
 		ui.Text(c, a.stepsSummary(row)).FontSize(12).TextColor(t.MutedFg).MaxLines(1)
 	})
 	header.OnClick(func() {
@@ -255,6 +256,7 @@ func (a *App) stepsRow(c *ui.Context, t theme.Tokens, row threadRow) {
 				} else {
 					ui.Icon(c, icons.ChevronRight).Size(10, 10).TextColor(t.MutedFg)
 				}
+				a.stepsStatusIcon(c, t, group.steps)
 				ui.Text(c, label).FontSize(10.5).FontWeight(500).TextColor(t.MutedFg).MaxLines(1)
 			})
 			head.OnClick(func() {
@@ -280,18 +282,17 @@ type stepGroup struct {
 	steps []step
 }
 
-// groupSteps folds a run's steps by tool name, in the order each tool first
-// appeared: the reader's question is "what did it touch", and that reads better
-// as a list of tools than as a list of calls.
+// groupSteps folds a run's steps by consecutive tool: a stretch of bash is one
+// line, and read after it is the next. Consecutive, not by name everywhere —
+// the order of the calls is the story of the turn, and sorting them by tool
+// into a table of contents loses which came first.
 func groupSteps(steps []step) []stepGroup {
 	groups := make([]stepGroup, 0, len(steps))
-	at := map[string]int{}
 	for _, s := range steps {
-		if i, ok := at[s.label]; ok {
-			groups[i].steps = append(groups[i].steps, s)
+		if n := len(groups); n > 0 && groups[n-1].label == s.label {
+			groups[n-1].steps = append(groups[n-1].steps, s)
 			continue
 		}
-		at[s.label] = len(groups)
 		groups = append(groups, stepGroup{label: s.label, steps: []step{s}})
 	}
 	return groups
@@ -303,19 +304,75 @@ func stepGroupLabel(g stepGroup) string {
 	return g.label + " ×" + itoa(len(g.steps))
 }
 
-// stepLines draws each call, and under it what came back.
+// stepLines draws each call, and under it what came back. The call reads as a
+// line with its verdict in front, the way a tool call does in assistant-ui's
+// ToolFallback; everything a reader opens the fold for is in the blocks below.
 func (a *App) stepLines(c *ui.Context, t theme.Tokens, steps []step) {
 	ui.Column(c).FillWidth().Gap(3).Children(func() {
-		for _, step := range steps {
+		for _, s := range steps {
 			ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Start).Children(func() {
-				ui.Text(c, step.label).FontSize(10.5).FontWeight(500).
+				if !s.thinking {
+					a.stepsStatusIcon(c, t, []step{s})
+				}
+				ui.Text(c, s.label).FontSize(10.5).FontWeight(500).
 					TextColor(t.MutedFg).MaxLines(1).MaxWidth(160)
-				ui.Text(c, step.body).Grow(1).FontSize(10.5).
-					TextColor(t.MutedFg).MaxLines(2)
+				lines := 1
+				if s.thinking {
+					lines = 2
+				}
+				ui.Text(c, s.body).Grow(1).FontSize(10.5).
+					TextColor(t.MutedFg).MaxLines(lines)
 			})
-			a.stepOutput(c, t, step)
+			a.stepArgs(c, t, s)
+			a.stepOutput(c, t, s)
 		}
 	})
+}
+
+// maxArgLines bounds the arguments block. A call's JSON is short by nature; a
+// wall of it means a heredoc or a base64 payload, and the result is what was
+// asked for anyway.
+const maxArgLines = 8
+
+// stepArgs is what the tool was handed, in full. It sits above the result the
+// way the request sits above the response, and it is skipped when the header's
+// one-line summary already said all of it.
+func (a *App) stepArgs(c *ui.Context, t theme.Tokens, s step) {
+	args := argsDetail(s.args)
+	if args == "" {
+		return
+	}
+	ui.Column(c).FillWidth().Gap(1).Padding(4, 7).Radius(5).Background(t.Muted).Children(func() {
+		ui.Text(c, i18n.T("toolArgs")).FontSize(9.5).TextColor(t.MutedFg)
+		for _, line := range outputLines(args, maxArgLines) {
+			ui.Text(c, line.text).Font("SF Mono, Menlo, monospace").
+				FontSize(10).TextColor(t.MutedFg).MaxLines(2)
+		}
+	})
+}
+
+// stepsStatusIcon marks a call (or a folded run of them) without opening it: a
+// check when every call answered, an x when one did not, a clock while nothing
+// has come back yet. It is what makes a failure visible with the fold shut.
+func (a *App) stepsStatusIcon(c *ui.Context, t theme.Tokens, steps []step) {
+	failed, answered := 0, 0
+	for _, s := range steps {
+		if s.thinking {
+			continue
+		}
+		if s.failed {
+			failed++
+		}
+		if s.out != "" {
+			answered++
+		}
+	}
+	switch {
+	case failed > 0:
+		ui.Icon(c, icons.X).Size(10, 10).TextColor(t.Destructive)
+	case answered > 0:
+		ui.Icon(c, icons.Check).Size(10, 10).TextColor(t.MutedFg)
+	}
 }
 
 // stepOutput is what the tool gave back, as the thing it is: a diff, a log, a
@@ -356,18 +413,35 @@ func (a *App) stepOutput(c *ui.Context, t theme.Tokens, step step) {
 	})
 }
 
-// stepsSummary is the folded line: how many steps, and how long they took when
-// the entries carry timestamps that say.
+// stepsSummary is the folded line: how many steps, how many failed, and how
+// long they took when the entries carry timestamps that say.
 func (a *App) stepsSummary(row threadRow) string {
-	key := "steps"
-	if len(row.steps) == 1 {
-		key = "stepsOne"
+	failed := stepFailures(row.steps)
+	var summary string
+	if failed > 0 {
+		summary = i18n.TF("stepsFailed", map[string]any{"n": len(row.steps), "f": failed})
+	} else {
+		key := "steps"
+		if len(row.steps) == 1 {
+			key = "stepsOne"
+		}
+		summary = i18n.TF(key, map[string]any{"n": len(row.steps)})
 	}
-	summary := i18n.TF(key, map[string]any{"n": len(row.steps)})
 	if !row.noSpan {
 		summary += " · " + shortDuration(row.span)
 	}
 	return summary
+}
+
+// stepFailures counts the calls that came back as errors.
+func stepFailures(steps []step) int {
+	n := 0
+	for _, s := range steps {
+		if s.failed {
+			n++
+		}
+	}
+	return n
 }
 
 // outputColor says what a line of tool output is by its color: a removal is
