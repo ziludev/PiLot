@@ -326,16 +326,27 @@ export function argumentLabel(args: unknown): string {
  * Read-only and capped: a handful of rows per call id, one connection per snapshot that brings a
  * call id we have not seen.
  */
+/** How far back an argument lookup looks. A call id belongs to the round that is running now. */
+const HINT_WINDOW = 200;
+
 export function callHints(dbPath: string, conversationId: number, callIds: string[]): Record<string, string> {
   const out: Record<string, string> = {};
   if (callIds.length === 0) return out;
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
+    // The window is the point. A bare `like` over the conversation is a full scan of every row:
+    // the main chat here is 32k entries and 120 MB, measured at 90 ms per call id, so a twenty-call
+    // round paid almost two seconds to re-read text it had already written moments earlier. A call
+    // id is always from this turn, so only the tail of the transcript can hold it.
     const find = db.prepare(
-      `select record from entries
-        where conversation_id = ? and record like ?
-        order by id desc
-        limit 5`,
+      `select record from (
+         select id, record from entries
+          where conversation_id = ?
+          order by id desc
+          limit ${HINT_WINDOW}
+       ) where record like ?
+       order by id desc
+       limit 5`,
     );
     for (const callId of callIds) {
       const rows = find.all(conversationId, `%"${callId}"%`) as { record: string }[];
