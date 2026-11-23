@@ -794,11 +794,27 @@ export async function stopConversation(
   return { cancelled, aborted: true };
 }
 
-/** The user's own line, one row, clipped: two cards side by side must be tellable apart. */
+/**
+ * The user's own line, one row, clipped: two cards side by side must be tellable apart.
+ *
+ * Cut on a word or a punctuation mark when one is near the limit. A hard cut lands mid-word often
+ * enough to look broken — "看看 list conversationstates 接…" reads as damage, not as a title — and
+ * Chinese has no spaces to cut on, so the punctuation carries it.
+ */
+const DIGEST_MAX = 28;
+const DIGEST_FLOOR = Math.floor(DIGEST_MAX * 0.6);
+const DIGEST_BREAK = /[\s，。、；：,.;:!?！？)）】」”"'…]/;
+
 export function digestOf(text: string): string {
   const oneLine = text.replace(/\s+/g, " ").trim();
-  if (oneLine.length === 0) return "";
-  return oneLine.length <= 28 ? oneLine : `${oneLine.slice(0, 28)}…`;
+  if (oneLine.length <= DIGEST_MAX) return oneLine;
+  for (let i = DIGEST_MAX; i >= DIGEST_FLOOR; i -= 1) {
+    if (!DIGEST_BREAK.test(oneLine.charAt(i - 1))) continue;
+    const cut = oneLine.slice(0, i).trimEnd();
+    // A line that is all break characters would clip to nothing; the hard cut is the fallback.
+    if (cut.length >= DIGEST_FLOOR) return `${cut}…`;
+  }
+  return `${oneLine.slice(0, DIGEST_MAX)}…`;
 }
 
 /** What a card needs to say more than "处理中": whose turn it is. */
@@ -2102,11 +2118,12 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       if (last !== undefined) return renderLive(last, { digest }, trail, stages);
       return digest.length === 0 ? "🤔 思考中…" : `> ${digest}\n\n🤔 思考中…`;
     };
-    // How far the turn got, in the subtitle: "3 步完成 · 2m18s" beats a bare clock.
+    // How far the turn got, in the subtitle: "3 步完成 · 2m18s" beats a bare clock. The header
+    // already says 处理中, so the subtitle does not say it a second time.
     const working = (): string => {
       const { done, running } = stepCount(trail);
-      if (done === 0) return `▶️ 处理中 · ${age()}`;
-      return `▶️ 处理中 · ${done} 步完成${running ? " · 正在跑" : ""} · ${age()}`;
+      if (done === 0) return `▶️ ${age()}`;
+      return `▶️ ${done} 步完成${running ? " · 正在跑" : ""} · ${age()}`;
     };
     // Stopping used to mean finding the input box and typing /stop, on a phone, while the run kept
     // going. The card is where the progress lives, so the way to stop lives there too.

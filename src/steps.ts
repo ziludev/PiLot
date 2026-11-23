@@ -181,12 +181,26 @@ export function toolIcon(name: string, hint?: string): string {
   return "⚙️";
 }
 
-/** `bash · read` → `⌨️ bash · 📄 read`: the same names, with a category in front of each. */
+/**
+ * `bash · read` → `⌨️ bash · 📄 read`: the same names, with a category in front of each.
+ *
+ * Repeats collapse into a count. A round that fires two `bash` calls in parallel used to print
+ * `⌨️ bash · ⌨️ bash`, which is one fact told twice and a line of the card spent on nothing; the
+ * reader wants "two shells", so that is what it says.
+ */
 export function withIcons(label: string, hint?: string): string {
-  return label
-    .split(" · ")
-    .filter((name) => name.length > 0)
-    .map((name) => `${toolIcon(name, hint)} ${name}`)
+  const names = label.split(" · ").filter((name) => name.length > 0);
+  const order: string[] = [];
+  const counts = new Map<string, number>();
+  for (const name of names) {
+    if (!counts.has(name)) order.push(name);
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return order
+    .map((name) => {
+      const count = counts.get(name) ?? 1;
+      return `${toolIcon(name, hint)} ${name}${count > 1 ? ` ×${count}` : ""}`;
+    })
     .join(" · ");
 }
 
@@ -228,7 +242,10 @@ function stepLine(label: string, hint: string | undefined, elapsed: string, tail
   // A skill call says which skill; its `export SKILL_DIR=…` says nothing twice over.
   const what = skillOf(hint) ?? hintLine(hint);
   const head = `${withIcons(label, hint)}${what.length === 0 ? "" : ` \`${what}\``}`;
-  return `${head} · ${elapsed}${tail === undefined ? "" : ` · ${tail}`}`;
+  // The tail is one glance, not a transcript: a raw path used to fold the line into four. Cut it
+  // the way an argument is cut — the head identifies the thing, the rest was the 87th file name.
+  const said = hintLine(tail, 32);
+  return `${head} · ${elapsed}${said.length === 0 ? "" : ` · ${said}`}`;
 }
 
 /** How many steps to report: rounds that ended, and whether one is running. */

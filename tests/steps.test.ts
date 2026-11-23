@@ -119,3 +119,33 @@ test("the step line names the skill instead of its SKILL_DIR preamble", () => {
   assert.match(card, /`lark-doc`/);
   assert.ok(!card.includes("SKILL_DIR"), `still showing the preamble: ${card}`);
 });
+
+test("two parallel calls in one round are one entry with a count", () => {
+  // `bash · bash` used to draw the keyboard twice: one fact, told twice, on a line the card cannot spare.
+  assert.equal(withIcons("bash · bash"), "⌨️ bash ×2");
+  assert.equal(withIcons("bash · read · bash"), "⌨️ bash ×2 · 📄 read");
+  assert.equal(withIcons("bash"), "⌨️ bash");
+});
+
+test("a round of parallel calls still names each of them once", () => {
+  let trail: Trail = { rounds: [], since: 0 };
+  trail = advance(trail, live(["bash", "bash", "read"], ["a", "b", "c"]), 0);
+  trail = advance(trail, live(["grep"], ["d"]), 2_000);
+  const lines = renderSteps(trail, 3_000).split("\n");
+  assert.equal(lines[0], "✓ ⌨️ bash ×2 · 📄 read · 2s");
+  assert.equal(lines[1], "▸ 🔍 grep · 1s");
+  assert.equal(trail.rounds[0].label, "bash · bash · read", "the record keeps every call");
+});
+
+test("the last output line is cut like an argument, so a path cannot fold the card", () => {
+  // What the card showed: `· ./chat-service-infra/src/…/ReplyOnBehalfVisibility.java` on four lines.
+  const path =
+    "./chat-service-infra/src/main/java/ai/sitin/chat/service/infra/service/ReplyOnBehalfVisibility.java";
+  let trail: Trail = { rounds: [], since: 0 };
+  trail = advance(trail, live(["bash", "bash"], ["a", "b"], path), 0);
+  trail = advance(trail, live(["read"], ["c"]), 1_500);
+  const line = renderSteps(trail, 2_000).split("\n")[0] ?? "";
+  assert.match(line, /^✓ ⌨️ bash ×2 · 2s · \.\/chat-service-infra\/src\/m/);
+  assert.ok(!line.includes("ReplyOnBehalfVisibility"), `tail was not cut: ${line}`);
+  assert.ok(line.length < 64, `line still too long (${line.length}): ${line}`);
+});

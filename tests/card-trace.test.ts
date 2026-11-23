@@ -9,6 +9,9 @@ test("a card carries the user's line, clipped to one row", () => {
   assert.equal(digestOf("第一行\n\n第二行"), "第一行 第二行");
   assert.equal(digestOf("   "), "");
   assert.equal(digestOf("啊".repeat(40)), `${"啊".repeat(28)}…`);
+  // A hard cut landed mid-word ("…conversationstates 接…"); the title now ends on a break.
+  assert.equal(digestOf("看看 list conversationstates 接口定义在哪"), "看看 list conversationstates…");
+  assert.equal(digestOf("一".repeat(20) + "，" + "二".repeat(10)), `${"一".repeat(20)}，…`);
 });
 
 test("turns in one conversation run one at a time", async () => {
