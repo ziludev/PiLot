@@ -67,23 +67,36 @@ func (a *App) transcriptView(c *ui.Context, t theme.Tokens) {
 		}
 		return rows[row].id
 	}
-	ui.Row(c).Grow(1).FillWidth().Justify(ui.Center).Children(func() {
-		ui.Column(c).Grow(1).FillHeight().MaxWidth(maxContent).Children(func() {
+	// The scroll bar belongs to the pane's edge, not to the reading column: a
+	// capped scroll container leaves the bar floating in the middle of a wide
+	// window. So the list spans the pane and every row centres its own capped
+	// column inside it — same measure, bar where the wheel is expected.
+	ui.Row(c).Grow(1).FillWidth().Children(func() {
+		ui.Column(c).Grow(1).FillHeight().Children(func() {
 			if th.loadingOlder && !th.prefetching {
-				a.olderLine(c, t)
+				centeredRow(c, func() { a.olderLine(c, t) })
 			}
 			ui.List(c, &a.vm.threadList, len(rows), func(row int) {
-				if row != divider {
-					a.threadRowMarked(c, t, rows[row], a.findMark(row))
-					return
-				}
-				ui.Column(c).FillWidth().Children(func() {
+				centeredRow(c, func() {
+					if row != divider {
+						a.threadRowMarked(c, t, rows[row], a.findMark(row))
+						return
+					}
 					a.newLine(c, t)
 					a.threadRowMarked(c, t, rows[row], a.findMark(row))
 				})
 			}).Grow(1).Padding(8, 0, 12, 0)
 			a.jumpToLatest(c, t, len(rows))
 		})
+	})
+}
+
+// centeredRow is one transcript row inside the reading column: the list spans
+// the whole pane so its scroll bar sits against the pane's edge, and each row
+// puts the capped column back in the middle.
+func centeredRow(c *ui.Context, draw func()) {
+	ui.Row(c).FillWidth().Justify(ui.Center).Children(func() {
+		ui.Column(c).Grow(1).MaxWidth(maxContent).Children(draw)
 	})
 }
 

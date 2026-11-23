@@ -251,11 +251,15 @@ func readImage(path string) (imageRef, bool) {
 	return imageRef{mime: mime, data: data}, true
 }
 
+// addImages puts pictures in the draft and claims the cursor: a paste or a drop
+// lands in the composer, so that is where the next keystroke has to go — the
+// attachment is a chip in the box, and typing the caption is the next move.
 func (a *App) addImages(images []imageRef) {
 	if len(images) == 0 {
 		return
 	}
 	a.draftImage = append(a.draftImage, images...)
+	a.focusComposer = true
 	a.invalidate()
 }
 

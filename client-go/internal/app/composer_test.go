@@ -331,3 +331,20 @@ func TestComposerShowsChatSpend(t *testing.T) {
 		t.Fatalf("spend missing; drew %v", tt2.Texts())
 	}
 }
+
+// A pasted or dropped picture lands in the composer, so the cursor goes there:
+// the chip sits in the box and the caption is the next thing typed. Without
+// this the attachment appeared while the keys still went wherever they were.
+func TestAttachedImageTakesTheComposerCursor(t *testing.T) {
+	a := newApp(Config{})
+	a.focusComposer = false
+
+	a.addImages([]imageRef{{mime: "image/png", data: thumbnailPNG(t)}})
+
+	if len(a.draftImage) != 1 {
+		t.Fatalf("draft holds %d pictures, want 1", len(a.draftImage))
+	}
+	if !a.focusComposer {
+		t.Fatal("the pasted picture did not claim the composer's cursor")
+	}
+}
