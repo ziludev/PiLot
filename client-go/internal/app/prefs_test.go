@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/egoist/mygo/ui"
 
 	"pitta/internal/i18n"
 	"pitta/internal/protocol"
@@ -127,5 +130,55 @@ func TestDraftSurvivesSwitchingChats(t *testing.T) {
 	savePrefs(a.prefs)
 	if _, ok := readPrefs().Drafts["1"]; ok {
 		t.Fatal("a sent message stayed in the draft store")
+	}
+}
+
+// TestSavedLanguageIsTheWindowsAtLaunch: the language picked last time is the
+// one the window opens in — read from the file, drawn in the frame — without
+// the reader picking it again.
+func TestSavedLanguageIsTheWindowsAtLaunch(t *testing.T) {
+	path := withPrefsFile(t)
+	if err := os.WriteFile(path, []byte(`{"lang":"en"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	i18n.Set(i18n.ZH)
+	t.Cleanup(func() { i18n.Set(i18n.ZH) })
+	a := New(Config{BaseURL: "http://127.0.0.1:1"})
+	defer a.Close()
+	if got := i18n.Current(); got != i18n.EN {
+		t.Fatalf("launched in %v, saved was en", got)
+	}
+	// Not just the global: the frame the window opens on is drawn in English.
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	if !tt.HasText("Chats") {
+		t.Fatalf("the window opened in Chinese; drew %v", tt.Texts())
+	}
+}
+
+// TestPickingEnglishSticks: the click redraws in English and the choice is in
+// the file before the window closes, so the next launch reads it back.
+func TestPickingEnglishSticks(t *testing.T) {
+	path := withPrefsFile(t)
+	i18n.Set(i18n.ZH)
+	t.Cleanup(func() { i18n.Set(i18n.ZH) })
+	a := newApp(Config{})
+	a.settings.open = true
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	if err := tt.Click("English"); err != nil {
+		t.Fatalf("click English: %v", err)
+	}
+	tt.Frame()
+	if !tt.HasText("Chats") {
+		t.Fatalf("the window did not redraw in English; drew %v", tt.Texts())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read prefs: %v", err)
+	}
+	if !strings.Contains(string(data), `"lang": "en"`) {
+		t.Fatalf("prefs file does not hold the language: %s", data)
 	}
 }
