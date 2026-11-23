@@ -83,7 +83,7 @@ func (a *App) railRows() []railRow {
 	if a.rail == railChats {
 		return append(a.searchRows(), a.chatRows(lowerTrim(a.filter))...)
 	}
-	return a.taskRows(lowerTrim(a.filter))
+	return a.taskRows(lowerTrim(a.filter), a.taskFilter)
 }
 
 // searchRows is the 「搜索结果」 block: one line per hit, the chat it sits in and
@@ -531,11 +531,19 @@ func projectEntries(conversationID int, entries []protocol.Entry) ([]threadRow, 
 	rows := make([]threadRow, 0, len(ordered))
 	var turns []int
 	turn := 0
+	// A page and the socket's window can name the same entry twice, and two
+	// rows with one id share one list state: the second copy of a message would
+	// take the first one's scroll and hit. One entry, one row.
+	seenEntry := map[int]bool{}
 	stepRows := map[int]int{}  // turn id → index in rows
 	thinkRows := map[int]int{} // turn id → index of its thinking row
 	lastDay := ""
 
 	for _, entry := range ordered {
+		if seenEntry[entry.ID] {
+			continue
+		}
+		seenEntry[entry.ID] = true
 		view := parseEntry(entry)
 		// The rule belongs to the day, not to the entry that happens to open
 		// it: the same day printed once, however many entries share it. The

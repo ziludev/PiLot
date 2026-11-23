@@ -33,43 +33,47 @@ func (a *App) composerArea(c *ui.Context, t theme.Tokens) {
 	})
 }
 
+// composerCard is Beautiful UI's Prompt Bar at its default size: one row of
+// [ + | field | model | send ] inside a 14px card, the card's own hairline
+// turning stronger while the field has the keyboard. Larger than a field and
+// smaller than a panel — the same measure the transcript reads at.
 func (a *App) composerCard(c *ui.Context, t theme.Tokens) {
-	card := ui.Column(c).FillWidth().Padding(10, 12, 8, 12).Radius(12).
-		Border(1, t.Border).Background(t.Card).Gap(6)
 	// Keep the preference mirror current while typing, so leaving the window
 	// without switching chats still files what was written.
 	if a.active != 0 {
 		a.prefs.setDraft(a.active, a.draft)
 	}
 	a.syncMentions()
+	card := ui.Column(c).FillWidth().Padding(6).Radius(theme.RadiusWindow).
+		Border(1, t.Line).Background(t.Surface).Gap(6)
 	card.Children(func() {
 		a.attachmentChips(c, t)
 		a.mentionList(c, t)
-		input := ui.TextAreaBase(c, &a.draft).FillWidth().Lines(1, 8).MinHeight(22).FontSize(12.5).
-			Placeholder(i18n.T("composerPlaceholder"))
-		if a.focusComposer {
-			input.AutoFocus()
-			a.focusComposer = false
-		}
-		input.OnTextKey(a.composerKey)
-		input.OnPaste(func(text string) bool {
-			if text != "" {
-				return false // text pastes as usual
-			}
-			return a.pasteImage(c)
-		})
-		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
+		ui.Row(c).FillWidth().AlignItems(ui.End).Gap(4).Children(func() {
 			a.attachButton(c, t)
-			a.modelChip(c, t)
-			a.usageChip(c, t)
-			if cue := a.composerCue(); cue == "" {
-				ui.Box(c).Grow(1)
-			} else {
-				ui.Text(c, cue).Grow(1).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
+			input := ui.TextAreaBase(c, &a.draft).Grow(1).Lines(1, 8).MinHeight(22).
+				FontSize(theme.TextBody).Placeholder(i18n.T("composerPlaceholder"))
+			if a.focusComposer {
+				input.AutoFocus()
+				a.focusComposer = false
 			}
+			input.OnTextKey(a.composerKey)
+			input.OnPaste(func(text string) bool {
+				if text != "" {
+					return false // text pastes as usual
+				}
+				return a.pasteImage(c)
+			})
+			a.modelChip(c, t)
 			a.sendButton(c, t)
 		})
 	})
+}
+
+// canSend is the send button's own question: there is something to send, and a
+// chat to send it to. The prompt bar greys the button out until there is.
+func (a *App) canSend() bool {
+	return a.active != 0 && (strings.TrimSpace(a.draft) != "" || len(a.draftImage) > 0)
 }
 
 // composerKey takes Enter (send), Shift+Enter (newline, left to the input), and
@@ -160,13 +164,13 @@ func (a *App) attachmentChips(c *ui.Context, t theme.Tokens) {
 	ui.Row(c).FillWidth().Gap(6).Children(func() {
 		for i := range a.draftImage {
 			index := i
-			chip := ui.Row(c).Gap(4).AlignItems(ui.Center).Padding(2, 2, 2, 2).
-				Radius(8).Background(t.Muted)
+			chip := ui.Row(c).Gap(4).AlignItems(ui.Center).Height(26).Padding(2).
+				Radius(theme.RadiusChip).Background(t.Field)
 			chip.Children(func() {
 				if bitmap := a.draftImage[index].bitmap(); bitmap != nil {
-					ui.Image(c, bitmap).Size(40, 40).Radius(6).Clip()
+					ui.Image(c, bitmap).Size(22, 22).Radius(5).Clip()
 				}
-				remove := ui.ButtonBase(c).Size(16, 16).Radius(8).Justify(ui.Center).
+				remove := ui.ButtonBase(c).Size(20, 20).Radius(5).Justify(ui.Center).
 					AlignItems(ui.Center).Cursor(ui.CursorPointer).Tooltip(i18n.T("removeImage"))
 				remove.Children(func() {
 					ui.Icon(c, icons.X).Size(9, 9).TextColor(t.MutedFg)
@@ -180,11 +184,16 @@ func (a *App) attachmentChips(c *ui.Context, t theme.Tokens) {
 	})
 }
 
+// attachButton is the prompt bar's leading "+": a 28px square with a hair of
+// hover, and the file picker behind it.
 func (a *App) attachButton(c *ui.Context, t theme.Tokens) {
-	button := ui.ButtonBase(c).Size(24, 24).Radius(6).Justify(ui.Center).AlignItems(ui.Center).
-		Cursor(ui.CursorPointer).Tooltip(i18n.T("attachImage"))
+	button := ui.ButtonBase(c).Size(28, 28).Radius(theme.RadiusControl).Justify(ui.Center).
+		AlignItems(ui.Center).Cursor(ui.CursorPointer).Tooltip(i18n.T("attachImage"))
+	if button.Hovered() {
+		button = button.Background(t.Hover)
+	}
 	button.Children(func() {
-		ui.Icon(c, icons.Paperclip).Size(13, 13).TextColor(t.MutedFg)
+		ui.Icon(c, icons.Plus).Size(16, 16).TextColor(t.Ink3)
 	})
 	button.OnClick(a.attachImages)
 }
@@ -193,8 +202,13 @@ func (a *App) attachButton(c *ui.Context, t theme.Tokens) {
 // place the eye already is.
 func (a *App) sendButton(c *ui.Context, t theme.Tokens) {
 	running := a.running()
-	button := ui.ButtonBase(c).Size(28, 28).Radius(14).Justify(ui.Center).AlignItems(ui.Center).
-		Cursor(ui.CursorPointer).Background(t.Primary)
+	ready := running || a.canSend()
+	back, ink := t.LineStrong, t.Ink2
+	if ready {
+		back, ink = t.Ink, t.Surface
+	}
+	button := ui.ButtonBase(c).Size(28, 28).Radius(theme.RadiusControl).Justify(ui.Center).
+		AlignItems(ui.Center).Cursor(ui.CursorPointer).Background(back)
 	label := i18n.T("send")
 	if running {
 		label = i18n.T("stop")
@@ -202,9 +216,9 @@ func (a *App) sendButton(c *ui.Context, t theme.Tokens) {
 	button = button.Tooltip(label)
 	button.Children(func() {
 		if running {
-			ui.Icon(c, icons.Square).Size(11, 11).TextColor(t.PrimaryFg)
+			ui.Icon(c, icons.Square).Size(11, 11).TextColor(ink)
 		} else {
-			ui.Icon(c, icons.Send).Size(13, 13).TextColor(t.PrimaryFg)
+			ui.Icon(c, icons.ArrowUp).Size(16, 16).TextColor(ink)
 		}
 	})
 	if running {
@@ -214,68 +228,74 @@ func (a *App) sendButton(c *ui.Context, t theme.Tokens) {
 	}
 }
 
-// approvalCard replaces the composer while a tool call waits. It names the
-// tool, shows what it wants to run, and offers the two answers.
+// approvalCard replaces the composer while a tool call waits. It is Beautiful
+// UI's ApprovalCard shell: a shadowed surface card with no border and no spine,
+// the question as its heading, the answers as a quiet pair at the foot. The
+// click that decides is the only loud thing on it.
 func (a *App) approvalCard(c *ui.Context, t theme.Tokens, approval protocol.PendingApproval, more int) {
-	card := ui.Row(c).FillWidth().Radius(12).Border(1, t.Border).Background(t.Card).
-		AlignItems(ui.Stretch).Children(func() {
-		ui.Box(c).Width(2).AlignSelf(ui.Stretch).Background(t.Warning)
-		ui.Column(c).Grow(1).Padding(10, 12).Gap(6).Children(func() {
-			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
-				ui.Icon(c, icons.ShieldAlert).Size(13, 13).TextColor(t.Warning)
-				ui.Text(c, i18n.TF("approvalTitle", map[string]any{"tool": approval.Tool})).
-					Grow(1).FontSize(12.5).FontWeight(600).TextColor(t.Foreground).MaxLines(1)
-				if more > 0 {
-					ui.Text(c, i18n.TF("morePending", map[string]any{"n": more})).
-						FontSize(10.5).TextColor(t.MutedFg)
-				}
-			})
-			if summary := approvalSummary(approval); summary != "" {
-				ui.Text(c, summary).FontSize(11.5).TextColor(t.MutedFg).MaxLines(3)
+	card := ui.Column(c).FillWidth().Radius(theme.Radius).Background(t.Surface).
+		Shadow(0, 8, 24, 0, ui.RGBA(0, 0, 0, 0.10)).Padding(14).Gap(10)
+	card.Children(func() {
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
+			ui.Text(c, i18n.TF("approvalTitle", map[string]any{"tool": approval.Tool})).
+				Grow(1).FontSize(theme.TextTitle).FontWeight(500).TextColor(t.Ink).MaxLines(1)
+			if more > 0 {
+				ui.Text(c, i18n.TF("morePending", map[string]any{"n": more})).
+					FontSize(theme.TextMicro).TextColor(t.Ink3)
 			}
-			ui.Row(c).FillWidth().Justify(ui.End).Gap(6).Children(func() {
-				a.approvalButton(c, t, i18n.T("deny"), false, approval.CallID, false)
-				if approval.GrantKey != "" {
-					a.approvalSessionButton(c, t, approval.CallID, i18n.T("allowSession"), a.decideSession)
-					a.approvalSessionButton(c, t, approval.CallID, i18n.T("allowSessionAll"), a.decideSessionAll)
-				}
-				a.approvalButton(c, t, i18n.T("allow"), true, approval.CallID, true)
-			})
+		})
+		if summary := approvalSummary(approval); summary != "" {
+			ui.Text(c, summary).FontSize(theme.TextBody).TextColor(t.Ink2).MaxLines(3)
+		}
+		ui.Row(c).FillWidth().Justify(ui.End).Gap(6).Children(func() {
+			a.approvalButton(c, t, i18n.T("deny"), false, approval.CallID, false)
+			if approval.GrantKey != "" {
+				a.approvalSessionButton(c, t, approval.CallID, i18n.T("allowSession"), a.decideSession)
+				a.approvalSessionButton(c, t, approval.CallID, i18n.T("allowSessionAll"), a.decideSessionAll)
+			}
+			a.approvalButton(c, t, i18n.T("allow"), true, approval.CallID, true)
 		})
 	})
-	_ = card
 }
 
 // approvalSessionButton answers "yes, and stop asking for a while": the bridge
 // keeps the grant per conversation, either for this risk class or, with `all`,
 // for every class that does not destroy data.
 func (a *App) approvalSessionButton(c *ui.Context, t theme.Tokens, callID, label string, decide func(string)) {
-	button := ui.ButtonBase(c).Height(26).Padding(0, 10).Radius(7).Justify(ui.Center).
-		AlignItems(ui.Center).Cursor(ui.CursorPointer).Border(1, t.Border).
-		Label(label)
+	button := ui.ButtonBase(c).Height(28).Padding(0, 10).Radius(theme.RadiusControl).
+		Justify(ui.Center).AlignItems(ui.Center).Cursor(ui.CursorPointer).
+		Background(t.Surface)
+	if button.Hovered() {
+		button = button.Background(t.Hover)
+	}
 	button.Children(func() {
-		ui.Text(c, label).FontSize(11.5).TextColor(t.MutedFg)
+		ui.Text(c, label).FontSize(theme.TextRow).TextColor(t.Ink2)
 	})
 	button.OnClick(func() { decide(callID) })
 }
 
 func (a *App) approvalButton(c *ui.Context, t theme.Tokens, label string, primary bool, callID string, approved bool) {
-	button := ui.ButtonBase(c).Height(24).Radius(6).Padding(0, 10).Justify(ui.Center).
-		Cursor(ui.CursorPointer)
+	button := ui.ButtonBase(c).Height(28).Radius(theme.RadiusControl).Padding(0, 12).
+		Justify(ui.Center).AlignItems(ui.Center).Cursor(ui.CursorPointer)
 	if primary {
-		button = button.Background(t.Primary)
+		// Allow is the answer the card exists to ask for, so it is the one accent
+		// thing on it; deny is a ghost button that only tints on hover.
+		button = button.Background(t.Brand)
 	} else {
-		button = button.Border(1, t.Border).Background(t.Background)
+		button = button.Background(t.Surface)
+		if button.Hovered() {
+			button = button.Background(t.Hover)
+		}
 	}
 	if a.busy[callID] {
 		button = button.Disabled(true)
 	}
 	button.Children(func() {
-		color := t.Foreground
+		color := t.Ink2
 		if primary {
-			color = t.PrimaryFg
+			color = ui.RGBA(255, 255, 255, 1)
 		}
-		ui.Text(c, label).FontSize(11).FontWeight(500).TextColor(color)
+		ui.Text(c, label).FontSize(theme.TextRow).FontWeight(500).TextColor(color)
 	})
 	button.OnClick(func() { a.decide(callID, approved) })
 }
@@ -290,15 +310,18 @@ func approvalSummary(approval protocol.PendingApproval) string {
 	return summary
 }
 
-// usageChip is the chat's running cost and spend, next to the model that is
-// spending it: the number a person checks before sending one more long prompt.
+// usageChip is the chat's running cost and spend, drawn in the header beside the
+// chat's name: the number a person checks before sending one more long prompt.
+// It used to sit in the prompt bar next to the model, where a fourth control
+// left the input too little room to look like an input.
 func (a *App) usageChip(c *ui.Context, t theme.Tokens) {
 	th := a.threads[a.active]
 	if th == nil || th.usage == nil || th.usage.Turns == 0 {
 		return
 	}
 	ui.Text(c, compactCost(th.usage.Cost)+" · "+compactTokens(int64(th.usage.Tokens))+" tok").
-		FontSize(10.5).TextColor(t.MutedFg).MaxLines(1).
+		FontSize(theme.TextMicro).TextColor(t.Ink3).MaxLines(1).
+		Padding(0, 2).
 		Tooltip(i18n.TF("usageTurns", map[string]any{"n": th.usage.Turns}))
 }
 

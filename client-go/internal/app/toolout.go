@@ -108,6 +108,35 @@ func classify(line string) outKind {
 	return outPlain
 }
 
+// diffSummary reads a unified patch's headline out of the raw output: which
+// file, how many lines went in, how many came out, and whether this is a patch
+// at all. It reads the whole output rather than the trimmed block, because the
+// lines a long patch drops in the middle are still lines the patch changed.
+func diffSummary(raw string) (file string, add, del int, ok bool) {
+	hunks := false
+	for _, line := range strings.Split(stripANSI(raw), "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(trimmed, "+++ "):
+			file = strings.TrimSpace(strings.TrimPrefix(trimmed, "+++ "))
+			file = strings.TrimPrefix(file, "b/")
+			if index := strings.IndexAny(file, "\t"); index > 0 {
+				file = file[:index]
+			}
+		case strings.HasPrefix(trimmed, "@@"), strings.HasPrefix(trimmed, "--- "),
+			strings.HasPrefix(trimmed, "diff --git"):
+			hunks = true
+		case strings.HasPrefix(trimmed, "+++"), strings.HasPrefix(trimmed, "---"):
+			// the file headers themselves, already handled above
+		case strings.HasPrefix(trimmed, "+"):
+			add++
+		case strings.HasPrefix(trimmed, "-"):
+			del++
+		}
+	}
+	return file, add, del, hunks && (add > 0 || del > 0)
+}
+
 // stripANSI removes the color and cursor codes a tool leaves behind when it
 // thinks it is writing to a terminal: drawn raw they are boxes and blanks.
 func stripANSI(s string) string {

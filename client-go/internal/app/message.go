@@ -22,7 +22,8 @@ import (
 // with opacity rather than skipped, so the row keeps its height and the thread
 // does not jump as the pointer moves.
 func (a *App) messageActions(c *ui.Context, t theme.Tokens, row threadRow, hovered, fromUser bool) {
-	bar := ui.Row(c).FillWidth().Height(20).Gap(2).AlignItems(ui.Center)
+	// Streaming Text's action row: 24px squares with 6px corners, a hair apart.
+	bar := ui.Row(c).FillWidth().Height(24).Gap(2).AlignItems(ui.Center)
 	if fromUser {
 		bar = bar.Justify(ui.End)
 	}
@@ -54,10 +55,15 @@ func hoverOpacity(hovered bool) float32 {
 // the message has, and the marks (copy, pencil, arrow round a circle) are the
 // ones every editor and mail client already uses for them.
 func (a *App) messageAction(c *ui.Context, t theme.Tokens, icon *ui.SVG, label string, onClick func()) {
-	btn := ui.ButtonBase(c).Height(20).Width(20).Radius(4).
+	btn := ui.ButtonBase(c).Height(24).Width(24).Radius(theme.RadiusChip).
 		Cursor(ui.CursorPointer).Tooltip(label).Label(label)
+	ink := t.Ink3
+	if btn.Hovered() {
+		btn = btn.Background(t.Hover2)
+		ink = t.Ink2
+	}
 	btn.Children(func() {
-		ui.Icon(c, icon).Size(11.5, 11.5).TextColor(t.MutedFg)
+		ui.Icon(c, icon).Size(12, 12).TextColor(ink)
 	})
 	btn.OnClick(onClick)
 }

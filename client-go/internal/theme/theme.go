@@ -1,5 +1,12 @@
-// Package theme maps the earlier web client's zinc token set
-// (the old client/index.css) onto what mygo's ui package can color.
+// Package theme holds the client's palette: the Beautiful UI token set
+// (beautifului.dev), not the shadcn zinc set the first web client used.
+//
+// The shape is five layers from outermost to innermost (Page → Canvas →
+// Surface → Inset/Field), three ink steps, two hover washes, and one saturated
+// hue (Brand) plus three tinted pairs for ok / warn / bad. The oklch values
+// from the site's stylesheet are converted to sRGB here, because mygo colors
+// are 8-bit RGBA; docs/ui-beautifului.md records the conversion and the
+// mapping onto the old slot names, which the painters still ask for.
 package theme
 
 import "github.com/egoist/mygo/ui"
@@ -7,110 +14,219 @@ import "github.com/egoist/mygo/ui"
 // Tokens holds the client's palette. Widget colors go into ui.Theme;
 // the chrome colors (sidebar, toolbar, status bar) have no theme slot and
 // stay here, in the shell's own palette.
+//
+// The first block is Beautiful UI's own vocabulary; the second block keeps the
+// old slot names alive so the painters did not all have to change at once.
 type Tokens struct {
-	Background ui.Color
-	Foreground ui.Color
-	Card       ui.Color
-	Popover    ui.Color
-	PopoverFg  ui.Color
+	// Layers, outermost first. A chat window is Page, the rail and the drawer
+	// are Canvas, a bubble or a card is Surface, a well inside one is Inset.
+	Page    ui.Color
+	Canvas  ui.Color
+	Surface ui.Color
+	Inset   ui.Color
+	Field   ui.Color
 
-	Primary   ui.Color
-	PrimaryFg ui.Color
-	Secondary ui.Color
-	SecondFg  ui.Color
+	// Hover washes: Hover on a Surface, Hover2 on a Canvas (the rail's rows).
+	Hover  ui.Color
+	Hover2 ui.Color
 
-	Muted    ui.Color
-	MutedFg  ui.Color
-	Accent   ui.Color
-	AccentFg ui.Color
+	// Three ink steps: Ink for what you read, Ink2 for labels and secondary
+	// rows, Ink3 for metadata that must recede without disappearing.
+	Ink  ui.Color
+	Ink2 ui.Color
+	Ink3 ui.Color
 
-	// Warning is amber-500, the color the approval bar and running tasks use;
-	// that token set has no equivalent.
-	Warning ui.Color
-	// Success is emerald-600 in light and emerald-400 in dark: diff additions
-	// and anything that went through. The token set this maps has no green.
-	Success ui.Color
-	// Selection is the highlight behind selected text, which mygo draws
-	// itself; a browser paints it, so these are mygo's own
-	// defaults, kept explicit so a theme change cannot make it invisible.
-	Selection   ui.Color
-	Destructive ui.Color
-	Border      ui.Color
-	Input       ui.Color
-	Ring        ui.Color
+	// Hairlines. Line is the default border, LineStrong the edge of a control
+	// that has to read as an edge, LineSoft a divider inside a card.
+	Line       ui.Color
+	LineStrong ui.Color
+	LineSoft   ui.Color
 
-	Sidebar       ui.Color
-	SidebarFg     ui.Color
-	SidebarAccent ui.Color
-	SidebarBorder ui.Color
+	// Brand is --accent: the only saturated hue in the chrome. It marks the
+	// selected row, the focus ring, and the one primary action per surface.
+	Brand     ui.Color
+	BrandInk  ui.Color
+	BrandTint ui.Color
+
+	// Tinted pairs: the color for text or a dot, the tint for its background.
+	Green      ui.Color
+	GreenTint  ui.Color
+	Orange     ui.Color
+	OrangeTint ui.Color
+	Red        ui.Color
+	RedTint    ui.Color
+
+	// Tooltip is its own inverse surface, so a hint never has to borrow a
+	// layer and land unreadable on it.
+	TipBg     ui.Color
+	TipFg     ui.Color
+	TipMuted  ui.Color
+	TipBorder ui.Color
+
+	// Legacy slots, kept so every painter compiles unchanged. Each is filled
+	// with the Beautiful UI layer that means the same thing.
+	Background ui.Color // Page
+	Foreground ui.Color // Ink
+	Card       ui.Color // Surface
+	Popover    ui.Color // Surface
+	PopoverFg  ui.Color // Ink
+
+	Primary   ui.Color // Ink: a primary button is ink, not a hue
+	PrimaryFg ui.Color // Page
+	Secondary ui.Color // Hover
+	SecondFg  ui.Color // Ink
+
+	Muted    ui.Color // Inset
+	MutedFg  ui.Color // Ink3
+	Accent   ui.Color // Hover
+	AccentFg ui.Color // Ink
+
+	Warning     ui.Color // Orange
+	Success     ui.Color // Green
+	Selection   ui.Color // BrandTint behind selected text
+	Destructive ui.Color // Red
+	Border      ui.Color // Line
+	Input       ui.Color // LineStrong
+	Ring        ui.Color // Brand
+
+	Sidebar       ui.Color // Canvas
+	SidebarFg     ui.Color // Ink
+	SidebarAccent ui.Color // Hover2
+	SidebarBorder ui.Color // Line
 }
 
-// Light is :root from the old client/index.css, oklch converted to sRGB.
+// Light is the site's :root block, oklch converted to sRGB.
 func Light() Tokens {
 	return Tokens{
-		Background: ui.Hex("#ffffff"),
-		Foreground: ui.Hex("#0a0a0a"),
+		Page:    ui.Hex("#fafafb"),
+		Canvas:  ui.Hex("#f1f2f3"),
+		Surface: ui.Hex("#ffffff"),
+		Inset:   ui.Hex("#f7f8f9"),
+		Field:   ui.Hex("#f2f2f3"),
+
+		Hover:  ui.Hex("#f4f5f6"),
+		Hover2: ui.Hex("#e7e9eb"),
+
+		Ink:  ui.Hex("#1f2124"),
+		Ink2: ui.Hex("#62656b"),
+		Ink3: ui.Hex("#9a9da3"),
+
+		Line:       ui.Hex("#ecedef"),
+		LineStrong: ui.Hex("#e0e2e5"),
+		LineSoft:   ui.Hex("#f3f4f5"),
+
+		Brand:     ui.Hex("#0285ff"),
+		BrandInk:  ui.Hex("#0070dd"),
+		BrandTint: ui.Hex("#e9f3ff"),
+
+		Green:      ui.Hex("#199a4d"),
+		GreenTint:  ui.Hex("#e8f5ed"),
+		Orange:     ui.Hex("#ef720d"),
+		OrangeTint: ui.Hex("#fdf1e5"),
+		Red:        ui.Hex("#e3474c"),
+		RedTint:    ui.Hex("#fcecec"),
+
+		TipBg:     ui.Hex("#25272b"),
+		TipFg:     ui.Hex("#f6f7f8"),
+		TipMuted:  ui.Hex("#a5a8ad"),
+		TipBorder: ui.Hex("#3a3c40"),
+
+		Background: ui.Hex("#fafafb"),
+		Foreground: ui.Hex("#1f2124"),
 		Card:       ui.Hex("#ffffff"),
 		Popover:    ui.Hex("#ffffff"),
-		PopoverFg:  ui.Hex("#0a0a0a"),
+		PopoverFg:  ui.Hex("#1f2124"),
 
-		Primary:   ui.Hex("#171717"),
-		PrimaryFg: ui.Hex("#fafafa"),
-		Secondary: ui.Hex("#f5f5f5"),
-		SecondFg:  ui.Hex("#171717"),
+		Primary:   ui.Hex("#1f2124"),
+		PrimaryFg: ui.Hex("#fafafb"),
+		Secondary: ui.Hex("#f4f5f6"),
+		SecondFg:  ui.Hex("#1f2124"),
 
-		Muted:    ui.Hex("#f5f5f5"),
-		MutedFg:  ui.Hex("#737373"),
-		Accent:   ui.Hex("#f5f5f5"),
-		AccentFg: ui.Hex("#171717"),
+		Muted:    ui.Hex("#f7f8f9"),
+		MutedFg:  ui.Hex("#9a9da3"),
+		Accent:   ui.Hex("#f4f5f6"),
+		AccentFg: ui.Hex("#1f2124"),
 
-		Warning:     ui.Hex("#f59e0b"),
-		Success:     ui.Hex("#059669"),
-		Selection:   ui.RGBA(37, 99, 235, 0.25),
-		Destructive: ui.Hex("#e7000b"),
-		Border:      ui.Hex("#e5e5e5"),
-		Input:       ui.Hex("#e5e5e5"),
-		Ring:        ui.Hex("#a1a1a1"),
+		Warning:     ui.Hex("#ef720d"),
+		Success:     ui.Hex("#199a4d"),
+		Selection:   ui.RGBA(2, 133, 255, 0.18),
+		Destructive: ui.Hex("#e3474c"),
+		Border:      ui.Hex("#ecedef"),
+		Input:       ui.Hex("#e0e2e5"),
+		Ring:        ui.Hex("#0285ff"),
 
-		Sidebar:       ui.Hex("#fafafa"),
-		SidebarFg:     ui.Hex("#0a0a0a"),
-		SidebarAccent: ui.Hex("#f5f5f5"),
-		SidebarBorder: ui.Hex("#e5e5e5"),
+		Sidebar:       ui.Hex("#f1f2f3"),
+		SidebarFg:     ui.Hex("#1f2124"),
+		SidebarAccent: ui.Hex("#e7e9eb"),
+		SidebarBorder: ui.Hex("#ecedef"),
 	}
 }
 
-// Dark is .dark from the old client/index.css. The borders are white at 10% and
-// 15% there, so they stay translucent here.
+// Dark is the site's .dark block. Its lines are opaque greys, not white at ten
+// percent, so the chrome stays crisp over the darker layers.
 func Dark() Tokens {
 	return Tokens{
-		Background: ui.Hex("#0a0a0a"),
-		Foreground: ui.Hex("#fafafa"),
-		Card:       ui.Hex("#171717"),
-		Popover:    ui.Hex("#171717"),
-		PopoverFg:  ui.Hex("#fafafa"),
+		Page:    ui.Hex("#17181a"),
+		Canvas:  ui.Hex("#1c1d1f"),
+		Surface: ui.Hex("#232427"),
+		Inset:   ui.Hex("#1f2022"),
+		Field:   ui.Hex("#2b2c2f"),
 
-		Primary:   ui.Hex("#e5e5e5"),
-		PrimaryFg: ui.Hex("#171717"),
-		Secondary: ui.Hex("#262626"),
-		SecondFg:  ui.Hex("#fafafa"),
+		Hover:  ui.Hex("#2a2b2e"),
+		Hover2: ui.Hex("#313236"),
 
-		Muted:    ui.Hex("#262626"),
-		MutedFg:  ui.Hex("#a1a1a1"),
-		Accent:   ui.Hex("#262626"),
-		AccentFg: ui.Hex("#fafafa"),
+		Ink:  ui.Hex("#f2f3f4"),
+		Ink2: ui.Hex("#a5a8ad"),
+		Ink3: ui.Hex("#6c6f75"),
 
-		Warning:     ui.Hex("#fbbf24"),
-		Success:     ui.Hex("#34d399"),
-		Selection:   ui.RGBA(59, 130, 246, 0.40),
-		Destructive: ui.Hex("#ff6467"),
-		Border:      ui.RGBA(255, 255, 255, 0.10),
-		Input:       ui.RGBA(255, 255, 255, 0.15),
-		Ring:        ui.Hex("#737373"),
+		Line:       ui.Hex("#2e3033"),
+		LineStrong: ui.Hex("#3a3c40"),
+		LineSoft:   ui.Hex("#27282b"),
 
-		Sidebar:       ui.Hex("#171717"),
-		SidebarFg:     ui.Hex("#fafafa"),
-		SidebarAccent: ui.Hex("#262626"),
-		SidebarBorder: ui.RGBA(255, 255, 255, 0.10),
+		Brand:     ui.Hex("#3d9aff"),
+		BrandInk:  ui.Hex("#7ec0ff"),
+		BrandTint: ui.RGBA(61, 154, 255, 0.16),
+
+		Green:      ui.Hex("#3cbb72"),
+		GreenTint:  ui.RGBA(60, 187, 114, 0.14),
+		Orange:     ui.Hex("#f68f3c"),
+		OrangeTint: ui.RGBA(246, 143, 60, 0.14),
+		Red:        ui.Hex("#ee5c61"),
+		RedTint:    ui.RGBA(238, 92, 97, 0.14),
+
+		TipBg:     ui.Hex("#111214"),
+		TipFg:     ui.Hex("#f2f3f4"),
+		TipMuted:  ui.Hex("#a5a8ad"),
+		TipBorder: ui.Hex("#2e3033"),
+
+		Background: ui.Hex("#17181a"),
+		Foreground: ui.Hex("#f2f3f4"),
+		Card:       ui.Hex("#232427"),
+		Popover:    ui.Hex("#232427"),
+		PopoverFg:  ui.Hex("#f2f3f4"),
+
+		Primary:   ui.Hex("#f2f3f4"),
+		PrimaryFg: ui.Hex("#17181a"),
+		Secondary: ui.Hex("#2a2b2e"),
+		SecondFg:  ui.Hex("#f2f3f4"),
+
+		Muted:    ui.Hex("#1f2022"),
+		MutedFg:  ui.Hex("#6c6f75"),
+		Accent:   ui.Hex("#2a2b2e"),
+		AccentFg: ui.Hex("#f2f3f4"),
+
+		Warning:     ui.Hex("#f68f3c"),
+		Success:     ui.Hex("#3cbb72"),
+		Selection:   ui.RGBA(61, 154, 255, 0.35),
+		Destructive: ui.Hex("#ee5c61"),
+		Border:      ui.Hex("#2e3033"),
+		Input:       ui.Hex("#3a3c40"),
+		Ring:        ui.Hex("#3d9aff"),
+
+		Sidebar:       ui.Hex("#1c1d1f"),
+		SidebarFg:     ui.Hex("#f2f3f4"),
+		SidebarAccent: ui.Hex("#2a2b2e"),
+		SidebarBorder: ui.Hex("#2e3033"),
 	}
 }
 
@@ -124,8 +240,32 @@ func Current(c *ui.Context) Tokens {
 	return Light()
 }
 
-// Radius is --radius: 0.625rem from the client's stylesheet, in DIPs.
-const Radius float32 = 10
+// Radii, in DIPs, from the site's --radius-* variables.
+const (
+	// RadiusChip is --radius-chip: a tag or a small badge.
+	RadiusChip float32 = 6
+	// RadiusControl is --radius-control: a row, a search field, an icon button.
+	RadiusControl float32 = 8
+	// Radius is --radius-card: a bubble, a card, the composer.
+	Radius float32 = 10
+	// RadiusWindow is --radius-window: an outer frame.
+	RadiusWindow float32 = 14
+)
+
+// Type sizes, in DIPs, from the sizes the site actually draws with (it uses
+// arbitrary values rather than the default scale).
+const (
+	// TextTitle is the workspace name in the rail.
+	TextTitle float32 = 14
+	// TextBody is an answer in the transcript.
+	TextBody float32 = 13
+	// TextRow is a rail row or a tool chip header.
+	TextRow float32 = 12.5
+	// TextSmall is a step inside a chip.
+	TextSmall float32 = 11.5
+	// TextMicro is metadata: timestamps, counters, key hints.
+	TextMicro float32 = 11
+)
 
 // Use installs the palette for this frame and flips the light/dark flag that
 // Current reads. Apply alone only recolours widgets, so a painter that asks
@@ -146,21 +286,32 @@ func Use(c *ui.Context, dark bool) Tokens {
 // Apply sets the widget theme for this frame from t.
 func Apply(c *ui.Context, t Tokens) {
 	base := *c.Theme()
-	base.Background = t.Background
-	base.Surface = t.Muted
-	base.SurfaceHover = t.Accent
-	base.SurfacePressed = t.Border
-	base.Border = t.Border
-	base.Text = t.Foreground
-	base.TextMuted = t.MutedFg
-	// --primary there is ink, not a hue: buttons read as black on light.
-	base.Accent = t.Primary
-	base.AccentHover = t.Primary
-	base.AccentPressed = t.Primary
-	base.AccentText = t.PrimaryFg
-	base.Danger = t.Destructive
+	base.Background = t.Page
+	base.Surface = t.Surface
+	base.SurfaceHover = t.Hover
+	base.SurfacePressed = t.Hover2
+	base.Border = t.Line
+	base.Text = t.Ink
+	base.TextMuted = t.Ink3
+	// A primary button is ink, not a hue: the site spends its one saturated
+	// hue on selection and focus, and black-on-white reads as the action.
+	base.Accent = t.Ink
+	// A scroll bar that reads as a hint of movement, not as a black rule down
+	// the side of a panel: thin, rounded, and quiet until hovered.
+	base.ScrollbarWidth = 8
+	base.Scrollbar = t.Ink3.Alpha(0.45)
+	base.ScrollbarStyle = ui.ScrollbarStyle{
+		ThumbWidth: 6,
+		Thumb:      t.Ink3.Alpha(0.35),
+		Hover:      t.Ink2.Alpha(0.55),
+		Active:     t.Ink2.Alpha(0.75),
+	}
+	base.AccentHover = t.Ink2
+	base.AccentPressed = t.Ink2
+	base.AccentText = t.Page
+	base.Danger = t.Red
 	base.Selection = t.Selection
-	base.Focus = t.Ring
+	base.Focus = t.Brand
 	base.Radius = Radius
 	if family := FontForWindow(); family != "" {
 		base.Font = family

@@ -6,13 +6,18 @@ import "github.com/egoist/mygo/ui"
 // currentColor so ui.Icon follows the theme. Only the ones the P0 layout draws
 // live here.
 var (
-	Paperclip     = svg(`<path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"/>`)
-	Send          = svg(`<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>`)
-	Square        = svg(`<rect width="14" height="14" x="5" y="5" rx="2"/>`)
-	ChevronDown   = svg(`<path d="m6 9 6 6 6-6"/>`)
-	ChevronRight  = svg(`<path d="m9 18 6-6-6-6"/>`)
+	Paperclip    = svg(`<path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"/>`)
+	Cpu          = svg(`<rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/>`)
+	Send         = svg(`<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>`)
+	Square       = svg(`<rect width="14" height="14" x="5" y="5" rx="2"/>`)
+	ChevronDown  = svg(`<path d="m6 9 6 6 6-6"/>`)
+	ChevronRight = svg(`<path d="m9 18 6-6-6-6"/>`)
+	// Sparkle is ThinkingState's header glyph: the thought came from the model,
+	// not from a tool.
+	Sparkle       = svg(`<path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z"/>`)
 	Check         = svg(`<path d="M20 6 9 17l-5-5"/>`)
 	Plus          = svg(`<path d="M5 12h14"/><path d="M12 5v14"/>`)
+	ArrowUp       = svg(`<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>`)
 	Search        = svg(`<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>`)
 	X             = svg(`<path d="M18 6 6 18"/><path d="m6 6 12 12"/>`)
 	MessagePlus   = svg(`<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/>`)
@@ -44,7 +49,15 @@ var (
 	Copy = svg(`<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>`)
 	// Pencil is 编辑重发: the words go back to the composer to be written again,
 	// so the mark is the one every editor puts on "write".
-	Pencil  = svg(`<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>`)
+	Pencil = svg(`<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>`)
+	// Checklist is the task tab: a list where each line is something to be done,
+	// not a document. Lucide's list-checks, 24px grid like the rest.
+	Checklist = svg(`<path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/>`)
+	// Panel is the rail's own mark: the collapse control in Beautiful UI's
+	// sidebar is a panel with its left column filled in.
+	Panel = svg(`<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>`)
+	// Gear is the settings panel, which the rail's footer button opens.
+	Gear    = svg(`<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>`)
 	PlugZap = svg(`<path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z"/><path d="m2 22 3-3"/><path d="M7.5 13.5 10 11"/><path d="M10.5 16.5 13 14"/><path d="m18 3-4 4h6l-4 4"/>`)
 )
 

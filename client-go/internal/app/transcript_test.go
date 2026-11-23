@@ -75,12 +75,14 @@ func TestNarrowPaneKeepsItsGutter(t *testing.T) {
 	tt.SetDark(true)
 	tt.Frame()
 	img := tt.Image()
-	// The divider is at railWidth; the transcript starts one pixel after it.
-	divider := railWidth + 1
-	for x := divider + 1; x < divider+gutter-4; x++ {
+	// The rail ends at railWidth, then the canvas gap and the card's hairline:
+	// the transcript's own gutter starts inside the card. Only text counts as a
+	// fault here, so the threshold clears the hairline and the card's fill.
+	cardEdge := railWidth + paneInset + 1
+	for x := cardEdge + 1; x < cardEdge+gutter-4; x++ {
 		for y := 60; y < height-120; y++ {
 			r, g, b, _ := img.At(x, y).RGBA()
-			if r>>8 > 40 || g>>8 > 40 || b>>8 > 40 {
+			if r>>8 > 120 || g>>8 > 120 || b>>8 > 120 {
 				t.Fatalf("painted pixel at x=%d y=%d: the transcript is running into the rail", x, y)
 			}
 		}

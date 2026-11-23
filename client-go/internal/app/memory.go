@@ -68,6 +68,7 @@ func (a *App) toggleMemory() {
 		// One right edge, one drawer.
 		a.changes.open = false
 		a.projects.open = false
+		a.tl.open = false
 		a.mem.saved = ""
 		a.loadMemory()
 	}
@@ -204,33 +205,34 @@ func (a *App) closeSuggestions() {
 // memoryView is the drawer itself.
 func (a *App) memoryView(c *ui.Context, t theme.Tokens) {
 	ui.Column(c).Width(memWidth).Shrink(1).MinWidth(260).FillHeight().
-		Background(t.Sidebar).Children(func() {
-		a.memoryHeader(c, t)
-		ui.Box(c).Width(memWidth).Height(1).Background(t.SidebarBorder)
-		if a.mem.suggesting {
-			a.memoryProposal(c, t)
-		} else {
-			a.memoryTabs(c, t)
-			a.memoryNotes(c, t)
-		}
-		a.memoryFooter(c, t)
-	})
+		Radius(theme.RadiusWindow).Border(1, t.Line).Background(t.Surface).Clip().
+		Children(func() {
+			a.memoryHeader(c, t)
+			ui.Box(c).Width(memWidth).Height(1).Background(t.Line)
+			if a.mem.suggesting {
+				a.memoryProposal(c, t)
+			} else {
+				a.memoryTabs(c, t)
+				a.memoryNotes(c, t)
+			}
+			a.memoryFooter(c, t)
+		})
 }
 
 func (a *App) memoryHeader(c *ui.Context, t theme.Tokens) {
-	ui.Row(c).FillWidth().Height(44).Padding(0, 12).AlignItems(ui.Center).Gap(8).Children(func() {
+	ui.Row(c).FillWidth().Height(48).Padding(0, 14).AlignItems(ui.Center).Gap(8).Children(func() {
 		title := i18n.T("memory")
 		if a.mem.suggesting {
 			title = i18n.T("memSuggest")
 		}
-		ui.Text(c, title).FontSize(13).FontWeight(600).TextColor(t.Foreground).MaxLines(1)
+		ui.Text(c, title).FontSize(theme.TextTitle).FontWeight(500).TextColor(t.Ink).MaxLines(1)
 		ui.Spacer(c)
 		if a.mem.loading && !a.mem.suggesting {
 			ui.Icon(c, icons.Clock).Size(10, 10).TextColor(t.MutedFg)
 		}
-		close := ui.ButtonBase(c).Width(20).Height(20).Radius(4).Cursor(ui.CursorPointer)
+		close := ui.ButtonBase(c).Width(20).Height(20).Radius(theme.RadiusChip).Cursor(ui.CursorPointer)
 		close.Children(func() {
-			ui.Text(c, "×").FontSize(14).TextColor(t.MutedFg)
+			ui.Text(c, "×").FontSize(theme.TextTitle).TextColor(t.MutedFg)
 		})
 		close.OnClick(func() { a.mem.open = false })
 	})
@@ -243,7 +245,7 @@ func (a *App) memoryTabs(c *ui.Context, t theme.Tokens) {
 		for index, key := range memTabKeys {
 			at := index
 			on := a.mem.tab == index
-			tab := ui.ButtonBase(c).Grow(1).Height(24).Radius(5).Cursor(ui.CursorPointer)
+			tab := ui.ButtonBase(c).Grow(1).Height(24).Radius(theme.RadiusChip).Cursor(ui.CursorPointer)
 			if on {
 				tab.Background(t.Background)
 			}
@@ -252,7 +254,7 @@ func (a *App) memoryTabs(c *ui.Context, t theme.Tokens) {
 				if on {
 					color = t.Foreground
 				}
-				ui.Text(c, i18n.T(key)).FontSize(11).FontWeight(500).TextColor(color).
+				ui.Text(c, i18n.T(key)).FontSize(theme.TextSmall).FontWeight(500).TextColor(color).
 					MaxLines(1).Width(memWidth/3 - 16 - 2).TextAlign(ui.Center)
 			})
 			tab.OnClick(func() {
@@ -266,14 +268,14 @@ func (a *App) memoryTabs(c *ui.Context, t theme.Tokens) {
 func (a *App) memoryNotes(c *ui.Context, t theme.Tokens) {
 	if a.mem.failed != "" {
 		ui.Column(c).FillWidth().Padding(12, 12).Children(func() {
-			ui.Text(c, a.mem.failed).FontSize(11).TextColor(t.Destructive).MaxLines(4)
+			ui.Text(c, a.mem.failed).FontSize(theme.TextSmall).TextColor(t.Destructive).MaxLines(4)
 		})
 		return
 	}
 	notes := a.mem.notes[a.mem.tab]
 	if len(notes) == 0 {
 		ui.Column(c).FillWidth().Padding(12, 12).Children(func() {
-			ui.Text(c, i18n.T("memEmpty")).FontSize(11).TextColor(t.MutedFg).MaxLines(3)
+			ui.Text(c, i18n.T("memEmpty")).FontSize(theme.TextSmall).TextColor(t.MutedFg).MaxLines(3)
 		})
 		return
 	}
@@ -286,9 +288,9 @@ func (a *App) memoryNotes(c *ui.Context, t theme.Tokens) {
 
 func (a *App) memoryNote(c *ui.Context, t theme.Tokens, note protocol.Note) {
 	ui.Column(c).FillWidth().Gap(3).Padding(7, 0).Children(func() {
-		ui.Text(c, note.Text).FontSize(11.5).TextColor(t.Foreground).MaxLines(memNoteLines)
+		ui.Text(c, note.Text).FontSize(theme.TextSmall).TextColor(t.Foreground).MaxLines(memNoteLines)
 		ui.Row(c).FillWidth().Gap(5).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, memWhen(note.At)).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
+			ui.Text(c, memWhen(note.At)).FontSize(theme.TextMicro).TextColor(t.MutedFg).MaxLines(1)
 			a.memoryReceipt(c, t, note.Source)
 		})
 	})
@@ -306,12 +308,12 @@ func (a *App) memoryReceipt(c *ui.Context, t theme.Tokens, source string) {
 	}
 	openable := conv != 0 && a.surfaceOf(conv) != nil
 	if !openable {
-		ui.Text(c, "· "+label).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
+		ui.Text(c, "· "+label).FontSize(theme.TextMicro).TextColor(t.MutedFg).MaxLines(1)
 		return
 	}
-	btn := ui.ButtonBase(c).Height(16).Radius(4).Padding(0, 3).Cursor(ui.CursorPointer)
+	btn := ui.ButtonBase(c).Height(16).Radius(theme.RadiusChip).Padding(0, 3).Cursor(ui.CursorPointer)
 	btn.Children(func() {
-		ui.Text(c, "· "+label).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
+		ui.Text(c, "· "+label).FontSize(theme.TextMicro).TextColor(t.MutedFg).MaxLines(1)
 	})
 	btn.OnClick(func() {
 		a.mem.open = false
@@ -348,7 +350,7 @@ func (a *App) memoryProposal(c *ui.Context, t theme.Tokens) {
 			if a.mem.err != "" {
 				text = i18n.TF("memFailed", map[string]any{"err": oneLine(a.mem.err)})
 			}
-			ui.Text(c, text).FontSize(11).TextColor(t.MutedFg).MaxLines(4)
+			ui.Text(c, text).FontSize(theme.TextSmall).TextColor(t.MutedFg).MaxLines(4)
 		})
 		return
 	}
@@ -362,14 +364,14 @@ func (a *App) memoryProposal(c *ui.Context, t theme.Tokens) {
 func (a *App) memoryPick(c *ui.Context, t theme.Tokens, row int) {
 	line := a.mem.sugg[row]
 	ui.Row(c).FillWidth().Gap(8).Padding(7, 0).AlignItems(ui.Start).Children(func() {
-		box := ui.ButtonBase(c).Width(15).Height(15).Radius(4).Border(1, t.Border).
+		box := ui.ButtonBase(c).Width(15).Height(15).Radius(theme.RadiusChip).Border(1, t.Border).
 			Cursor(ui.CursorPointer)
 		if row < len(a.mem.picked) && a.mem.picked[row] {
 			box.Background(t.Primary)
 		}
 		box.Children(func() {
 			if row < len(a.mem.picked) && a.mem.picked[row] {
-				ui.Text(c, "✓").FontSize(10).TextColor(t.PrimaryFg)
+				ui.Text(c, "✓").FontSize(theme.TextMicro).TextColor(t.PrimaryFg)
 			}
 		})
 		box.OnClick(func() {
@@ -378,8 +380,8 @@ func (a *App) memoryPick(c *ui.Context, t theme.Tokens, row int) {
 			}
 		})
 		ui.Column(c).Grow(1).Gap(3).Children(func() {
-			ui.Text(c, line.Text).FontSize(11.5).TextColor(t.Foreground).MaxLines(memNoteLines)
-			ui.Text(c, memScope(line.Scope)).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
+			ui.Text(c, line.Text).FontSize(theme.TextSmall).TextColor(t.Foreground).MaxLines(memNoteLines)
+			ui.Text(c, memScope(line.Scope)).FontSize(theme.TextMicro).TextColor(t.MutedFg).MaxLines(1)
 		})
 	})
 }
@@ -389,7 +391,7 @@ func (a *App) memoryPick(c *ui.Context, t theme.Tokens, row int) {
 func (a *App) memoryFooter(c *ui.Context, t theme.Tokens) {
 	ui.Column(c).FillWidth().Padding(8, 12, 10, 12).Gap(6).Children(func() {
 		if note := a.memoryStatus(); note != "" {
-			ui.Text(c, note).FontSize(10).TextColor(t.MutedFg).MaxLines(2)
+			ui.Text(c, note).FontSize(theme.TextMicro).TextColor(t.MutedFg).MaxLines(2)
 		}
 		ui.Row(c).FillWidth().Gap(6).Children(func() {
 			if a.mem.suggesting {
@@ -419,9 +421,9 @@ func (a *App) memoryFooter(c *ui.Context, t theme.Tokens) {
 }
 
 func (a *App) memoryButton(c *ui.Context, t theme.Tokens, label string, bg, fg ui.Color, onClick func()) {
-	btn := ui.ButtonBase(c).Grow(1).Height(26).Radius(6).Background(bg).Cursor(ui.CursorPointer)
+	btn := ui.ButtonBase(c).Grow(1).Height(26).Radius(theme.RadiusChip).Background(bg).Cursor(ui.CursorPointer)
 	btn.Children(func() {
-		ui.Text(c, label).FontSize(11).FontWeight(500).TextColor(fg).MaxLines(1).
+		ui.Text(c, label).FontSize(theme.TextSmall).FontWeight(500).TextColor(fg).MaxLines(1).
 			Width((memWidth - 24 - 6) / 2).TextAlign(ui.Center)
 	})
 	btn.OnClick(onClick)

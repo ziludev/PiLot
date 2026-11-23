@@ -87,6 +87,7 @@ func (a *App) toggleChanges() {
 		// One right edge, one drawer.
 		a.mem.open = false
 		a.projects.open = false
+		a.tl.open = false
 		a.refreshChanges()
 	}
 	a.invalidate()
@@ -235,36 +236,37 @@ func (a *App) changesView(c *ui.Context, t theme.Tokens) {
 	// Shrinks on a narrow window: 260 of rail plus 460 of drawer would leave the
 	// transcript nothing at the window's smallest width.
 	ui.Column(c).Width(changesWidth).Shrink(1).MinWidth(300).FillHeight().
-		Background(t.Sidebar).Children(func() {
-		a.changesHeader(c, t)
-		ui.Box(c).Width(changesWidth).Height(1).Background(t.SidebarBorder)
-		if a.changes.failed != "" {
-			ui.Column(c).FillWidth().Padding(12, 12).Children(func() {
-				ui.Text(c, a.changes.failed).FontSize(11).TextColor(t.Destructive).MaxLines(4)
-			})
-		}
-		if a.changes.openFile != "" {
-			a.changesFileHead(c, t, a.changes.openFile)
-			if a.changes.whole {
-				a.fileTextView(c, t)
-			} else {
-				a.diffView(c, t)
+		Radius(theme.RadiusWindow).Border(1, t.Line).Background(t.Surface).Clip().
+		Children(func() {
+			a.changesHeader(c, t)
+			ui.Box(c).Width(changesWidth).Height(1).Background(t.Line)
+			if a.changes.failed != "" {
+				ui.Column(c).FillWidth().Padding(12, 12).Children(func() {
+					ui.Text(c, a.changes.failed).FontSize(theme.TextSmall).TextColor(t.Destructive).MaxLines(4)
+				})
 			}
-		} else {
-			a.changesBody(c, t)
-			a.writeFooter(c, t)
-		}
-	})
+			if a.changes.openFile != "" {
+				a.changesFileHead(c, t, a.changes.openFile)
+				if a.changes.whole {
+					a.fileTextView(c, t)
+				} else {
+					a.diffView(c, t)
+				}
+			} else {
+				a.changesBody(c, t)
+				a.writeFooter(c, t)
+			}
+		})
 }
 
 func (a *App) changesHeader(c *ui.Context, t theme.Tokens) {
-	ui.Row(c).FillWidth().Height(44).Padding(0, 12).AlignItems(ui.Center).Gap(8).Children(func() {
-		ui.Text(c, i18n.T("changesTab")).FontSize(12.5).FontWeight(600).TextColor(t.Foreground).MaxLines(1)
+	ui.Row(c).FillWidth().Height(48).Padding(0, 14).AlignItems(ui.Center).Gap(8).Children(func() {
+		ui.Text(c, i18n.T("changesTab")).FontSize(theme.TextTitle).FontWeight(500).TextColor(t.Ink).MaxLines(1)
 		if branch := a.changes.branch; branch != "" {
-			ui.Text(c, branch).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
+			ui.Text(c, branch).FontSize(theme.TextMicro).TextColor(t.Ink3).MaxLines(1)
 		}
 		ui.Spacer(c)
-		refresh := ui.ButtonBase(c).Size(20, 20).Radius(4).Justify(ui.Center).AlignItems(ui.Center).
+		refresh := ui.ButtonBase(c).Size(20, 20).Radius(theme.RadiusChip).Justify(ui.Center).AlignItems(ui.Center).
 			Cursor(ui.CursorPointer).Tooltip(i18n.T("refresh"))
 		refresh.Children(func() {
 			ui.Icon(c, icons.Clock).Size(11, 11).TextColor(t.MutedFg)
@@ -272,16 +274,16 @@ func (a *App) changesHeader(c *ui.Context, t theme.Tokens) {
 		refresh.OnClick(func() { a.refreshChanges() })
 		// The way out of the diff: the files themselves, in the editor the user
 		// already has open for everything else.
-		editor := ui.ButtonBase(c).Size(20, 20).Radius(4).Justify(ui.Center).AlignItems(ui.Center).
+		editor := ui.ButtonBase(c).Size(20, 20).Radius(theme.RadiusChip).Justify(ui.Center).AlignItems(ui.Center).
 			Cursor(ui.CursorPointer).Tooltip(i18n.T("openInEditor"))
 		editor.Children(func() {
 			ui.Icon(c, icons.Code).Size(11, 11).TextColor(t.MutedFg)
 		})
 		editor.OnClick(func() { a.OpenInEditor() })
-		close := ui.ButtonBase(c).Size(20, 20).Radius(4).Justify(ui.Center).AlignItems(ui.Center).
+		close := ui.ButtonBase(c).Size(20, 20).Radius(theme.RadiusChip).Justify(ui.Center).AlignItems(ui.Center).
 			Cursor(ui.CursorPointer)
 		close.Children(func() {
-			ui.Text(c, "×").FontSize(14).TextColor(t.MutedFg)
+			ui.Text(c, "×").FontSize(theme.TextTitle).TextColor(t.MutedFg)
 		})
 		close.OnClick(func() { a.changes.open = false })
 	})
@@ -290,21 +292,21 @@ func (a *App) changesHeader(c *ui.Context, t theme.Tokens) {
 // changesFileHead is the row above a patch: the way back, and what is open.
 func (a *App) changesFileHead(c *ui.Context, t theme.Tokens, title string) {
 	ui.Row(c).FillWidth().Height(32).Padding(0, 12).Gap(6).AlignItems(ui.Center).Children(func() {
-		back := ui.ButtonBase(c).Height(20).Radius(4).Padding(0, 6).Cursor(ui.CursorPointer)
+		back := ui.ButtonBase(c).Height(20).Radius(theme.RadiusChip).Padding(0, 6).Cursor(ui.CursorPointer)
 		back.Children(func() {
-			ui.Text(c, i18n.T("back")).FontSize(10.5).TextColor(t.MutedFg)
+			ui.Text(c, i18n.T("back")).FontSize(theme.TextMicro).TextColor(t.MutedFg)
 		})
 		back.OnClick(func() {
 			a.changes.openFile, a.changes.lines = "", nil
 		})
-		ui.Text(c, title).FontSize(10.5).TextColor(t.Foreground).MaxLines(1).Grow(1)
+		ui.Text(c, title).FontSize(theme.TextMicro).TextColor(t.Foreground).MaxLines(1).Grow(1)
 		// A file has text behind it; the patch is what the drawer opened on, so
 		// the switch back and forth is always offered here.
 		if a.changes.openFile != "" {
 			for index, label := range [2]string{i18n.T("changesPatch"), i18n.T("changesWhole")} {
 				at, text := index == 1, label
 				on := a.changes.whole == at
-				btn := ui.ButtonBase(c).Height(20).Radius(4).Padding(0, 6).
+				btn := ui.ButtonBase(c).Height(20).Radius(theme.RadiusChip).Padding(0, 6).
 					Cursor(ui.CursorPointer)
 				if on {
 					btn = btn.Background(t.Secondary)
@@ -314,7 +316,7 @@ func (a *App) changesFileHead(c *ui.Context, t theme.Tokens, title string) {
 					if on {
 						color, weight = t.Foreground, 600
 					}
-					ui.Text(c, text).FontSize(10).FontWeight(weight).TextColor(color).MaxLines(1)
+					ui.Text(c, text).FontSize(theme.TextMicro).FontWeight(weight).TextColor(color).MaxLines(1)
 				})
 				btn.OnClick(func() { a.showWholeFile(at) })
 			}
@@ -328,12 +330,12 @@ func (a *App) fileTextView(c *ui.Context, t theme.Tokens) {
 	switch {
 	case a.changes.textBusy && a.changes.text == nil:
 		ui.Column(c).FillWidth().Padding(12, 12).Children(func() {
-			ui.Text(c, i18n.T("loading")).FontSize(11).TextColor(t.MutedFg)
+			ui.Text(c, i18n.T("loading")).FontSize(theme.TextSmall).TextColor(t.MutedFg)
 		})
 		return
 	case len(a.changes.text) == 0:
 		ui.Column(c).FillWidth().Padding(12, 12).Children(func() {
-			ui.Text(c, i18n.T("fileEmpty")).FontSize(11).TextColor(t.MutedFg).MaxLines(2)
+			ui.Text(c, i18n.T("fileEmpty")).FontSize(theme.TextSmall).TextColor(t.MutedFg).MaxLines(2)
 		})
 		return
 	}
@@ -353,42 +355,70 @@ func (a *App) fileTextView(c *ui.Context, t theme.Tokens) {
 			// file's own indentation.
 			number = strings.Repeat("\u2007", gutter-len(number)) + number
 			ui.Text(c, number+"  "+lines[row]).
-				Font(monoFont).FontSize(10.5).TextColor(t.Foreground).
+				Font(monoFont).FontSize(theme.TextMicro).TextColor(t.Foreground).
 				MaxLines(1).Padding(0, 4)
 		}).Grow(1).Width(changesWidth - 16)
 	})
 	if a.changes.textCut {
-		ui.Text(c, i18n.T("fileTruncated")).FontSize(10).TextColor(t.MutedFg).Padding(4, 12)
+		ui.Text(c, i18n.T("fileTruncated")).FontSize(theme.TextMicro).TextColor(t.MutedFg).Padding(4, 12)
 	}
 }
 
 func (a *App) changesBody(c *ui.Context, t theme.Tokens) {
 	if len(a.changes.files) == 0 {
 		ui.Column(c).FillWidth().Padding(12, 12).Children(func() {
-			ui.Text(c, i18n.T("changesNone")).FontSize(11).TextColor(t.MutedFg).MaxLines(2)
+			ui.Text(c, i18n.T("changesNone")).FontSize(theme.TextSmall).TextColor(t.MutedFg).MaxLines(2)
 		})
 		return
 	}
 	ui.Column(c).FillWidth().Padding(0, 12).Grow(1).Children(func() {
+		// The header is what turns the list into a table: a column of counts
+		// with no name over it is a column the reader has to decode.
+		ui.Row(c).FillWidth().Height(22).Padding(0, 4).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, i18n.T("changeFiles")).FontSize(theme.TextMicro).FontWeight(600).
+				TextColor(t.Ink3).Grow(1)
+			ui.Row(c).Width(changeCountWidth).Justify(ui.End).Children(func() {
+				ui.Text(c, i18n.T("changeStat")).FontSize(theme.TextMicro).FontWeight(600).
+					TextColor(t.Ink3).MaxLines(1)
+			})
+		})
+		ui.Box(c).FillWidth().Height(1).Background(t.Line)
 		ui.List(c, &a.changes.fileList, len(a.changes.files), func(row int) {
 			a.changeFileRow(c, t, a.changes.files[row])
 		}).Grow(1).Width(changesWidth - 24)
 	})
 	if a.changes.truncated {
-		ui.Text(c, i18n.T("changesTruncated")).FontSize(10).TextColor(t.MutedFg).Padding(4, 12)
+		ui.Text(c, i18n.T("changesTruncated")).FontSize(theme.TextMicro).TextColor(t.MutedFg).Padding(4, 12)
 	}
 }
 
+// changeCountWidth is the column the two counts share, so the numbers line up
+// down the table instead of ending wherever the words do.
+const changeCountWidth = 64
+
 func (a *App) changeFileRow(c *ui.Context, t theme.Tokens, file protocol.FileChange) {
 	row := ui.Row(c).FillWidth().Height(28).Gap(8).Padding(0, 4).AlignItems(ui.Center).
-		Cursor(ui.CursorPointer).Radius(5)
+		Cursor(ui.CursorPointer).Radius(theme.RadiusChip)
+	if row.Hovered() {
+		row = row.Background(t.Hover)
+	}
 	row.Children(func() {
-		ui.Text(c, changeLetter(file.Status)).FontSize(10).FontWeight(600).
+		ui.Text(c, changeLetter(file.Status)).FontSize(theme.TextMicro).FontWeight(600).
 			TextColor(changeColor(t, file.Status)).Width(12)
-		ui.Text(c, file.Path).FontSize(11).TextColor(t.Foreground).MaxLines(1).Grow(1)
-		if file.Added > 0 || file.Removed > 0 {
-			ui.Text(c, changeCounts(file)).FontSize(10).TextColor(t.MutedFg).MaxLines(1)
-		}
+		ui.Text(c, file.Path).FontSize(theme.TextSmall).TextColor(t.Ink).MaxLines(1).Grow(1)
+		counts := ui.Row(c).Width(changeCountWidth).Gap(4).Justify(ui.End).Children(func() {
+			// Added and removed are two facts, not a fraction: the colour says
+			// which is which without a slash between them.
+			if file.Added > 0 {
+				ui.Text(c, "+"+strconv.Itoa(file.Added)).FontSize(theme.TextMicro).
+					TextColor(t.Green).MaxLines(1)
+			}
+			if file.Removed > 0 {
+				ui.Text(c, "−"+strconv.Itoa(file.Removed)).FontSize(theme.TextMicro).
+					TextColor(t.Red).MaxLines(1)
+			}
+		})
+		_ = counts
 	})
 	path := file.Path
 	row.OnClick(func() { a.openChangeFile(path) })
@@ -399,15 +429,23 @@ func (a *App) changeFileRow(c *ui.Context, t theme.Tokens, file protocol.FileCha
 func (a *App) diffView(c *ui.Context, t theme.Tokens) {
 	if len(a.changes.lines) == 0 {
 		ui.Column(c).FillWidth().Padding(12, 12).Children(func() {
-			ui.Text(c, i18n.T("diffNone")).FontSize(11).TextColor(t.MutedFg).MaxLines(2)
+			ui.Text(c, i18n.T("diffNone")).FontSize(theme.TextSmall).TextColor(t.MutedFg).MaxLines(2)
 		})
 		return
 	}
 	lines := a.changes.lines
 	ui.Column(c).FillWidth().Padding(0, 8).Grow(1).Children(func() {
 		ui.List(c, &a.changes.diffList, len(lines), func(row int) {
-			ui.Text(c, lines[row]).Font(monoFont).FontSize(10.5).
-				TextColor(diffColor(t, lines[row])).MaxLines(0).Padding(0, 4)
+			// Diff Table tints the row under the pointer, so a long patch can be
+			// read across without following the line with a fingertip.
+			line := ui.Row(c).FillWidth().Padding(0, 4).Radius(2)
+			if line.Hovered() {
+				line = line.Background(t.Hover)
+			}
+			line.Children(func() {
+				ui.Text(c, lines[row]).Font(monoFont).FontSize(theme.TextMicro).
+					TextColor(diffColor(t, lines[row])).MaxLines(0)
+			})
 		}).Grow(1).Width(changesWidth - 16)
 	})
 }
@@ -504,14 +542,3 @@ func changeColor(t theme.Tokens, status string) ui.Color {
 
 // changeCounts is the +3 −1 every diff list shows, and nothing when both are 0:
 // a binary file has no lines to count.
-func changeCounts(file protocol.FileChange) string {
-	switch {
-	case file.Added > 0 && file.Removed > 0:
-		return i18n.TF("changeCounts", map[string]any{"add": file.Added, "del": file.Removed})
-	case file.Added > 0:
-		return "+" + strconv.Itoa(file.Added)
-	case file.Removed > 0:
-		return "−" + strconv.Itoa(file.Removed)
-	}
-	return ""
-}

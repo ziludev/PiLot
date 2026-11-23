@@ -174,22 +174,22 @@ func (a *App) findBar(c *ui.Context, t theme.Tokens) {
 		return
 	}
 	ui.Column(c).FillWidth().Children(func() {
-		ui.Row(c).FillWidth().Height(40).Padding(0, gutter).Gap(8).
+		ui.Row(c).FillWidth().Height(44).Padding(0, gutter).Gap(8).
 			AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, icons.Search).Size(12, 12).TextColor(t.MutedFg)
-			field := ui.TextInputBase(c, &a.find.query).FontSize(12).Height(26).Grow(1).
-				Padding(0, 8).Radius(6).Background(t.SidebarAccent).
-				Placeholder(i18n.T("findPlaceholder"))
+			ui.Icon(c, icons.Search).Size(13, 13).TextColor(t.Ink3)
+			field := ui.TextInputBase(c, &a.find.query).FontSize(theme.TextBody).Height(30).Grow(1).
+				Padding(0, 10).Radius(theme.RadiusControl).Background(t.Field).
+				Border(1, t.LineSoft).Placeholder(i18n.T("findPlaceholder"))
 			if a.find.focus {
 				a.find.focus = false
 				field.Focus()
 			}
-			ui.Text(c, a.findCount()).FontSize(10.5).TextColor(t.MutedFg).MaxLines(1)
+			ui.Text(c, a.findCount()).FontSize(theme.TextMicro).TextColor(t.Ink3).MaxLines(1)
 			a.findStepButton(c, t, "↑", i18n.T("findPrev"), -1)
 			a.findStepButton(c, t, "↓", i18n.T("findNext"), 1)
 			a.findStepButton(c, t, "×", i18n.T("cancel"), 0)
 		})
-		ui.Box(c).FillWidth().Height(1).Background(t.SidebarBorder)
+		ui.Box(c).FillWidth().Height(1).Background(t.Line)
 	})
 }
 
@@ -206,10 +206,10 @@ func (a *App) findCount() string {
 
 // findStepButton is one of the bar's three squares: up, down, and out.
 func (a *App) findStepButton(c *ui.Context, t theme.Tokens, glyph, tip string, delta int) {
-	btn := ui.ButtonBase(c).Size(22, 22).Radius(5).Justify(ui.Center).AlignItems(ui.Center).
+	btn := ui.ButtonBase(c).Size(24, 24).Radius(theme.RadiusControl).Justify(ui.Center).AlignItems(ui.Center).
 		Cursor(ui.CursorPointer).Tooltip(tip)
 	btn.Children(func() {
-		ui.Text(c, glyph).FontSize(12).TextColor(t.MutedFg)
+		ui.Text(c, glyph).FontSize(theme.TextRow).TextColor(t.Ink3)
 	})
 	btn.OnClick(func() {
 		if delta == 0 {

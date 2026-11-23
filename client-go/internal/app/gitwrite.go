@@ -212,14 +212,14 @@ func (a *App) writeFooter(c *ui.Context, t theme.Tokens) {
 			a.writeButton(c, t, writeMerge, i18n.T("mergeAction"), false)
 		})
 		if a.write.running != "" {
-			ui.Text(c, i18n.T("writeRunning")).FontSize(10.5).TextColor(t.MutedFg).MaxLines(2)
+			ui.Text(c, i18n.T("writeRunning")).FontSize(theme.TextMicro).TextColor(t.MutedFg).MaxLines(2)
 		}
 		if a.write.conv == a.active && a.write.result != "" {
 			color := t.MutedFg
 			if a.write.bad {
 				color = t.Destructive
 			}
-			ui.Text(c, a.write.result).FontSize(10.5).TextColor(color).MaxLines(8)
+			ui.Text(c, a.write.result).FontSize(theme.TextMicro).TextColor(color).MaxLines(8)
 		}
 	})
 }
@@ -229,7 +229,7 @@ func (a *App) writeFooter(c *ui.Context, t theme.Tokens) {
 // question about whether it was ever there.
 func (a *App) writeButton(c *ui.Context, t theme.Tokens, kind writeKind, label string, primary bool) {
 	enabled := a.canWrite(kind) && a.write.running == ""
-	button := ui.ButtonBase(c).Grow(1).Height(26).Radius(6).
+	button := ui.ButtonBase(c).Grow(1).Height(26).Radius(theme.RadiusChip).
 		Justify(ui.Center).AlignItems(ui.Center)
 	if primary && enabled {
 		button = button.Background(t.Primary)
@@ -247,7 +247,7 @@ func (a *App) writeButton(c *ui.Context, t theme.Tokens, kind writeKind, label s
 		if primary && enabled {
 			color = t.PrimaryFg
 		}
-		ui.Text(c, label).FontSize(11).FontWeight(500).TextColor(color).MaxLines(1)
+		ui.Text(c, label).FontSize(theme.TextSmall).FontWeight(500).TextColor(color).MaxLines(1)
 	})
 	if enabled {
 		at := kind
@@ -262,14 +262,14 @@ func (a *App) writeDialog(c *ui.Context, t theme.Tokens) {
 	}
 	kind := a.write.kind
 	ui.Modal(c, &a.write.open, func() {
-		ui.Column(c).Width(360).Padding(16).Gap(10).Radius(10).
+		ui.Column(c).Width(360).Padding(16).Gap(10).Radius(theme.Radius).
 			Background(t.Popover).Border(1, t.Border).Children(func() {
 			ui.Text(c, a.writeTitle(kind)).
-				FontSize(12.5).FontWeight(600).TextColor(t.Foreground)
-			ui.Text(c, a.writeHint(kind)).FontSize(10.5).TextColor(t.MutedFg).MaxLines(3)
+				FontSize(theme.TextRow).FontWeight(600).TextColor(t.Foreground)
+			ui.Text(c, a.writeHint(kind)).FontSize(theme.TextMicro).TextColor(t.MutedFg).MaxLines(3)
 			if kind == writeCommit {
-				input := ui.TextInputBase(c, &a.write.message).FontSize(12).Height(30).
-					Padding(0, 8).Radius(6).Background(t.SidebarAccent).
+				input := ui.TextInputBase(c, &a.write.message).FontSize(theme.TextRow).Height(30).
+					Padding(0, 8).Radius(theme.RadiusChip).Background(t.SidebarAccent).
 					Placeholder(i18n.T("commitPlaceholder"))
 				input.OnSubmit(func() { a.confirmWrite() })
 			}

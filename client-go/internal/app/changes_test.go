@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -75,7 +76,9 @@ func TestChangesDrawerListsThenShowsAPatch(t *testing.T) {
 	a := changesFixture(t)
 	tt := ui.NewTester(a.View, 1180, 820)
 	tt.Frame()
-	for _, want := range []string{"改动", "提交", "app/right-panel", "app.go", "notes.md", "+3 −1", "+2"} {
+	// The counts are two columns now, not one summary string: added and
+	// removed are separate facts with a colour each.
+	for _, want := range []string{"改动", "文件", "提交", "app/right-panel", "app.go", "notes.md", "+3", "−1", "+2"} {
 		if !tt.HasText(want) {
 			t.Fatalf("list missing %q; drew %v", want, tt.Texts())
 		}
@@ -152,12 +155,15 @@ func TestOpeningOneDrawerShutsTheOther(t *testing.T) {
 func stubBridge(t *testing.T, bodies ...string) string {
 	t.Helper()
 	var next int
+	var mu sync.Mutex
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		body := "{}"
 		if next < len(bodies) {
 			body = bodies[next]
 			next++
 		}
+		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(body))
 	}))
@@ -176,9 +182,14 @@ func TestWholeFileShowsTheFile(t *testing.T) {
 		t.Fatalf("the patch did not draw; %v", tt.Texts())
 	}
 
+	// The handler answers on the server's goroutine and the test reads what it
+	// was asked below, so the URI is behind a lock.
 	var asked string
+	var askedMu sync.Mutex
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		askedMu.Lock()
 		asked = r.URL.RequestURI()
+		askedMu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"path":"notes.md","size":42,"truncated":false,"lines":3,"content":"package app\n\nfunc main() {}\n"}`))
 	}))
@@ -187,7 +198,13 @@ func TestWholeFileShowsTheFile(t *testing.T) {
 
 	a.showWholeFile(true)
 	deadline := time.Now().Add(2 * time.Second)
-	for asked == "" && time.Now().Before(deadline) {
+	for {
+		askedMu.Lock()
+		got := asked
+		askedMu.Unlock()
+		if got != "" || !time.Now().Before(deadline) {
+			break
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	// No frame loop here, so the reply is drained by hand, the way a frame

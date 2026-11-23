@@ -42,6 +42,7 @@ func (a *App) toggleProjects() {
 	// of detail.
 	a.changes.open = false
 	a.mem.open = false
+	a.tl.open = false
 	a.loadProjects()
 	a.invalidate()
 }
@@ -180,24 +181,25 @@ func (a *App) openProjectChat(p protocol.Project) {
 
 func (a *App) projectsView(c *ui.Context, t theme.Tokens) {
 	ui.Column(c).Width(memWidth).Shrink(1).MinWidth(260).FillHeight().
-		Background(t.Sidebar).Children(func() {
-		a.projectsHeader(c, t)
-		ui.Box(c).Width(memWidth).Height(1).Background(t.SidebarBorder)
-		a.projectList(c, t)
-		a.projectsFooter(c, t)
-	})
+		Radius(theme.RadiusWindow).Border(1, t.Line).Background(t.Surface).Clip().
+		Children(func() {
+			a.projectsHeader(c, t)
+			ui.Box(c).Width(memWidth).Height(1).Background(t.Line)
+			a.projectList(c, t)
+			a.projectsFooter(c, t)
+		})
 }
 
 func (a *App) projectsHeader(c *ui.Context, t theme.Tokens) {
-	ui.Row(c).FillWidth().Height(44).Padding(0, 12).AlignItems(ui.Center).Gap(8).Children(func() {
-		ui.Text(c, i18n.T("projects")).FontSize(13).FontWeight(600).TextColor(t.Foreground).MaxLines(1)
+	ui.Row(c).FillWidth().Height(48).Padding(0, 14).AlignItems(ui.Center).Gap(8).Children(func() {
+		ui.Text(c, i18n.T("projects")).FontSize(theme.TextTitle).FontWeight(500).TextColor(t.Ink).MaxLines(1)
 		ui.Spacer(c)
-		reload := ui.ButtonBase(c).Width(20).Height(20).Radius(4).Cursor(ui.CursorPointer).
+		reload := ui.ButtonBase(c).Width(20).Height(20).Radius(theme.RadiusChip).Cursor(ui.CursorPointer).
 			Tooltip(i18n.T("refresh"))
 		reload.Children(func() { ui.Icon(c, icons.Clock).Size(11, 11).TextColor(t.MutedFg) })
 		reload.OnClick(func() { a.loadProjects() })
-		close := ui.ButtonBase(c).Width(20).Height(20).Radius(4).Cursor(ui.CursorPointer)
-		close.Children(func() { ui.Text(c, "×").FontSize(14).TextColor(t.MutedFg) })
+		close := ui.ButtonBase(c).Width(20).Height(20).Radius(theme.RadiusChip).Cursor(ui.CursorPointer)
+		close.Children(func() { ui.Text(c, "×").FontSize(theme.TextTitle).TextColor(t.MutedFg) })
 		close.OnClick(func() { a.projects.open = false; a.invalidate() })
 	})
 }
@@ -206,14 +208,14 @@ func (a *App) projectList(c *ui.Context, t theme.Tokens) {
 	ui.Column(c).FillWidth().Grow(1).Padding(4, 6).Gap(2).Children(func() {
 		switch {
 		case a.projects.failed != "":
-			ui.Text(c, a.projects.failed).FontSize(10.5).TextColor(t.Destructive).
+			ui.Text(c, a.projects.failed).FontSize(theme.TextMicro).TextColor(t.Destructive).
 				Padding(6, 6).MaxLines(4)
 			return
 		case !a.projects.loaded:
-			ui.Text(c, i18n.T("loading")).FontSize(10.5).TextColor(t.MutedFg).Padding(6, 6)
+			ui.Text(c, i18n.T("loading")).FontSize(theme.TextMicro).TextColor(t.MutedFg).Padding(6, 6)
 			return
 		case len(a.projects.items) == 0:
-			ui.Text(c, i18n.T("projectEmpty")).FontSize(10.5).TextColor(t.MutedFg).
+			ui.Text(c, i18n.T("projectEmpty")).FontSize(theme.TextMicro).TextColor(t.MutedFg).
 				Padding(6, 6).MaxLines(4)
 			return
 		}
@@ -228,7 +230,7 @@ func (a *App) projectList(c *ui.Context, t theme.Tokens) {
 // project that was added by hand forgets it. The built-in sandbox has no ×,
 // because a bridge with no project at all has nowhere to put a chat.
 func (a *App) projectRow(c *ui.Context, t theme.Tokens, p protocol.Project) {
-	row := ui.Row(c).FillWidth().Height(38).Padding(0, 8).Radius(6).Gap(6).
+	row := ui.Row(c).FillWidth().Height(38).Padding(0, 8).Radius(theme.RadiusChip).Gap(6).
 		AlignItems(ui.Center).Cursor(ui.CursorPointer)
 	// The × only exists under the pointer, so a list of projects does not read
 	// as a list of delete buttons.
@@ -244,7 +246,7 @@ func (a *App) projectRow(c *ui.Context, t theme.Tokens, p protocol.Project) {
 			if p.Builtin {
 				name += " · " + i18n.T("projectBuiltin")
 			}
-			ui.Text(c, name).FontSize(11.5).TextColor(t.Foreground).MaxLines(1)
+			ui.Text(c, name).FontSize(theme.TextSmall).TextColor(t.Foreground).MaxLines(1)
 			ui.Text(c, p.Path).FontSize(9.5).TextColor(t.MutedFg).MaxLines(1)
 		})
 		if p.Builtin {
@@ -257,20 +259,20 @@ func (a *App) projectRow(c *ui.Context, t theme.Tokens, p protocol.Project) {
 		if !hovered {
 			return
 		}
-		forget := ui.ButtonBase(c).Width(18).Height(18).Radius(4).
+		forget := ui.ButtonBase(c).Width(18).Height(18).Radius(theme.RadiusChip).
 			Justify(ui.Center).AlignItems(ui.Center).Cursor(ui.CursorPointer).
 			Tooltip(i18n.T("projectForget"))
-		forget.Children(func() { ui.Text(c, "×").FontSize(12).TextColor(t.MutedFg) })
+		forget.Children(func() { ui.Text(c, "×").FontSize(theme.TextRow).TextColor(t.MutedFg) })
 		forget.OnClick(func() { a.removeProject(p) })
 	})
 }
 
 func (a *App) projectsFooter(c *ui.Context, t theme.Tokens) {
 	ui.Column(c).FillWidth().Padding(8, 12, 10, 12).Gap(6).Children(func() {
-		ui.Text(c, i18n.T("projectAddHint")).FontSize(10).TextColor(t.MutedFg).MaxLines(2)
+		ui.Text(c, i18n.T("projectAddHint")).FontSize(theme.TextMicro).TextColor(t.MutedFg).MaxLines(2)
 		ui.Row(c).FillWidth().Gap(6).Children(func() {
-			field := ui.TextInputBase(c, &a.projects.path).FontSize(11).Height(26).
-				Padding(0, 8).Radius(6).Background(t.SidebarAccent).
+			field := ui.TextInputBase(c, &a.projects.path).FontSize(theme.TextSmall).Height(26).
+				Padding(0, 8).Radius(theme.RadiusChip).Background(t.SidebarAccent).
 				Placeholder(i18n.T("projectAddPlaceholder"))
 			field.OnSubmit(func() { a.addProject() })
 			a.writeButtonIn(c, t, i18n.T("projectAdd"), a.projects.adding, a.addProject)
@@ -280,7 +282,7 @@ func (a *App) projectsFooter(c *ui.Context, t theme.Tokens) {
 			if a.projects.bad {
 				color = t.Destructive
 			}
-			ui.Text(c, a.projects.result).FontSize(10).TextColor(color).MaxLines(4)
+			ui.Text(c, a.projects.result).FontSize(theme.TextMicro).TextColor(color).MaxLines(4)
 		}
 	})
 }
@@ -291,7 +293,7 @@ func (a *App) writeButtonIn(c *ui.Context, t theme.Tokens, label string, busy bo
 	if busy {
 		label = i18n.T("projectAdding")
 	}
-	btn := ui.ButtonBase(c).Height(26).Padding(0, 10).Radius(6).
+	btn := ui.ButtonBase(c).Height(26).Padding(0, 10).Radius(theme.RadiusChip).
 		Justify(ui.Center).AlignItems(ui.Center)
 	if busy {
 		btn = btn.Background(t.Secondary)
@@ -303,7 +305,7 @@ func (a *App) writeButtonIn(c *ui.Context, t theme.Tokens, label string, busy bo
 		if busy {
 			color = t.Foreground
 		}
-		ui.Text(c, label).FontSize(11).TextColor(color).MaxLines(1)
+		ui.Text(c, label).FontSize(theme.TextSmall).TextColor(color).MaxLines(1)
 	})
 	if !busy {
 		btn.OnClick(fn)

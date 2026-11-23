@@ -342,12 +342,13 @@ func (a *App) taskDetailDialog(c *ui.Context, t theme.Tokens) {
 		return
 	}
 	ui.Modal(c, &a.detail.open, func() {
-		ui.Column(c).Width(460).Padding(16).Gap(12).Radius(10).MaxHeight(taskDialogMaxHeight).
-			Background(t.Popover).Border(1, t.Border).Children(func() {
+		ui.Column(c).Width(460).Padding(14).Gap(12).Radius(theme.RadiusWindow).MaxHeight(taskDialogMaxHeight).
+			Background(t.Surface).Border(1, t.Line).
+			Shadow(0, 12, 40, 0, ui.RGBA(0, 0, 0, 0.22)).Children(func() {
 			title := a.detailTitle()
 			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, title).FontSize(12.5).FontWeight(600).
-					TextColor(t.Foreground).MaxLines(2).Grow(1)
+				ui.Text(c, title).FontSize(theme.TextTitle).FontWeight(600).
+					TextColor(t.Ink).MaxLines(2).Grow(1)
 				a.taskStateBadge(c, t)
 			})
 			// The body scrolls, the title and the buttons do not: a task's input
@@ -356,10 +357,10 @@ func (a *App) taskDetailDialog(c *ui.Context, t theme.Tokens) {
 			ui.Scroll(c).FillWidth().Grow(1).TrackScroll(&a.detail.scroll).Children(func() {
 				ui.Column(c).FillWidth().Gap(12).Children(func() {
 					if a.detail.busy && a.detail.task == nil {
-						ui.Text(c, i18n.T("loading")).FontSize(11).TextColor(t.MutedFg)
+						ui.Text(c, i18n.T("loading")).FontSize(theme.TextSmall).TextColor(t.Ink3)
 					}
 					if a.detail.failed != "" {
-						ui.Text(c, a.detail.failed).FontSize(11).TextColor(t.Destructive).MaxLines(4)
+						ui.Text(c, a.detail.failed).FontSize(theme.TextSmall).TextColor(t.Destructive).MaxLines(4)
 					}
 					if task := a.detail.task; task != nil {
 						a.taskFacts(c, t, task)
@@ -388,7 +389,7 @@ func (a *App) taskDetailDialog(c *ui.Context, t theme.Tokens) {
 					ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
 						if a.detail.freq == 3 {
 							ui.NumberInput(c, &a.detail.every, 1, 24, 1)
-							ui.Text(c, i18n.T("freqHours")).FontSize(11).TextColor(t.MutedFg)
+							ui.Text(c, i18n.T("freqHours")).FontSize(theme.TextSmall).TextColor(t.Ink3)
 						} else {
 							ui.TimeInput(c, &a.detail.at)
 						}
@@ -404,7 +405,7 @@ func (a *App) taskDetailDialog(c *ui.Context, t theme.Tokens) {
 					})
 				})
 				if a.detail.saveErr != "" {
-					ui.Text(c, a.detail.saveErr).FontSize(10.5).TextColor(t.Destructive).MaxLines(3)
+					ui.Text(c, a.detail.saveErr).FontSize(theme.TextMicro).TextColor(t.Destructive).MaxLines(3)
 				}
 			} else {
 				justify := ui.End
@@ -468,8 +469,8 @@ func (a *App) taskStateBadge(c *ui.Context, t theme.Tokens) {
 		return
 	}
 	label, color := taskStatusLabel(t, a.detail.task)
-	ui.Text(c, label).FontSize(9.5).FontWeight(600).TextColor(color).
-		Padding(2, 6).Radius(4).Background(t.SidebarAccent)
+	ui.Text(c, label).FontSize(theme.TextMicro).FontWeight(600).TextColor(color).
+		Height(20).Padding(0, 6).Radius(theme.RadiusChip).Background(t.Field)
 }
 
 // taskFacts is the four answers a task's header should give: what kind, which
@@ -505,8 +506,8 @@ func (a *App) taskFacts(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
 
 func (a *App) fact(c *ui.Context, t theme.Tokens, label, value string) {
 	ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Start).Children(func() {
-		ui.Text(c, label).FontSize(10.5).TextColor(t.MutedFg).Width(66)
-		ui.Text(c, value).FontSize(11).TextColor(t.Foreground).MaxLines(2).Grow(1)
+		ui.Text(c, label).FontSize(theme.TextMicro).TextColor(t.Ink3).Width(66)
+		ui.Text(c, value).FontSize(theme.TextSmall).TextColor(t.Ink).MaxLines(2).Grow(1)
 	})
 }
 
@@ -519,12 +520,12 @@ func (a *App) taskInput(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
 		return
 	}
 	ui.Column(c).FillWidth().Gap(3).Children(func() {
-		ui.Text(c, i18n.T("taskInput")).FontSize(10.5).TextColor(t.MutedFg)
+		ui.Text(c, i18n.T("taskInput")).FontSize(theme.TextMicro).TextColor(t.Ink3)
 		// 400 lines is a guard against a pasted file, not a summary: the dialog
 		// scrolls, so the whole input is one flick away.
-		ui.Text(c, clipLines(text, 400)).Font(monoFont).FontSize(10).
-			TextColor(t.Foreground).MaxLines(400).Padding(8).Radius(6).
-			Background(t.SidebarAccent)
+		ui.Text(c, clipLines(text, 400)).Font(monoFont).FontSize(theme.TextMicro).
+			TextColor(t.Ink).MaxLines(400).Padding(8).Radius(theme.RadiusControl).
+			Background(t.Field)
 	})
 }
 
@@ -536,10 +537,10 @@ func (a *App) taskOutcome(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
 		return
 	}
 	ui.Column(c).FillWidth().Gap(3).Children(func() {
-		ui.Text(c, i18n.T("taskOutcome")).FontSize(10.5).TextColor(t.MutedFg)
-		ui.Text(c, clipLines(text, 120)).Font(monoFont).FontSize(10).
-			TextColor(t.Foreground).MaxLines(120).Padding(8).Radius(6).
-			Background(t.SidebarAccent)
+		ui.Text(c, i18n.T("taskOutcome")).FontSize(theme.TextMicro).TextColor(t.Ink3)
+		ui.Text(c, clipLines(text, 120)).Font(monoFont).FontSize(theme.TextMicro).
+			TextColor(t.Ink).MaxLines(120).Padding(8).Radius(theme.RadiusControl).
+			Background(t.Field)
 	})
 }
 
@@ -579,11 +580,11 @@ func (a *App) taskStages(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
 			// Indented to where the stage titles start, so the heading names the
 			// list under it instead of sitting 18 points out in the margin.
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(0, 0, 0, 18).Children(func() {
-				ui.Text(c, i18n.T("taskSteps")).FontSize(10.5).TextColor(t.MutedFg)
+				ui.Text(c, i18n.T("taskSteps")).FontSize(theme.TextMicro).TextColor(t.Ink3)
 				if a.anyClickable(rows) {
 					// The dot keeps the hint from reading as one sentence with the label
 					// ("步骤点一行看它做了什么") — same size and colour, 8pt apart.
-					ui.Text(c, "· "+i18n.T("taskStepsHint")).FontSize(9.5).TextColor(t.MutedFg).MaxLines(1)
+					ui.Text(c, "· "+i18n.T("taskStepsHint")).FontSize(9.5).TextColor(t.Ink3).MaxLines(1)
 				}
 			})
 			// The count sits at the row's end, on the same edge as the badge above
@@ -596,11 +597,11 @@ func (a *App) taskStages(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
 			clickable := len(row.steps) > 0 && row.conv != 0 && !row.inline
 			// Left padding only: the right padding kept this row's content on 799
 			// while every other column in the dialog ended on 803.
-			line := ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).Height(20).Radius(4).Padding(0, 0, 0, 4)
+			line := ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).Height(22).Radius(theme.RadiusChip).Padding(0, 4)
 			if clickable {
 				line = line.Cursor(ui.CursorPointer)
 				if row.open {
-					line = line.Background(t.SidebarAccent)
+					line = line.Background(t.Field)
 				}
 				conv := row.conv
 				line.OnClick(func() {
@@ -620,12 +621,12 @@ func (a *App) taskStages(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
 						glyph = "▾"
 					}
 				}
-				ui.Text(c, glyph).FontSize(9).TextColor(t.MutedFg).Width(8)
-				ui.Text(c, row.title).FontSize(10.5).TextColor(t.Foreground).MaxLines(1).Grow(1)
+				ui.Text(c, glyph).FontSize(9).TextColor(t.Ink3).Width(8)
+				ui.Text(c, row.title).FontSize(theme.TextRow).TextColor(t.Ink).MaxLines(1).Grow(1)
 				// The state word is the only thing on this row that says whether
 				// to stop reading, so it carries the colour the bar gives it. All
 				// four words in muted grey made "阶段 2 失败" look like "已结束".
-				color := t.MutedFg
+				color := t.Ink3
 				switch row.status {
 				case stageFailed:
 					color = t.Destructive
@@ -749,7 +750,7 @@ func (a *App) taskStepList(c *ui.Context, t theme.Tokens, steps []api.TaskLogSte
 		}
 		if more > 0 {
 			ui.Text(c, i18n.TF("taskStepMore", map[string]any{"n": more})).
-				FontSize(9.5).TextColor(t.MutedFg)
+				FontSize(9.5).TextColor(t.Ink3)
 		}
 	})
 }
@@ -772,7 +773,7 @@ func (a *App) taskStepRow(c *ui.Context, t theme.Tokens, step api.TaskLogStep) {
 		})
 	}
 	line.Children(func() {
-		glyph, color := "✓", t.MutedFg
+		glyph, color := "✓", t.Ink3
 		switch step.State {
 		case "failed":
 			glyph, color = "✗", t.Destructive
@@ -781,12 +782,12 @@ func (a *App) taskStepRow(c *ui.Context, t theme.Tokens, step api.TaskLogStep) {
 		}
 		ui.Text(c, glyph).FontSize(9.5).TextColor(color).Width(10)
 		if step.Kind == "say" {
-			ui.Text(c, step.Text).FontSize(10).TextColor(t.MutedFg).MaxLines(2).Grow(1)
+			ui.Text(c, step.Text).FontSize(theme.TextMicro).TextColor(t.Ink3).MaxLines(2).Grow(1)
 			return
 		}
-		ui.Text(c, step.Tool).Font(monoFont).FontSize(9.5).TextColor(t.Foreground).MaxLines(1)
+		ui.Text(c, step.Tool).Font(monoFont).FontSize(9.5).TextColor(t.Ink).MaxLines(1)
 		ui.Text(c, step.Label).Font(monoFont).FontSize(9.5).
-			TextColor(t.MutedFg).MaxLines(1).Grow(1)
+			TextColor(t.Ink3).MaxLines(1).Grow(1)
 		caret := " "
 		if openable {
 			caret = "▸"
@@ -797,11 +798,11 @@ func (a *App) taskStepRow(c *ui.Context, t theme.Tokens, step api.TaskLogStep) {
 		// Brighter than the label: at 8pt muted grey the caret read as dirt at
 		// the end of the row, and a row nobody can tell is openable is a row
 		// nobody opens.
-		caretColor := t.MutedFg
+		caretColor := t.Ink3
 		if openable {
-			caretColor = t.Foreground.Alpha(0.7)
+			caretColor = t.Ink.Alpha(0.7)
 		}
-		ui.Text(c, caret).FontSize(11).TextColor(caretColor).Width(11).Shrink(0)
+		ui.Text(c, caret).FontSize(theme.TextSmall).TextColor(caretColor).Width(11).Shrink(0)
 	})
 	if !open {
 		return
@@ -810,20 +811,20 @@ func (a *App) taskStepRow(c *ui.Context, t theme.Tokens, step api.TaskLogStep) {
 	// the row they belong to rather than as another step.
 	ui.Column(c).FillWidth().Gap(4).Padding(2, 0, 2, 32).Children(func() {
 		if step.Args != "" {
-			ui.Text(c, i18n.T("taskStepArgs")).FontSize(9).TextColor(t.MutedFg)
+			ui.Text(c, i18n.T("taskStepArgs")).FontSize(9).TextColor(t.Ink3)
 			ui.Text(c, clipLines(step.Args, 10)).Font(monoFont).FontSize(9).
-				TextColor(t.MutedFg).MaxLines(10).FillWidth().
-				Padding(6).Radius(4).Background(t.SidebarAccent)
+				TextColor(t.Ink3).MaxLines(10).FillWidth().
+				Padding(6).Radius(theme.RadiusChip).Background(t.Field)
 		}
 		if step.Output != "" {
-			label, color := i18n.T("taskStepOutput"), t.MutedFg
+			label, color := i18n.T("taskStepOutput"), t.Ink3
 			if step.State == "failed" {
 				label, color = i18n.T("taskStepError"), t.Destructive
 			}
 			ui.Text(c, label).FontSize(9).TextColor(color)
 			ui.Text(c, clipLines(step.Output, 12)).Font(monoFont).FontSize(9).
-				TextColor(t.MutedFg).MaxLines(12).FillWidth().
-				Padding(6).Radius(4).Background(t.SidebarAccent)
+				TextColor(t.Ink3).MaxLines(12).FillWidth().
+				Padding(6).Radius(theme.RadiusChip).Background(t.Field)
 		}
 	})
 }
@@ -831,7 +832,7 @@ func (a *App) taskStepRow(c *ui.Context, t theme.Tokens, step api.TaskLogStep) {
 // taskStatusLabel puts a state into words and gives it the color the rail would
 // have used: running is amber, a sleep is quiet, an end is a check.
 func taskStatusLabel(t theme.Tokens, task *api.TaskDetail) (string, ui.Color) {
-	fg, dim := t.Warning, t.MutedFg
+	fg, dim := t.Warning, t.Ink3
 	switch task.Status {
 	case "running", "working":
 		return i18n.T("taskRunning"), fg

@@ -14,6 +14,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"pitta/internal/api"
 	"pitta/internal/i18n"
 	"pitta/internal/protocol"
 	"pitta/internal/theme"
@@ -164,8 +165,10 @@ func TestSnapshotWindow(t *testing.T) {
 					t.Fatalf("%s: missing %q; drew %v", c.name, text, tt.Texts())
 				}
 			}
-			if !hasAnyText(tt, "Enter 发送") {
-				t.Fatalf("%s: the composer lost its hint; drew %v", c.name, tt.Texts())
+			// The prompt bar has no hint line under the field; its model control
+			// is the text it does draw, so that is what proves the row is there.
+			if !hasAnyText(tt, "模型") {
+				t.Fatalf("%s: the prompt bar lost its model control; drew %v", c.name, tt.Texts())
 			}
 		}
 		writePNG(t, c.path, img)
@@ -241,6 +244,30 @@ var _ = strings.TrimSpace
 // TestSnapshotRunning draws the moment the composer has to describe: a turn in
 // flight, messages waiting behind it, and a chat further down the rail holding
 // its own queue. The png is left in /tmp for a person to look at.
+// TestSnapshotLoading draws the moment before anything has come back: the pixel
+// loader, its label, and the elapsed clock. It is Loading State's own shape, and
+// it is the only view where the loader is on screen.
+func TestSnapshotLoading(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	now := time.Now()
+	a.tasks = append(a.tasks, protocol.Task{ID: 9002, State: "working", StartedAt: now.Add(-14 * time.Second).UnixMilli()})
+	a.thread(11).live.Run = json.RawMessage(`{"taskId":9002}`)
+	a.draft = ""
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	for _, text := range []string{"思考中", "already ran"} {
+		if text == "already ran" {
+			continue // the clock is drawn in the row, not always the strip
+		}
+		if !tt.HasText(text) {
+			t.Fatalf("missing %q; drew %v", text, tt.Texts())
+		}
+	}
+	writePNG(t, "/tmp/clientv2-loading.png", tt.Image())
+}
+
 func TestSnapshotRunning(t *testing.T) {
 	i18n.Set(i18n.ZH)
 	a := fixtureApp(t, false)
@@ -383,6 +410,54 @@ func TestSnapshotModelPanel(t *testing.T) {
 	writePNG(t, "/tmp/clientv2-model.png", tt.Image())
 }
 
+// TestSnapshotPalette draws ⌘K over the transcript: the field it comes from,
+// the files it can find, and the row a keyboard cursor would land on.
+func TestSnapshotPalette(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	a.openPalette()
+	a.palette.query = "deploy"
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	if !tt.HasText("↑↓ 选择 · ⏎ 打开 · esc 关闭") {
+		t.Fatalf("the palette did not draw; %v", tt.Texts())
+	}
+	writePNG(t, "/tmp/clientv2-palette.png", tt.Image())
+}
+
+// TestSnapshotUsage draws the calendar the way a month of real spend looks:
+// quiet days, a heavy one, and the summary under the grid.
+func TestSnapshotUsage(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	today := startOfDay(a.now)
+	var days []api.UsageDay
+	for back := 20; back >= 0; back-- {
+		day := today.AddDate(0, 0, -back)
+		cost := 0.0
+		switch {
+		case back == 1:
+			cost = 3.4
+		case back == 6:
+			cost = 1.8
+		case back%3 == 0:
+			cost = 0.4
+		case back%4 == 0:
+			cost = 0.15
+		}
+		days = append(days, api.UsageDay{
+			Date:   day.Format("2006-01-02"),
+			Cost:   cost,
+			Tokens: int64(cost * 900000),
+		})
+	}
+	a.usage.open = true
+	a.applyUsage(0, days, nil)
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	writePNG(t, "/tmp/clientv2-usage.png", tt.Image())
+}
+
 // TestSnapshotTasks draws the 任务 tab with the kinds the bridge actually runs:
 // one task the bridge names itself, one turn that is only knowable by its chat,
 // and one housekeeping job with no conversation at all. Each used to be a kind
@@ -418,4 +493,81 @@ func TestSnapshotTasks(t *testing.T) {
 		t.Fatalf("a task named only by its kind says it %d times; drew %v", said, tt.Texts())
 	}
 	writePNG(t, "/tmp/clientv2-tasks.png", tt.Image())
+}
+
+// TestSnapshotCodeBlock draws an answer with the three pieces of Markdown the
+// transcript cannot fake: a fenced block, an inline span and a quote. They take
+// their colours from the app's tokens rather than mygo's defaults, or the block
+// reads as a patch of another program sitting on the card.
+func TestSnapshotCodeBlock(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	text := "The retry came from `queue.ts`, not the worker:\n\n" +
+		"```go\nfunc (q *Queue) retry(job Job) error {\n\tif q.attempts >= maxRetries {\n\t\treturn ErrExhausted\n\t}\n\treturn q.enqueue(job)\n}\n```\n\n" +
+		"> A retry is a new enqueue, so the attempt count lives on the job.\n\n" +
+		"---\n\n" +
+		"- the cap is `maxRetries`\n- the counter resets on success\n"
+	quoted, err := json.Marshal(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.thread(11).upsert(entryJSON(t, 92, "pi.assistant", time.Now().Add(-4*time.Minute),
+		`[{"role":"assistant","content":[{"type":"text","text":`+string(quoted)+`}],"timestamp":__ts}]`))
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	for _, want := range []string{"go", "func (q *Queue) retry(job Job) error {", "the counter resets on success"} {
+		if !tt.HasText(want) {
+			t.Fatalf("missing %q; drew %v", want, tt.Texts())
+		}
+	}
+	writePNG(t, "/tmp/clientv2-codeblock.png", tt.Image())
+}
+
+// TestSnapshotTimeline draws the timeline open beside the chat: one heading per
+// day, the clock at the left edge, and a dot whose colour says who spoke.
+func TestSnapshotTimeline(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	a.tl.open = true
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	for _, text := range []string{
+		i18n.T("timeline"),
+		i18n.T("tlUser"),
+		i18n.T("tlTool"),
+		i18n.T("tlError"),
+		"why is the sky blue?", // the message the first dot stands for
+	} {
+		if !tt.HasText(text) {
+			t.Fatalf("missing %q; drew %v", text, tt.Texts())
+		}
+	}
+	writePNG(t, "/tmp/clientv2-timeline.png", tt.Image())
+}
+
+// TestSnapshotTasksNarrowRail pins the task tab's filter row at the narrowest
+// rail: four segments sharing the width, none of them clipped by the edge.
+func TestSnapshotTasksNarrowRail(t *testing.T) {
+	i18n.Set(i18n.EN)
+	a := fixtureApp(t, false)
+	now := a.now
+	a.rail = railTasks
+	a.railW = railMin
+	a.taskFilter = "sleeping"
+	a.tasks = []protocol.Task{
+		{ID: 1, Kind: "pi.generation", ConversationID: 11, State: "working", Until: now.Add(20 * time.Minute).UnixMilli()},
+		{ID: 2, Kind: "app.routine", Title: "waiting on a human", State: "waiting"},
+		{ID: 3, Kind: "app.usage-sampler", State: "sleeping", Until: now.Add(26 * time.Hour).UnixMilli()},
+	}
+
+	tt := ui.NewTester(a.View, 900, 560)
+	tt.Frame()
+	for _, text := range []string{"All", "Working", "Waiting", "Sleeping"} {
+		if !tt.HasText(text) {
+			t.Fatalf("missing %q; drew %v", text, tt.Texts())
+		}
+	}
+	writePNG(t, "/tmp/clientv2-tasks-narrow.png", tt.Image())
 }

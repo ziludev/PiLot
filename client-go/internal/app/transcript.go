@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/editor"
 	"github.com/egoist/mygo/ui/markdown"
 
 	"pitta/internal/i18n"
@@ -15,13 +16,96 @@ import (
 
 // maxContent is how wide the transcript reads: full window width is a line no
 // eye can follow, so the column is capped and centred.
-const maxContent = 820
+// maxContent is the measure the answer reads at. At 13px with a 1.62 line this
+// is about 70 characters, which is where prose stops being a scan and starts
+// being a read — Beautiful UI keeps its own prose well inside 460px of type.
+const maxContent = 680
 
 // transcriptMarkdown is how a message's Markdown is drawn. Code wraps rather
 // than scrolling sideways: a log line or a long URL is read to its end or not
 // at all, and a sideways scroller inside a message shows no bar at rest, so
 // the tail of the line simply vanished.
-var transcriptMarkdown = &markdown.Options{WrapCode: true}
+//
+// The palette is the app's own rather than mygo's default: a fenced block that
+// comes back in a generic grey sits on the card like a patch from another
+// program. One Options per theme, cached, because markdown.View rebuilds its
+// state whenever the pointer changes and the pointer must only change when the
+// colours do.
+func (a *App) transcriptMarkdown(t theme.Tokens) *markdown.Options {
+	if a.md.opts != nil && a.md.tokens == t {
+		return a.md.opts
+	}
+	a.md.tokens = t
+	a.md.opts = &markdown.Options{
+		WrapCode: true,
+		// 13 on a 1.62 line: Streaming Text's own measure, which is the only
+		// place the library sets an answer's prose.
+		Theme: &markdown.Theme{
+			FontSize:   theme.TextBody,
+			LineHeight: 1.62,
+			CodeFont:   monoFont,
+			// An em multiple, not DIPs: 0.875 is mygo's own default and what a
+			// code span should be against prose.
+			CodeSize:            0.84,
+			CodeLineHeight:      1.5,
+			Text:                t.Ink,
+			Muted:               t.Ink3,
+			Link:                t.Brand,
+			Strong:              t.Ink,
+			Code:                t.Ink,
+			CodeBackground:      t.Field,
+			CodeBlockBackground: t.Inset,
+			CodeBlockBorder:     t.LineSoft,
+			CodeBlockRadius:     theme.RadiusControl,
+			QuoteBar:            t.Line,
+			QuoteText:           t.Ink2,
+			Rule:                t.Line,
+			CodeColors:          codeTheme(t),
+		},
+	}
+	return a.md.opts
+}
+
+// codeTheme is the syntax palette of a fenced block: the app's own colours
+// rather than GitHub's, so a block does not arrive in red and purple on a page
+// of blue and grey. Kinds the palette has nothing to say about keep their
+// default weight, which is why the base is a fresh Theme and not DefaultTheme.
+func codeTheme(t theme.Tokens) *editor.Theme {
+	ct := &editor.Theme{Background: t.Inset, Text: t.Ink}
+	set := func(kind editor.TokenKind, color ui.Color) {
+		ct.Tokens[kind] = editor.TokenStyle{Color: color}
+	}
+	set(editor.TokenKeyword, t.Brand)
+	set(editor.TokenOperator, t.Ink2)
+	set(editor.TokenType, t.Orange)
+	set(editor.TokenFunction, t.Ink)
+	set(editor.TokenMeta, t.Orange)
+	set(editor.TokenProperty, t.Ink)
+	set(editor.TokenConstant, t.Orange)
+	set(editor.TokenNumber, t.Orange)
+	set(editor.TokenAttribute, t.Orange)
+	set(editor.TokenString, t.Green)
+	set(editor.TokenEscape, t.Orange)
+	set(editor.TokenRegexp, t.Green)
+	set(editor.TokenTag, t.Brand)
+	set(editor.TokenComment, t.Ink3)
+	set(editor.TokenHeading, t.Ink)
+	set(editor.TokenLink, t.Brand)
+	set(editor.TokenCode, t.Ink)
+	set(editor.TokenInserted, t.Green)
+	set(editor.TokenDeleted, t.Red)
+	set(editor.TokenInvalid, t.Red)
+	ct.Tokens[editor.TokenComment].Italic = true
+	ct.Tokens[editor.TokenHeading].Bold = true
+	return ct
+}
+
+// mdCache is the last Markdown options built for a theme, with the tokens they
+// were built from.
+type mdCache struct {
+	tokens theme.Tokens
+	opts   *markdown.Options
+}
 
 // transcriptView draws the open chat. It is read-only: the only things a click
 // does here are unfold a run's steps and scroll.
@@ -36,10 +120,10 @@ func (a *App) transcriptView(c *ui.Context, t theme.Tokens) {
 	if th.failed {
 		convID := a.active
 		ui.Row(c).Grow(1).FillWidth().Justify(ui.Center).AlignItems(ui.Center).Gap(6).Children(func() {
-			ui.Text(c, i18n.T("loadFailed")).FontSize(11.5).TextColor(t.Destructive)
-			retry := ui.ButtonBase(c).Radius(6).Padding(2, 8).Cursor(ui.CursorPointer)
+			ui.Text(c, i18n.T("loadFailed")).FontSize(theme.TextRow).TextColor(t.Red)
+			retry := ui.ButtonBase(c).Radius(theme.RadiusChip).Padding(2, 8).Cursor(ui.CursorPointer)
 			retry.Children(func() {
-				ui.Text(c, i18n.T("retry")).FontSize(11).TextColor(t.Primary)
+				ui.Text(c, i18n.T("retry")).FontSize(theme.TextSmall).FontWeight(500).TextColor(t.Brand)
 			})
 			retry.OnClick(func() { a.loadThread(convID) })
 		})
@@ -57,7 +141,7 @@ func (a *App) transcriptView(c *ui.Context, t theme.Tokens) {
 	a.olderLoader(th)
 	if len(rows) == 0 {
 		ui.Row(c).Grow(1).FillWidth().Justify(ui.Center).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, i18n.T("emptyThread")).FontSize(11.5).TextColor(t.MutedFg)
+			ui.Text(c, i18n.T("emptyThread")).FontSize(theme.TextRow).TextColor(t.Ink3)
 		})
 		return
 	}
@@ -156,7 +240,7 @@ func (a *App) jumpToLatest(c *ui.Context, t theme.Tokens, rows int) {
 		Border(1, t.Border).Cursor(ui.CursorPointer).Tooltip(i18n.T("jumpLatest"))
 	pill.Children(func() {
 		ui.Icon(c, icons.ChevronDown).Size(11, 11).TextColor(t.Foreground)
-		ui.Text(c, i18n.T("jumpLatest")).FontSize(10.5).TextColor(t.Foreground).MaxLines(1)
+		ui.Text(c, i18n.T("jumpLatest")).FontSize(theme.TextMicro).TextColor(t.Foreground).MaxLines(1)
 	})
 	pill.OnClick(a.scrollToLatest)
 }
@@ -179,7 +263,7 @@ func (a *App) threadRowMarked(c *ui.Context, t theme.Tokens, row threadRow, mark
 		a.threadRow(c, t, row)
 		return
 	}
-	ui.Column(c).FillWidth().Radius(8).Background(t.Selection).Children(func() {
+	ui.Column(c).FillWidth().Radius(theme.RadiusControl).Background(t.Selection).Children(func() {
 		a.threadRow(c, t, row)
 	})
 }
@@ -207,9 +291,9 @@ func (a *App) threadRow(c *ui.Context, t theme.Tokens, row threadRow) {
 // side of the date, so the eye reads a break rather than a heading.
 func (a *App) dayRow(c *ui.Context, t theme.Tokens, row threadRow) {
 	ui.Row(c).FillWidth().Padding(12, 0).Gap(10).AlignItems(ui.Center).Children(func() {
-		ui.Box(c).Height(1).Grow(1).Background(t.Border)
-		ui.Text(c, row.text).FontSize(10.5).TextColor(t.MutedFg)
-		ui.Box(c).Height(1).Grow(1).Background(t.Border)
+		ui.Box(c).Height(1).Grow(1).Background(t.Line)
+		ui.Text(c, row.text).FontSize(theme.TextMicro).FontWeight(500).TextColor(t.Ink3)
+		ui.Box(c).Height(1).Grow(1).Background(t.Line)
 	})
 }
 
@@ -220,12 +304,14 @@ func (a *App) userRow(c *ui.Context, t theme.Tokens, row threadRow) {
 	hovered := outer.Hovered()
 	outer.Children(func() {
 		ui.Column(c).MaxWidth(560).Gap(4).Children(func() {
-			bubble := ui.Column(c).Padding(8, 12).Radius(12).
-				Background(t.Secondary).Gap(6)
+			// The user's turn is a filled bubble in the same recessed tone as an
+			// input: a message about to be sent, not a card of its own.
+			bubble := ui.Column(c).Padding(9, 14).Radius(theme.Radius).
+				Background(t.Field).Gap(6)
 			bubble.Children(func() {
 				a.images(c, row.images, 180, 120)
 				if row.text != "" {
-					ui.Text(c, row.text).FontSize(12.5).TextColor(t.SecondFg)
+					ui.Text(c, row.text).FontSize(theme.TextTitle).TextColor(t.Ink)
 				}
 			})
 			a.messageActions(c, t, row, hovered, true)
@@ -248,7 +334,7 @@ func (a *App) assistantRow(c *ui.Context, t theme.Tokens, row threadRow) {
 		ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
 			a.images(c, row.images, 240, 160)
 			if row.text != "" {
-				markdown.View(c, row.text, transcriptMarkdown)
+				markdown.View(c, row.text, a.transcriptMarkdown(t))
 			}
 			a.messageActions(c, t, row, hovered, false)
 		})
@@ -282,18 +368,27 @@ func (a *App) thinkingRow(c *ui.Context, t theme.Tokens, row threadRow) {
 	ui.Row(c).FillWidth().Padding(6, 0).Gap(9).AlignItems(ui.Start).Children(func() {
 		ui.Box(c).Width(avatarSize)
 		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
-			header := ui.ButtonBase(c).FillWidth().Height(22).Radius(5).Padding(0).
-				Justify(ui.Start).Cursor(ui.CursorPointer).Gap(4).AlignItems(ui.Center).
+			// ThinkingState's header: a 16px sparkle, the label at 13 medium in
+			// ink-2, and a chevron that turns over when the trace opens.
+			header := ui.ButtonBase(c).FillWidth().Height(26).Radius(theme.RadiusChip).Padding(0).
+				Justify(ui.Start).Cursor(ui.CursorPointer).Gap(5).AlignItems(ui.Center).
 				Label(i18n.T("thinking"))
 			header.Children(func() {
 				if open {
-					ui.Icon(c, icons.ChevronDown).Size(10, 10).TextColor(t.MutedFg)
+					ui.Icon(c, icons.ChevronDown).Size(14, 14).TextColor(t.Ink3)
 				} else {
-					ui.Icon(c, icons.ChevronRight).Size(10, 10).TextColor(t.MutedFg)
+					ui.Icon(c, icons.ChevronRight).Size(14, 14).TextColor(t.Ink3)
 				}
-				ui.Text(c, i18n.T("thinking")).FontSize(11.5).TextColor(t.MutedFg)
+				sparkle := t.Ink3
+				if row.newest && a.running() {
+					// ThinkingState fills the glyph while the thought is being had
+					// and leaves it hollow once the answer is out.
+					sparkle = t.Ink2
+				}
+				ui.Icon(c, icons.Sparkle).Size(16, 16).TextColor(sparkle)
+				ui.Text(c, i18n.T("thinking")).FontSize(theme.TextBody).FontWeight(500).TextColor(t.Ink2)
 				if !open {
-					ui.Text(c, oneLine(row.text)).FontSize(10.5).TextColor(t.MutedFg).
+					ui.Text(c, oneLine(row.text)).FontSize(theme.TextRow).TextColor(t.Ink3).
 						MaxLines(1).Grow(1)
 				}
 			})
@@ -304,10 +399,10 @@ func (a *App) thinkingRow(c *ui.Context, t theme.Tokens, row threadRow) {
 			if open {
 				// A rule down the side, the way a quoted passage is marked: the
 				// trace is read as background, not as the answer.
-				ui.Row(c).FillWidth().Padding(2, 0).Gap(8).AlignItems(ui.Stretch).Children(func() {
-					ui.Box(c).Width(2).Radius(1).Background(t.Border)
+				ui.Row(c).FillWidth().Padding(4, 0, 2, 8).Gap(9).AlignItems(ui.Stretch).Children(func() {
+					ui.Box(c).Width(2).Radius(1).Background(t.Line)
 					ui.Column(c).Grow(1).MinWidth(0).Children(func() {
-						markdown.View(c, row.text, transcriptMarkdown)
+						markdown.View(c, row.text, a.transcriptMarkdown(t))
 					})
 				})
 			}
@@ -327,16 +422,17 @@ func (a *App) stepsRow(c *ui.Context, t theme.Tokens, row threadRow) {
 	ui.Row(c).FillWidth().Padding(6, 0).Gap(9).AlignItems(ui.Start).Children(func() {
 		ui.Box(c).Width(avatarSize)
 		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
-			header := ui.ButtonBase(c).FillWidth().Height(22).Radius(5).Padding(0).
-				Justify(ui.Start).Cursor(ui.CursorPointer).Gap(4).AlignItems(ui.Center)
+			header := ui.ButtonBase(c).FillWidth().Height(26).Radius(theme.RadiusChip).Padding(0).
+				Justify(ui.Start).Cursor(ui.CursorPointer).Gap(5).AlignItems(ui.Center)
 			header.Children(func() {
 				if open {
-					ui.Icon(c, icons.ChevronDown).Size(10, 10).TextColor(t.MutedFg)
+					ui.Icon(c, icons.ChevronDown).Size(12, 12).TextColor(t.Ink3)
 				} else {
-					ui.Icon(c, icons.ChevronRight).Size(10, 10).TextColor(t.MutedFg)
+					ui.Icon(c, icons.ChevronRight).Size(12, 12).TextColor(t.Ink3)
 				}
 				a.stepsStatusIcon(c, t, row.steps)
-				ui.Text(c, a.stepsSummary(row)).FontSize(11.5).TextColor(t.MutedFg).MaxLines(1)
+				ui.Text(c, a.stepsSummary(row)).FontSize(theme.TextBody).FontWeight(500).
+					TextColor(t.Ink2).MaxLines(1)
 			})
 			header.OnClick(func() {
 				a.vm.folds[key] = !open
@@ -363,16 +459,17 @@ func (a *App) stepsRow(c *ui.Context, t theme.Tokens, row threadRow) {
 						unfolded = i == len(groups)-1
 					}
 					label := stepGroupLabel(group)
-					head := ui.ButtonBase(c).FillWidth().Height(22).Radius(5).Padding(0).
-						Justify(ui.Start).Cursor(ui.CursorPointer).Gap(4).AlignItems(ui.Center).Label(label)
+					head := ui.ButtonBase(c).FillWidth().Height(26).Radius(theme.RadiusChip).Padding(0).
+						Justify(ui.Start).Cursor(ui.CursorPointer).Gap(5).AlignItems(ui.Center).Label(label)
 					head.Children(func() {
 						if unfolded {
-							ui.Icon(c, icons.ChevronDown).Size(10, 10).TextColor(t.MutedFg)
+							ui.Icon(c, icons.ChevronDown).Size(12, 12).TextColor(t.Ink3)
 						} else {
-							ui.Icon(c, icons.ChevronRight).Size(10, 10).TextColor(t.MutedFg)
+							ui.Icon(c, icons.ChevronRight).Size(12, 12).TextColor(t.Ink3)
 						}
 						a.stepsStatusIcon(c, t, group.steps)
-						ui.Text(c, label).FontSize(10.5).FontWeight(500).TextColor(t.MutedFg).MaxLines(1)
+						ui.Text(c, label).FontSize(theme.TextSmall).FontWeight(500).
+							TextColor(t.Ink2).MaxLines(1)
 					})
 					head.OnClick(func() {
 						a.vm.groups[gkey] = !unfolded
@@ -425,25 +522,27 @@ func stepGroupLabel(g stepGroup) string {
 // line with its verdict in front, the way a tool call does in assistant-ui's
 // ToolFallback; everything a reader opens the fold for is in the blocks below.
 func (a *App) stepLines(c *ui.Context, t theme.Tokens, steps []step) {
-	ui.Column(c).FillWidth().Gap(3).Children(func() {
+	ui.Column(c).FillWidth().Gap(6).Children(func() {
 		for _, s := range steps {
-			ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Start).Children(func() {
-				if !s.thinking {
-					a.stepsStatusIcon(c, t, []step{s})
-				}
-				// The tool's name is the one dark thing on the line: at a
-				// glance the reader wants which tool, then what it was given.
-				ui.Text(c, s.label).FontSize(10.5).FontWeight(500).
-					TextColor(t.Foreground).MaxLines(1).MaxWidth(160)
-				lines := 1
-				if s.thinking {
-					lines = 2
-				}
-				ui.Text(c, s.body).Grow(1).FontSize(10.5).
-					TextColor(t.MutedFg).MaxLines(lines)
+			ui.Column(c).FillWidth().Gap(3).Children(func() {
+				ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).Children(func() {
+					if !s.thinking {
+						a.stepsStatusIcon(c, t, []step{s})
+					}
+					// Steps' own row: the tool at 12.5 medium in ink, what it was
+					// handed at 11.5 in ink-3 — primary and secondary, no chip.
+					ui.Text(c, s.label).FontSize(theme.TextRow).FontWeight(500).
+						TextColor(t.Ink).MaxLines(1)
+					lines := 1
+					if s.thinking {
+						lines = 2
+					}
+					ui.Text(c, s.body).Grow(1).FontSize(theme.TextSmall).
+						TextColor(t.Ink3).MaxLines(lines)
+				})
+				a.stepArgs(c, t, s)
+				a.stepOutput(c, t, s)
 			})
-			a.stepArgs(c, t, s)
-			a.stepOutput(c, t, s)
 		}
 	})
 }
@@ -461,11 +560,12 @@ func (a *App) stepArgs(c *ui.Context, t theme.Tokens, s step) {
 	if args == "" {
 		return
 	}
-	ui.Column(c).FillWidth().Gap(1).Padding(4, 7).Radius(5).Background(t.Muted).Children(func() {
-		ui.Text(c, i18n.T("toolArgs")).FontSize(9.5).TextColor(t.MutedFg)
+	ui.Column(c).FillWidth().Gap(2).Padding(6, 8).Radius(theme.RadiusChip).Background(t.Inset).
+		Border(1, t.LineSoft).Children(func() {
+		ui.Text(c, i18n.T("toolArgs")).FontSize(theme.TextMicro).TextColor(t.Ink3)
 		for _, line := range outputLines(args, maxArgLines) {
 			ui.Text(c, line.text).Font("SF Mono, Menlo, monospace").
-				FontSize(10).TextColor(t.MutedFg).MaxLines(2)
+				FontSize(theme.TextSmall).TextColor(t.Ink2).MaxLines(2)
 		}
 	})
 }
@@ -486,11 +586,13 @@ func (a *App) stepsStatusIcon(c *ui.Context, t theme.Tokens, steps []step) {
 			answered++
 		}
 	}
+	// ThinkingState's Steps trace: a 14px tick for what came back, a red cross
+	// for what failed, nothing at all while it is still running.
 	switch {
 	case failed > 0:
-		ui.Icon(c, icons.X).Size(10, 10).TextColor(t.Destructive)
+		ui.Icon(c, icons.X).Size(14, 14).TextColor(t.Red)
 	case answered > 0:
-		ui.Icon(c, icons.Check).Size(10, 10).TextColor(t.MutedFg)
+		ui.Icon(c, icons.Check).Size(14, 14).TextColor(t.Ink3)
 	}
 }
 
@@ -505,7 +607,8 @@ func (a *App) stepOutput(c *ui.Context, t theme.Tokens, step step) {
 	if step.out == "" {
 		return
 	}
-	box := ui.Column(c).FillWidth().Gap(1).Padding(5, 7).Radius(5).Background(t.Muted)
+	box := ui.Column(c).FillWidth().Gap(2).Padding(6, 8).Radius(theme.RadiusChip).
+		Background(t.Inset).Border(1, t.LineSoft)
 	hovered := box.Hovered()
 	box.Children(func() {
 		// Held at the corner rather than in the flow: a copy button that takes a
@@ -522,11 +625,30 @@ func (a *App) stepOutput(c *ui.Context, t theme.Tokens, step step) {
 		copyBtn.Children(func() {
 			ui.Icon(c, icons.Copy).Size(10.5, 10.5).TextColor(t.MutedFg)
 		})
+		lines := outputLines(step.out, maxOutputLines)
+		if file, add, del, ok := diffSummary(step.out); ok {
+			// A patch gets Diff Table's bar: the file on the left, the counts on
+			// the right, a hairline under it. Without it a patch is just lines
+			// that happen to start with + and -, and the reader has to count.
+			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Padding(0, 22, 0, 0).Children(func() {
+				name := file
+				if name == "" {
+					name = step.label
+				}
+				ui.Text(c, clip(name, 64)).Grow(1).Shrink(1).MinWidth(0).
+					FontSize(theme.TextRow).FontWeight(500).TextColor(t.Ink).MaxLines(1)
+				ui.Text(c, "+"+itoa(add)).Font("SF Mono, Menlo, monospace").
+					FontSize(theme.TextMicro).TextColor(t.Green)
+				ui.Text(c, "−"+itoa(del)).Font("SF Mono, Menlo, monospace").
+					FontSize(theme.TextMicro).TextColor(t.Red)
+			})
+			ui.Box(c).FillWidth().Height(1).Background(t.Line)
+		}
 		// The right padding is the button's column, so a long line ends before
 		// the icon rather than under it.
-		for _, line := range outputLines(step.out, maxOutputLines) {
+		for _, line := range lines {
 			ui.Text(c, line.text).Font("SF Mono, Menlo, monospace").
-				FontSize(10).TextColor(outputColor(t, line.kind)).MaxLines(2).
+				FontSize(theme.TextSmall).TextColor(outputColor(t, line.kind)).MaxLines(2).
 				Padding(0, 22, 0, 0)
 		}
 	})
@@ -585,13 +707,13 @@ func (a *App) errorRow(c *ui.Context, t theme.Tokens, row threadRow) {
 		ui.Box(c).Width(2).AlignSelf(ui.Stretch).Radius(1).Background(t.Destructive)
 		ui.Row(c).Grow(1).Padding(2, 0).Gap(5).AlignItems(ui.Start).Children(func() {
 			ui.Icon(c, icons.AlertTriangle).Size(11, 11).TextColor(t.Destructive)
-			ui.Text(c, row.text).FontSize(11.5).TextColor(t.Destructive)
+			ui.Text(c, row.text).FontSize(theme.TextSmall).TextColor(t.Destructive)
 			// The failure usually ends a turn the reader still wants: one click
 			// sends the same words again instead of making them retype.
-			retry := ui.ButtonBase(c).Radius(5).Padding(1, 6).Cursor(ui.CursorPointer).
+			retry := ui.ButtonBase(c).Radius(theme.RadiusChip).Padding(1, 6).Cursor(ui.CursorPointer).
 				Tooltip(i18n.T("retry"))
 			retry.Children(func() {
-				ui.Text(c, i18n.T("retry")).FontSize(11).TextColor(t.Primary)
+				ui.Text(c, i18n.T("retry")).FontSize(theme.TextSmall).TextColor(t.Primary)
 			})
 			if retry.Clicked() {
 				a.retryTurn(row.turn)
@@ -602,22 +724,87 @@ func (a *App) errorRow(c *ui.Context, t theme.Tokens, row threadRow) {
 
 // liveRowView is the turn in flight: the tool it is running, and the answer as
 // it is written. Without it a turn that thinks for a minute looks stalled.
+// loaderGrid is LoadingState's loader: nine 4px cells in a 3x3 grid, lit in a
+// chevron sweep — the corner distance of each cell sets when it fires, so the
+// light runs down the middle and out to the edges. Delays are the library's own
+// ((column + |row - 1|) * 90ms) over a 650ms round; the view asks for another
+// frame while it is on screen, which is only while a turn is running.
+func (a *App) loaderGrid(c *ui.Context, t theme.Tokens) {
+	const cell, gap = float32(4), float32(1.5)
+	const round = float32(650)
+	phase := float32(c.Now().UnixMilli()%int64(round)) / round
+	ui.Column(c).Gap(gap).Children(func() {
+		for row := 0; row < 3; row++ {
+			ui.Row(c).Gap(gap).Children(func() {
+				for col := 0; col < 3; col++ {
+					// Each cell runs its own 650ms loop, offset by its delay.
+					shift := float32(col+absInt(row-1)) * 90 / round
+					local := phase - shift
+					for local < 0 {
+						local++
+					}
+					// A tent: dark at both ends of the round, full in the middle.
+					lit := float32(1) - absFloat(2*local-1)
+					ui.Box(c).Size(cell, cell).Radius(1).
+						Background(t.Ink.Alpha(0.15 + 0.85*lit))
+				}
+			})
+		}
+	})
+	c.After(60 * time.Millisecond)
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+func absFloat(v float32) float32 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+// streamCaret is where the next word will land while an answer arrives. A
+// block glyph rather than an animated box: at 13px a terminal-style bar reads as
+// a caret, and markdown.View already owns the line it has to sit at the end of.
+const streamCaret = "\u258c"
+
 func (a *App) liveRowView(c *ui.Context, t theme.Tokens, row threadRow) {
 	ui.Row(c).FillWidth().Padding(6, 0).Gap(9).AlignItems(ui.Start).Children(func() {
 		a.avatarView(c, avatarSize)
 		ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
+			// Loading State is the shape of "nothing has come back yet": the 3x3
+			// pixel grid sweeping in a chevron, the label beside it, and the
+			// elapsed clock in tabular figures. The thought it is chasing goes on
+			// the next line rather than into the label.
+			if row.text == "" && row.liveStep == "" {
+				ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(7).Children(func() {
+					a.loaderGrid(c, t)
+					ui.Text(c, i18n.T("thinkingRunning")).FontSize(theme.TextBody).
+						FontWeight(500).TextColor(t.Ink2).MaxLines(1)
+					// The clock is the status strip's job: one running turn, one
+					// place that says how long it has been going.
+
+				})
+			}
 			if row.liveThinking != "" && row.text == "" {
-				ui.Text(c, i18n.T("thinkingRunning")+" "+lastLineText(row.liveThinking)).
-					FontSize(11).TextColor(t.MutedFg).MaxLines(2)
+				ui.Text(c, lastLineText(row.liveThinking)).
+					FontSize(theme.TextSmall).TextColor(t.Ink3).MaxLines(2)
 			}
 			if row.liveStep != "" {
 				ui.Text(c, i18n.TF("runningStep", map[string]any{"name": liveStepName(row.liveStep, row.liveHint)})).
-					FontSize(11).TextColor(t.MutedFg)
+					FontSize(theme.TextSmall).TextColor(t.MutedFg)
 			}
 			if row.text != "" {
 				// View, not Stream: the bytes already arrive in chunks, and a
-				// typewriter on top of that is animation for its own sake.
-				markdown.View(c, row.text, transcriptMarkdown)
+				// typewriter on top of that is animation for its own sake. The
+				// caret is the one thing Streaming Text adds — a bar where the
+				// next word will land, so the answer reads as still arriving.
+				markdown.View(c, row.text+streamCaret, a.transcriptMarkdown(t))
 			}
 		})
 	})
@@ -668,9 +855,9 @@ func (a *App) liveRow() (threadRow, bool) {
 			row.liveHint = liveStepHint(slot.Output, slot.Details)
 		}
 	}
-	if row.text == "" && row.liveStep == "" && row.liveThinking == "" {
-		return threadRow{}, false
-	}
+	// A turn that has said nothing yet is still a row: it is where Loading
+	// State's loader goes. Only the absence of a run hides it, and that was
+	// checked above.
 	return row, true
 }
 
@@ -731,10 +918,10 @@ func (a *App) images(c *ui.Context, images []imageRef, w, h float32) {
 			// The thumbnail is also the way in: a screenshot at 180 points is a
 			// placeholder for the picture, not the picture.
 			picture := images[i]
-			shot := ui.ButtonBase(c).Size(w, h).Radius(8).Cursor(ui.CursorPointer).
+			shot := ui.ButtonBase(c).Size(w, h).Radius(theme.RadiusControl).Cursor(ui.CursorPointer).
 				Tooltip(i18n.T("openImage"))
 			shot.Children(func() {
-				ui.Image(c, bitmap).Size(w, h).Radius(8).Clip()
+				ui.Image(c, bitmap).Size(w, h).Radius(theme.RadiusControl).Clip()
 			})
 			shot.OnClick(func() { a.zoomImage(picture) })
 		}
@@ -785,6 +972,6 @@ func (a *App) olderLoader(th *threadStore) {
 // slow bridge looks like reading rather than like a chat that ends there.
 func (a *App) olderLine(c *ui.Context, t theme.Tokens) {
 	ui.Row(c).FillWidth().Padding(8, 0).Justify(ui.Center).Children(func() {
-		ui.Text(c, i18n.T("loadingOlder")).FontSize(10.5).TextColor(t.MutedFg)
+		ui.Text(c, i18n.T("loadingOlder")).FontSize(theme.TextMicro).TextColor(t.MutedFg)
 	})
 }

@@ -85,21 +85,22 @@ func (a *App) usageDialog(c *ui.Context, t theme.Tokens) {
 		return
 	}
 	ui.Modal(c, &a.usage.open, func() {
-		ui.Column(c).Width(460).Padding(16).Gap(12).Radius(10).
-			Background(t.Popover).Border(1, t.Border).Children(func() {
+		ui.Column(c).Width(460).Padding(14).Gap(12).Radius(theme.RadiusWindow).
+			Background(t.Surface).Border(1, t.Line).
+			Shadow(0, 12, 40, 0, ui.RGBA(0, 0, 0, 0.22)).Children(func() {
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
-				ui.Text(c, i18n.T("usage")).FontSize(12.5).FontWeight(600).
-					TextColor(t.Foreground).Grow(1)
+				ui.Text(c, i18n.T("usage")).FontSize(theme.TextTitle).FontWeight(600).
+					TextColor(t.Ink).Grow(1)
 				start, _ := usageWindow(a.now)
-				ui.Text(c, start.Format("01-02")+" – "+a.now.Format("01-02")).FontSize(9.5).
-					TextColor(t.MutedFg)
+				ui.Text(c, start.Format("01-02")+" – "+a.now.Format("01-02")).FontSize(theme.TextMicro).
+					TextColor(t.Ink3)
 			})
 			if a.usage.failed != "" {
-				ui.Text(c, a.usage.failed).FontSize(11).TextColor(t.Destructive).MaxLines(3)
+				ui.Text(c, a.usage.failed).FontSize(theme.TextSmall).TextColor(t.Destructive).MaxLines(3)
 			}
 			if a.usage.days == nil {
 				if a.usage.busy {
-					ui.Text(c, i18n.T("loading")).FontSize(11).TextColor(t.MutedFg)
+					ui.Text(c, i18n.T("loading")).FontSize(theme.TextSmall).TextColor(t.Ink3)
 				}
 				return
 			}
@@ -128,8 +129,9 @@ func (a *App) usageGrid(c *ui.Context, t theme.Tokens) {
 	start, _ := usageWindow(a.now)
 
 	ui.Row(c).FillWidth().Gap(4).Children(func() {
-		// Weekday labels: three letters, every other row, because seven labels
-		// next to 10-point squares is more ink than grid.
+		// Weekday labels: every other row, because seven labels next to 17-point
+		// squares is more ink than grid. They sit on the same 20-point pitch as
+		// the squares, or the column drifts against the rows it names.
 		ui.Column(c).Gap(3).Padding(0, 0, 0, 2).Children(func() {
 			for row := 0; row < 7; row++ {
 				label := ""
@@ -141,7 +143,7 @@ func (a *App) usageGrid(c *ui.Context, t theme.Tokens) {
 				case 4:
 					label = i18n.T("weekdayFri")
 				}
-				ui.Text(c, label).FontSize(8.5).TextColor(t.MutedFg).Height(15)
+				ui.Text(c, label).FontSize(theme.TextMicro).TextColor(t.Ink3).Height(cellSize)
 			}
 		})
 		for week := 0; week < usageWeeks; week++ {
@@ -160,12 +162,12 @@ func (a *App) usageGrid(c *ui.Context, t theme.Tokens) {
 // usageCell is one day: empty when nothing was spent, and four steps of the
 // accent color up to the heaviest day in the window.
 func (a *App) usageCell(c *ui.Context, t theme.Tokens, date time.Time, cost float64, ok bool, peak float64) {
-	cell := ui.Box(c).Width(cellSize).Height(cellSize).Radius(3).Background(t.SidebarAccent)
+	cell := ui.Box(c).Width(cellSize).Height(cellSize).Radius(3).Background(t.Field)
 	switch {
 	case !ok || cost <= 0:
 		// Nothing spent, or nothing sampled: the quiet square says both.
 	case peak <= 0:
-		cell = cell.Background(blend(t.Popover, t.Primary, 0.2))
+		cell = cell.Background(blend(t.Surface, t.Brand, 0.2))
 	default:
 		share := cost / peak
 		level := 0.2
@@ -180,7 +182,7 @@ func (a *App) usageCell(c *ui.Context, t theme.Tokens, date time.Time, cost floa
 		// The shade is mixed rather than layered with alpha: a translucent
 		// square over a popover loses its definition on a photo wallpaper, and
 		// the whole point of the grid is telling one square from another.
-		cell = cell.Background(blend(t.Popover, t.Primary, level))
+		cell = cell.Background(blend(t.Surface, t.Brand, level))
 	}
 	// The day's number is in the tooltip rather than on the square: at 11 points
 	// a cell holds a color, not a figure.
@@ -213,8 +215,8 @@ func (a *App) usageTotals(c *ui.Context, t theme.Tokens) {
 
 func (a *App) usageStat(c *ui.Context, t theme.Tokens, label, value string) {
 	ui.Column(c).Gap(1).Children(func() {
-		ui.Text(c, label).FontSize(9).TextColor(t.MutedFg)
-		ui.Text(c, value).FontSize(11.5).FontWeight(600).TextColor(t.Foreground)
+		ui.Text(c, label).FontSize(theme.TextMicro).TextColor(t.Ink3)
+		ui.Text(c, value).FontSize(theme.TextSmall).FontWeight(600).TextColor(t.Ink)
 	})
 }
 

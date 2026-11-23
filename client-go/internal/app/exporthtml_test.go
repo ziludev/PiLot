@@ -17,7 +17,9 @@ func TestShortcutSheetListsTheKeys(t *testing.T) {
 	i18n.Set(i18n.EN)
 	a := fixtureApp(t, false)
 
-	want := []string{"⌘K", "⌘P", "⌘J", "⇧⌘E", "⌘⇧/"}
+	// In the order they are worth learning: the two dialogs, find, the end of the
+	// transcript, the rail, one key per drawer, then the two whole-window ones.
+	want := []string{"⌘K", "⌘P", "⌘F", "⌘J", "⌘\\", "⌘⇧M", "⌘⇧C", "⌘⇧T", "⇧⌘E", "⌘⇧/"}
 	got := a.shortcuts()
 	if len(got) != len(want) {
 		t.Fatalf("sheet has %d lines, want %d: %v", len(got), len(want), got)

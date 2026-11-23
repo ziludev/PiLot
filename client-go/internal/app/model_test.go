@@ -214,10 +214,10 @@ func TestModelKeyboardPicks(t *testing.T) {
 	}
 }
 
-// TestModelLevelSlider changes the level of the chat's own model, which is the
-// only other thing the panel does. The levels are ordered, so the control is a
-// slider: clicking its middle lands on the middle level.
-func TestModelLevelSlider(t *testing.T) {
+// TestModelLevelChips changes the level of the chat's own model, which is the
+// only other thing the panel does. A level is one of a handful of named steps,
+// so each is a chip: clicking the middle one lands on the middle level.
+func TestModelLevelChips(t *testing.T) {
 	i18n.Set(i18n.EN)
 	b := newModelBridge(t)
 	a := pickerApp(t, b)
@@ -225,18 +225,16 @@ func TestModelLevelSlider(t *testing.T) {
 	tt := ui.NewTester(a.View, 1180, 820)
 	tt.Frame()
 
-	label, ok := tt.Find("Thinking")
-	if !ok {
-		t.Fatalf("no slider label; drew %v", tt.Texts())
-	}
-	// Nothing has been chosen in this chat, so the readout starts at the bottom
+	// Nothing has been chosen in this chat, so the chips start at the bottom
 	// stop, which is also what the bridge does with no level set.
-	readout, ok := tt.Find("off")
-	if !ok {
-		t.Fatalf("no level readout; drew %v", tt.Texts())
+	if _, ok := tt.Find("off"); !ok {
+		t.Fatalf("no level chip; drew %v", tt.Texts())
 	}
-	middle := label.X + label.W + (readout.X-(label.X+label.W))/2
-	tt.ClickAt(middle, readout.Y+readout.H/2)
+	low, ok := tt.Find("low")
+	if !ok {
+		t.Fatalf("no middle chip; drew %v", tt.Texts())
+	}
+	tt.ClickAt(low.X+low.W/2, low.Y+low.H/2)
 	tt.Frame()
 	if a.thinking != "low" {
 		t.Fatalf("thinking = %q, want the middle stop", a.thinking)

@@ -50,9 +50,10 @@ type modelPick struct {
 // modelPanelHeight is how tall the list is: about seven rows, then the wheel.
 const modelPanelHeight = 244
 
-// modelRowSpan is roughly how much room a row takes, which is what the panel's
+// modelRowSpan is how much room a row takes (a model row is 30 high, a provider
+// header 26 with its gap), which is what the panel's
 // height is made of when the list is shorter than the panel.
-const modelRowSpan = 26
+const modelRowSpan = 30
 
 // modelRecents is how many models the panel remembers having been chosen from.
 const modelRecents = 5
@@ -406,13 +407,16 @@ func (a *App) modelChip(c *ui.Context, t theme.Tokens) {
 	if a.thinking != "" {
 		label += " · " + a.thinking
 	}
-	button := ui.ButtonBase(c).Height(24).Radius(6).Padding(0, 7).Gap(4).
+	// The prompt bar's model control: the name at 12 medium, a small chevron,
+	// no chip around it — hover is what says it is pressable.
+	button := ui.ButtonBase(c).Height(28).Radius(theme.RadiusControl).Padding(0, 6).Gap(2).
 		AlignItems(ui.Center).Cursor(ui.CursorPointer).Tooltip(i18n.T("model"))
-	if a.pick.open {
-		button = button.Background(t.Muted)
+	if a.pick.open || button.Hovered() {
+		button = button.Background(t.Hover)
 	}
 	button.Children(func() {
-		ui.Text(c, clip(label, 26)).FontSize(11).TextColor(t.MutedFg).MaxLines(1)
+		ui.Text(c, clip(label, 26)).FontSize(theme.TextRow).FontWeight(500).TextColor(t.Ink2).MaxLines(1)
+		ui.Icon(c, icons.ChevronDown).Size(11, 11).TextColor(t.Ink3)
 	})
 	button.OnClick(a.openModelPicker)
 }
@@ -439,12 +443,18 @@ func (a *App) modelDialog(c *ui.Context, t theme.Tokens) {
 		// A quarter-dark window rather than the modal's 40%: the list is small and the
 		// message behind it is often what the choice is about.
 		backdrop.Background(ui.RGBA(0, 0, 0, 0.28))
-		panel.Width(380).Padding(10).Radius(12).Gap(4).
-			Border(1, t.Border).Background(t.Popover).
-			Shadow(0, 12, 40, 0, ui.RGBA(0, 0, 0, 0.35)).Children(func() {
-			ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).Children(func() {
-				input := ui.TextInputBase(c, &a.pick.filter).FillWidth().Height(28).
-					FontSize(11.5).Placeholder(i18n.T("modelSearch"))
+		panel.Width(380).Padding(12).Radius(theme.RadiusWindow).Gap(8).
+			Border(1, t.Line).Background(t.Surface).
+			Shadow(0, 12, 40, 0, ui.RGBA(0, 0, 0, 0.22)).Children(func() {
+			// The filter is a field of its own: a modal whose only input is
+			// invisible looks like a list that answers nothing.
+			field := ui.Row(c).FillWidth().Height(32).Radius(theme.RadiusControl).
+				Padding(0, 8).Gap(6).Background(t.Field).Border(1, t.LineSoft).
+				AlignItems(ui.Center)
+			field.Children(func() {
+				ui.Icon(c, icons.Search).Size(12, 12).TextColor(t.Ink3)
+				input := ui.TextInputBase(c, &a.pick.filter).FillWidth().Height(22).
+					FontSize(theme.TextBody).Placeholder(i18n.T("modelSearch"))
 				if a.pick.focus {
 					input.AutoFocus()
 					a.pick.focus = false
@@ -453,15 +463,15 @@ func (a *App) modelDialog(c *ui.Context, t theme.Tokens) {
 			})
 			switch {
 			case a.pick.failed:
-				ui.Text(c, i18n.T("modelFailed")).FontSize(11).TextColor(t.Destructive).Padding(4, 0)
+				ui.Text(c, i18n.T("modelFailed")).FontSize(theme.TextSmall).TextColor(t.Destructive).Padding(4, 0)
 				return
 			case !a.pick.fetched || len(a.pick.catalog) == 0:
-				ui.Text(c, i18n.T("loading")).FontSize(11).TextColor(t.MutedFg).Padding(4, 0)
+				ui.Text(c, i18n.T("loading")).FontSize(theme.TextSmall).TextColor(t.MutedFg).Padding(4, 0)
 				return
 			}
 			matches := a.modelMatches()
 			if len(matches) == 0 {
-				ui.Text(c, i18n.T("noResults")).FontSize(11).TextColor(t.MutedFg).Padding(4, 0)
+				ui.Text(c, i18n.T("noResults")).FontSize(theme.TextSmall).TextColor(t.MutedFg).Padding(4, 0)
 				return
 			}
 			if a.pick.sel >= len(matches) {
@@ -491,14 +501,19 @@ func (a *App) modelDialog(c *ui.Context, t theme.Tokens) {
 // modelRow is one candidate: what it is called, where it comes from, and what
 // it costs, since the last two are what decide between two similar names.
 func (a *App) modelRow(c *ui.Context, t theme.Tokens, entry protocol.ModelEntry, selected bool) {
-	row := ui.ButtonBase(c).FillWidth().Padding(5, 6).Radius(6).Gap(8).
-		AlignItems(ui.Center).Cursor(ui.CursorPointer)
+	row := ui.ButtonBase(c).FillWidth().Height(30).Padding(0, 8).Radius(theme.RadiusControl).
+		Gap(8).AlignItems(ui.Center).Cursor(ui.CursorPointer)
 	if selected {
-		row = row.Background(t.SidebarAccent)
+		row = row.Background(t.Field)
 	}
 	row.Children(func() {
-		ui.Text(c, clip(entry.Name, 34)).FontSize(11.5).FontWeight(500).MaxLines(1)
-		ui.Text(c, modelMeta(entry)).Grow(1).FontSize(10).TextColor(t.MutedFg).
+		nameColor := t.Ink2
+		if selected {
+			nameColor = t.Ink
+		}
+		ui.Text(c, clip(entry.Name, 34)).FontSize(theme.TextRow).FontWeight(500).
+			TextColor(nameColor).MaxLines(1)
+		ui.Text(c, modelMeta(entry)).Grow(1).FontSize(theme.TextMicro).TextColor(t.Ink3).
 			MaxLines(1).TextAlign(ui.End)
 	})
 	chosen := entry
@@ -509,14 +524,14 @@ func (a *App) modelRow(c *ui.Context, t theme.Tokens, entry protocol.ModelEntry,
 // models are folded under it.
 func (a *App) pickHeaderRow(c *ui.Context, t theme.Tokens, row pickRow) {
 	key := row.key
-	ui.ButtonBase(c).FillWidth().Height(22).Radius(4).Padding(4, 6).Gap(4).
+	ui.ButtonBase(c).FillWidth().Height(26).Radius(theme.RadiusChip).Padding(0, 6).Gap(5).
 		AlignItems(ui.Center).Cursor(ui.CursorPointer).
 		OnClick(func() { a.togglePick(key) }).Children(func() {
 		icon := icons.ChevronRight
 		if row.open {
 			icon = icons.ChevronDown
 		}
-		ui.Icon(c, icon).Size(10, 10).TextColor(t.MutedFg)
+		ui.Icon(c, icon).Size(12, 12).TextColor(t.Ink3)
 		ui.Text(c, clip(row.label, 28)).FontSize(9.5).FontWeight(600).TextColor(t.MutedFg)
 		ui.Spacer(c)
 		ui.Text(c, itoa(row.count)).FontSize(9.5).TextColor(t.MutedFg).Opacity(0.8)
@@ -554,16 +569,33 @@ func (a *App) levelSlider(c *ui.Context, t theme.Tokens) {
 			at = i
 		}
 	}
-	value := float64(at)
-	ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Padding(4, 2).Children(func() {
-		ui.Text(c, i18n.T("thinking")).FontSize(10).TextColor(t.MutedFg)
-		ui.StepSlider(c, &value, 0, float64(len(levels)-1), 1).Grow(1).Height(20)
-		ui.Text(c, levels[int(value)]).FontSize(10).FontWeight(500).MaxLines(1).
-			Width(48).TextAlign(ui.End)
+	// Chips, not a slider: the levels are a handful of named steps, and a
+	// track that starts near black reads as a rule across the panel rather than
+	// as a control. One chip per level, the current one filled with ink.
+	ui.Row(c).FillWidth().Gap(5).AlignItems(ui.Center).Padding(4, 2).Children(func() {
+		ui.Text(c, i18n.T("thinking")).FontSize(theme.TextMicro).TextColor(t.Ink3)
+		ui.Spacer(c)
+		levels := entry.ThinkingLevels
+		for i, level := range levels {
+			index := i
+			chip := ui.ButtonBase(c).Height(22).Radius(theme.RadiusChip).Padding(0, 8).
+				Justify(ui.Center).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+			if index == at {
+				chip = chip.Background(t.Ink)
+			} else {
+				chip = chip.Background(t.Field)
+			}
+			chip.Children(func() {
+				color, weight := t.Ink2, 500
+				if index == at {
+					color, weight = t.Surface, 600
+				}
+				ui.Text(c, level).FontSize(theme.TextSmall).FontWeight(weight).
+					TextColor(color).MaxLines(1)
+			})
+			chip.OnClick(func() { a.setLevel(levels[index]) })
+		}
 	})
-	if picked := levels[int(value)]; picked != levels[at] {
-		a.setLevel(picked)
-	}
 }
 
 // modelKey is the panel's keyboard: Enter takes the highlighted row, Esc closes,

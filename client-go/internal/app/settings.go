@@ -30,9 +30,10 @@ func (a *App) settingsDialog(c *ui.Context, t theme.Tokens) {
 		return
 	}
 	ui.Modal(c, &a.settings.open, func() {
-		ui.Column(c).Width(340).Padding(16).Gap(14).Radius(10).
-			Background(t.Popover).Border(1, t.Border).Children(func() {
-			ui.Text(c, i18n.T("settings")).FontSize(12.5).FontWeight(600).TextColor(t.Foreground)
+		ui.Column(c).Width(340).Padding(14).Gap(12).Radius(theme.RadiusWindow).
+			Background(t.Surface).Border(1, t.Line).
+			Shadow(0, 12, 40, 0, ui.RGBA(0, 0, 0, 0.22)).Children(func() {
+			ui.Text(c, i18n.T("settings")).FontSize(theme.TextTitle).FontWeight(600).TextColor(t.Ink)
 			a.settingsChoice(c, t, i18n.T("language"),
 				[]string{"中文", "English"},
 				func() int {
@@ -107,24 +108,26 @@ func (a *App) settingsDialog(c *ui.Context, t theme.Tokens) {
 func (a *App) settingsChoice(c *ui.Context, t theme.Tokens, label string, options []string,
 	current func() int, pick func(int)) {
 	ui.Column(c).FillWidth().Gap(6).Children(func() {
-		ui.Text(c, label).FontSize(10.5).TextColor(t.MutedFg).MaxLines(1)
-		ui.Row(c).FillWidth().Height(28).Radius(7).Padding(2).Gap(2).
-			Background(t.SidebarAccent).Children(func() {
+		ui.Text(c, label).FontSize(theme.TextMicro).TextColor(t.Ink3).MaxLines(1)
+		ui.Row(c).FillWidth().Height(28).Radius(theme.RadiusControl).Padding(2).Gap(2).
+			Background(t.Field).Children(func() {
 			on := current()
 			for index, text := range options {
 				at, atText := index, text
 				active := at == on
-				btn := ui.ButtonBase(c).Grow(1).Height(24).Radius(5).
+				btn := ui.ButtonBase(c).Grow(1).Height(24).Radius(theme.RadiusChip).
 					Justify(ui.Center).AlignItems(ui.Center).Cursor(ui.CursorPointer)
 				if active {
-					btn = btn.Background(t.Background)
+					// Raised on the track, with a hairline: on a white panel the
+					// plain page colour is the louder of the two.
+					btn = btn.Background(t.Surface).Border(1, t.LineSoft)
 				}
 				btn.Children(func() {
-					color, weight := t.MutedFg, 500
+					color, weight := t.Ink3, 500
 					if active {
-						color, weight = t.Foreground, 600
+						color, weight = t.Ink, 600
 					}
-					ui.Text(c, atText).FontSize(11).FontWeight(weight).TextColor(color).MaxLines(1)
+					ui.Text(c, atText).FontSize(theme.TextSmall).FontWeight(weight).TextColor(color).MaxLines(1)
 				})
 				btn.OnClick(func() { pick(at) })
 			}
@@ -135,10 +138,10 @@ func (a *App) settingsChoice(c *ui.Context, t theme.Tokens, label string, option
 // settingsButton is the rail footer's way in: one icon where the two switches
 // used to be.
 func (a *App) settingsButton(c *ui.Context, t theme.Tokens) {
-	btn := ui.ButtonBase(c).Size(22, 22).Radius(5).Justify(ui.Center).AlignItems(ui.Center).
+	btn := ui.ButtonBase(c).Size(24, 24).Radius(theme.RadiusControl).Justify(ui.Center).AlignItems(ui.Center).
 		Cursor(ui.CursorPointer).Tooltip(i18n.T("settings"))
 	btn.Children(func() {
-		ui.Icon(c, icons.Sliders).Size(12, 12).TextColor(t.MutedFg)
+		ui.Icon(c, icons.Sliders).Size(12, 12).TextColor(t.Ink3)
 	})
 	btn.OnClick(func() {
 		a.settings.open = true

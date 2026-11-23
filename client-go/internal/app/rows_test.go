@@ -586,3 +586,45 @@ func TestOnlyTheFirstRowOfATurnCarriesTheAvatar(t *testing.T) {
 		t.Fatal("no row carried the avatar")
 	}
 }
+
+// TestRailRowsTaskFilter covers the task tab's chips: one state in, only that
+// state's group out, and the "all" chip puts the other two back.
+func TestRailRowsTaskFilter(t *testing.T) {
+	i18n.Set(i18n.EN)
+	a := newApp(Config{})
+	a.rail = railTasks
+	a.tasks = []protocol.Task{
+		{ID: 12, Title: "follow up", State: "sleeping", Until: time.Now().UnixMilli()},
+		{ID: 9, Title: "waiting on a human", State: "waiting"},
+		{ID: 11, Title: "running", State: "running"},
+	}
+
+	a.taskFilter = "waiting"
+	rows := a.railRows()
+	var groups, tasks int
+	for _, row := range rows {
+		if row.kind == railGroup {
+			groups++
+			if row.label != i18n.T("groupWaiting") {
+				t.Fatalf("filtered group = %q", row.label)
+			}
+			continue
+		}
+		tasks++
+	}
+	if groups != 1 || tasks != 1 {
+		t.Fatalf("filtered rows = %+v, want one waiting group and one task", rows)
+	}
+
+	a.taskFilter = ""
+	if got := len(a.railRows()); got != 6 { // three groups, three tasks
+		t.Fatalf("all rows = %d, want 6", got)
+	}
+
+	// A state with no task of its own says so rather than drawing nothing.
+	a.taskFilter = "sleeping"
+	a.tasks = []protocol.Task{{ID: 9, Title: "waiting", State: "waiting"}}
+	if rows := a.railRows(); len(rows) != 1 || rows[0].kind != railHint {
+		t.Fatalf("empty state rows = %+v", rows)
+	}
+}

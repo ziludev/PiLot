@@ -106,3 +106,31 @@ func texts(lines []outLine) []string {
 	}
 	return out
 }
+
+func TestDiffSummaryNamesTheFileAndCounts(t *testing.T) {
+	patch := strings.Join([]string{
+		"--- a/src/queue.ts",
+		"+++ b/src/queue.ts",
+		"@@ -12,7 +12,7 @@",
+		"-  const retries = 3;",
+		"+  const retries = 5;",
+		"+  const backoff = 250;",
+		"   await run();",
+	}, "\n")
+	file, add, del, ok := diffSummary(patch)
+	if !ok {
+		t.Fatal("a unified patch was not recognised as one")
+	}
+	if file != "src/queue.ts" {
+		t.Fatalf("file %q, want src/queue.ts", file)
+	}
+	if add != 2 || del != 1 {
+		t.Fatalf("counts +%d −%d, want +2 −1", add, del)
+	}
+}
+
+func TestDiffSummaryIgnoresPlainOutput(t *testing.T) {
+	if _, _, _, ok := diffSummary("build ok\n2 tests passed"); ok {
+		t.Fatal("plain output was read as a patch")
+	}
+}

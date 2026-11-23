@@ -44,8 +44,11 @@ import (
 // dialog's placeholder, which the key audit found missing since it was written;
 // and the "started from" label on the one row that began a task, and the live
 // "thinking" line the transcript shows while a turn reasons. 256 keys: the
-// stage meter's own name, which only assistive technology reads.
-const maxKeys = 280
+// stage meter's own name, which only assistive technology reads. The timeline
+// drawer's six lines are the last addition: a heading, an empty state, and one
+// verb per kind of event. The find key and the rail's collapse are the last two:
+// the sheet now lists a key for every place the window can go.
+const maxKeys = 292
 
 func TestDictionariesMatch(t *testing.T) {
 	keys := Keys()

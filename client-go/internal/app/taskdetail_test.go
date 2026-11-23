@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -115,10 +116,14 @@ func TestStopTaskAsksTheBridge(t *testing.T) {
 	i18n.Set(i18n.ZH)
 	a := fixtureApp(t, false)
 	type call struct{ method, path, body string }
+	// The bridge answers on its own goroutines; the test reads the log after.
 	var calls []call
+	var mu sync.Mutex
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
 		calls = append(calls, call{r.Method, r.URL.RequestURI(), string(body)})
+		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/api/task" {
 			_, _ = w.Write([]byte(`{"id":9,"status":"running","title":"Follow up on the review thread"}`))
@@ -138,13 +143,16 @@ func TestStopTaskAsksTheBridge(t *testing.T) {
 	a.applyTaskStop(9, a.detail.seq, nil)
 
 	var stopped bool
-	for _, c := range calls {
+	mu.Lock()
+	logged := append([]call(nil), calls...)
+	mu.Unlock()
+	for _, c := range logged {
 		if c.path == "/api/task/cancel" && c.method == http.MethodPost && c.body == `{"id":9}` {
 			stopped = true
 		}
 	}
 	if !stopped {
-		t.Fatalf("stop never reached the bridge: %+v", calls)
+		t.Fatalf("stop never reached the bridge: %+v", logged)
 	}
 	if !a.detail.task.AbortRequested {
 		t.Fatal("the dialog still reads as if the task were running")

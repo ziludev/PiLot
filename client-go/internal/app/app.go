@@ -67,9 +67,15 @@ type App struct {
 	active  int
 	threads map[int]*threadStore
 
+	// md is the transcript's Markdown options, rebuilt only when the theme's
+	// colours change: markdown.View throws its state away when the pointer does.
+	md mdCache
+
 	// prefs is what the window keeps between launches: language and theme, which
 	// have no dialog of their own.
 	prefs prefs
+	// tl is the timeline drawer and the events it last derived.
+	tl timelineState
 	// notes is what the last snapshot said about the chats nobody is looking at.
 	// It only exists to tell a finished turn from one that finished long ago.
 	notes notifier
@@ -89,6 +95,14 @@ type App struct {
 	// edge drags; dragging is true while the pointer holds it.
 	railW    float32
 	dragging bool
+	// railSearch is true while the rail's search field is open: Beautiful UI's
+	// sidebar keeps it folded behind its icon until it is asked for, so the chat
+	// list has the width when nobody is typing.
+	railSearch bool
+	// railCollapsed folds the rail to its icons. railWide is the width it had
+	// before, so expanding puts it back rather than back to the default.
+	railCollapsed bool
+	railWide      float32
 
 	// watch is the live subscription for the active chat.
 	watchCancel context.CancelFunc
@@ -99,8 +113,10 @@ type App struct {
 
 	rail   railSection
 	filter string
-	now    time.Time
-	vm     viewModel
+	// taskFilter narrows the task tab to one state; empty means all three.
+	taskFilter string
+	now        time.Time
+	vm         viewModel
 	// focusComposer asks the next frame to put the cursor in the composer.
 	focusComposer bool
 
@@ -179,6 +195,8 @@ type viewModel struct {
 	railCache  []railRow
 	railStamp  uint64
 	railFilter string
+	// railState is the task tab's state filter the cache was built with.
+	railState string
 
 	railList   ui.ListState
 	threadList ui.ListState
@@ -1047,6 +1065,13 @@ func (a *App) View(c *ui.Context) {
 	c.OnWindowShortcut(ui.Super, ui.KeyP, a.openFiles)
 	c.OnWindowShortcut(ui.Super|ui.Shift, ui.KeyE, a.exportMarkdown)
 	c.OnWindowShortcut(ui.Super, ui.KeyJ, a.scrollToLatest)
+	c.OnWindowShortcut(ui.Super, ui.KeyF, a.ToggleFind)
+	// One key per drawer, on shift so they cannot be typed into a message by
+	// accident: the drawers are places to go, not characters.
+	c.OnWindowShortcut(ui.Super|ui.Shift, ui.KeyM, a.toggleMemory)
+	c.OnWindowShortcut(ui.Super|ui.Shift, ui.KeyC, a.toggleChanges)
+	c.OnWindowShortcut(ui.Super|ui.Shift, ui.KeyT, a.toggleTimeline)
+	c.OnWindowShortcut(ui.Super, ui.KeyBackslash, a.toggleRailCollapsed)
 	c.OnWindowShortcut(ui.Super|ui.Shift, ui.KeySlash, a.toggleCheatsheet)
 	a.shell(c, t)
 	a.paletteDialog(c, t)

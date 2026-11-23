@@ -182,11 +182,11 @@ func (a *App) mentionList(c *ui.Context, t theme.Tokens) {
 	if !a.mention.open || len(a.mention.hits) == 0 {
 		return
 	}
-	ui.Column(c).FillWidth().Radius(8).Border(1, t.Border).Background(t.Background).
+	ui.Column(c).FillWidth().Radius(theme.RadiusControl).Border(1, t.Border).Background(t.Background).
 		Padding(3, 4).Gap(1).Children(func() {
 		for i, hit := range a.mention.hits {
 			hot := i == a.mention.index
-			row := ui.ButtonBase(c).FillWidth().Height(24).Radius(5).Padding(0, 6).
+			row := ui.ButtonBase(c).FillWidth().Height(24).Radius(theme.RadiusChip).Padding(0, 6).
 				Justify(ui.Start).AlignItems(ui.Center).Gap(6).Cursor(ui.CursorPointer)
 			if hot {
 				row = row.Background(t.Selection)
@@ -197,9 +197,9 @@ func (a *App) mentionList(c *ui.Context, t theme.Tokens) {
 				} else {
 					ui.Icon(c, icons.Code).Size(11, 11).TextColor(t.MutedFg)
 				}
-				ui.Text(c, hit.label).FontSize(11.5).TextColor(t.Foreground).MaxLines(1)
+				ui.Text(c, hit.label).FontSize(theme.TextSmall).TextColor(t.Foreground).MaxLines(1)
 				if hit.dir != "" {
-					ui.Text(c, hit.dir).FontSize(10.5).TextColor(t.MutedFg).MaxLines(1).Grow(1)
+					ui.Text(c, hit.dir).FontSize(theme.TextMicro).TextColor(t.MutedFg).MaxLines(1).Grow(1)
 				}
 			})
 			row.OnClick(func() { a.pickMention(i) })

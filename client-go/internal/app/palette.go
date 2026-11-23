@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"pitta/internal/i18n"
+	"pitta/internal/icons"
 	"pitta/internal/theme"
 
 	"github.com/egoist/mygo/ui"
@@ -211,35 +212,41 @@ func (a *App) paletteDialog(c *ui.Context, t theme.Tokens) {
 	}
 
 	ui.Modal(c, &a.palette.open, func() {
-		ui.Column(c).Width(480).Gap(6).Padding(10).Radius(12).
-			Background(t.Popover).Border(1, t.Border).
-			Shadow(0, 12, 40, 0, ui.RGBA(0, 0, 0, 0.35)).
+		ui.Column(c).Width(480).Gap(8).Padding(12).Radius(theme.RadiusWindow).
+			Background(t.Surface).Border(1, t.Line).
+			Shadow(0, 12, 40, 0, ui.RGBA(0, 0, 0, 0.22)).
 			Children(func() {
 				placeholder := i18n.T("palettePlaceholder")
 				if a.palette.mode == paletteFiles {
 					placeholder = i18n.T("filesPlaceholder")
 				}
-				field := ui.TextInputBase(c, &a.palette.query).
-					Height(34).Padding(0, 10).FontSize(13).Radius(8).
-					Background(t.SidebarAccent).TextColor(t.Foreground).
-					Placeholder(placeholder)
-				field.AutoFocus()
-				field.OnTextKey(func(k ui.TextKey) bool {
-					switch k.Key {
-					case ui.KeyDown:
-						step(1)
-						return true
-					case ui.KeyUp:
-						step(-1)
-						return true
-					case ui.KeyEnter:
-						run(a.palette.index)
-						return true
-					case ui.KeyEscape:
-						a.closePalette()
-						return true
-					}
-					return false
+				// The field is sunk into the panel the way the model search is,
+				// with the icon that says what the box does.
+				ui.Row(c).FillWidth().Height(36).Radius(theme.RadiusControl).
+					Padding(0, 10).Gap(8).Background(t.Field).
+					Border(1, t.LineSoft).AlignItems(ui.Center).Children(func() {
+					ui.Icon(c, icons.Search).Size(13, 13).TextColor(t.Ink3)
+					field := ui.TextInputBase(c, &a.palette.query).
+						Height(24).Grow(1).FontSize(theme.TextBody).
+						TextColor(t.Ink).Placeholder(placeholder)
+					field.AutoFocus()
+					field.OnTextKey(func(k ui.TextKey) bool {
+						switch k.Key {
+						case ui.KeyDown:
+							step(1)
+							return true
+						case ui.KeyUp:
+							step(-1)
+							return true
+						case ui.KeyEnter:
+							run(a.palette.index)
+							return true
+						case ui.KeyEscape:
+							a.closePalette()
+							return true
+						}
+						return false
+					})
 				})
 
 				if len(rows) == 0 {
@@ -248,28 +255,32 @@ func (a *App) paletteDialog(c *ui.Context, t theme.Tokens) {
 						empty = a.filesEmptyLabel()
 					}
 					ui.Text(c, empty).
-						Padding(8, 10).FontSize(11.5).TextColor(t.MutedFg)
+						Padding(10, 2).FontSize(theme.TextSmall).TextColor(t.Ink3)
 					return
 				}
 				for i, row := range rows {
 					chosen := i == a.palette.index
-					item := ui.ButtonBase(c).FillWidth().Height(32).Padding(0, 10).Gap(8).
-						Radius(7).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+					item := ui.ButtonBase(c).FillWidth().Height(30).Padding(0, 10).Gap(8).
+						Radius(theme.RadiusControl).AlignItems(ui.Center).Cursor(ui.CursorPointer)
 					if chosen {
-						// A tinted row, not a slightly different white: the reader has
-						// to see where ⏎ will land without hunting for it. The theme's
-						// neutral accent is all but invisible on a popover, so the
-						// selection tint carries it.
-						item = item.Background(t.Selection.Alpha(0.45)).Border(1, t.Selection.Alpha(0.7))
+						// A filled row, not a tint: the reader has to see where ⏎
+						// will land without hunting for it, and the panel's own
+						// hover shade is too quiet to carry a keyboard cursor.
+						item = item.Background(t.Field)
 					}
 					item.Children(func() {
-						ui.Text(c, row.label).FontSize(12).MaxLines(1).TextColor(t.Foreground)
+						labelColor, labelWeight := t.Ink2, 400
+						if chosen {
+							labelColor, labelWeight = t.Ink, 600
+						}
+						ui.Text(c, row.label).FontSize(theme.TextRow).FontWeight(labelWeight).
+							MaxLines(1).TextColor(labelColor)
 						ui.Spacer(c)
 						if row.detail != "" {
-							ui.Text(c, row.detail).FontSize(10.5).MaxLines(1).TextColor(t.MutedFg)
+							ui.Text(c, row.detail).FontSize(theme.TextMicro).MaxLines(1).TextColor(t.Ink3)
 						}
 						if row.hint != "" {
-							ui.Text(c, row.hint).FontSize(10).TextColor(t.MutedFg)
+							ui.Text(c, row.hint).FontSize(theme.TextMicro).TextColor(t.Ink3)
 						}
 					})
 					clicked := i
@@ -281,7 +292,7 @@ func (a *App) paletteDialog(c *ui.Context, t theme.Tokens) {
 					hint = a.filesHintText()
 				}
 				ui.Text(c, hint).
-					Padding(2, 10).FontSize(10).TextColor(t.MutedFg)
+					Padding(6, 2, 0, 2).FontSize(theme.TextMicro).TextColor(t.Ink3)
 			})
 	})
 }

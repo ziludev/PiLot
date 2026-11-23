@@ -231,11 +231,11 @@ func (a *App) renameDialog(c *ui.Context, t theme.Tokens) {
 		return
 	}
 	ui.Modal(c, &a.rename.open, func() {
-		ui.Column(c).Width(300).Padding(16).Gap(10).Radius(10).
+		ui.Column(c).Width(300).Padding(16).Gap(10).Radius(theme.Radius).
 			Background(t.Popover).Border(1, t.Border).Children(func() {
-			ui.Text(c, i18n.T("rename")).FontSize(12.5).FontWeight(600).TextColor(t.Foreground)
-			ui.TextInputBase(c, &a.rename.text).FontSize(12).Height(30).
-				Padding(0, 8).Radius(6).Background(t.SidebarAccent)
+			ui.Text(c, i18n.T("rename")).FontSize(theme.TextRow).FontWeight(600).TextColor(t.Foreground)
+			ui.TextInputBase(c, &a.rename.text).FontSize(theme.TextRow).Height(30).
+				Padding(0, 8).Radius(theme.RadiusChip).Background(t.SidebarAccent)
 			ui.Row(c).FillWidth().Justify(ui.End).Gap(8).Children(func() {
 				a.dialogButton(c, t, i18n.T("cancel"), false, func() {
 					a.rename.open = false
@@ -249,19 +249,21 @@ func (a *App) renameDialog(c *ui.Context, t theme.Tokens) {
 // dialogButton is one answer in the rename dialog: a filled button for the one
 // that commits, a quiet one for the one that does not.
 func (a *App) dialogButton(c *ui.Context, t theme.Tokens, label string, primary bool, onClick func()) {
-	button := ui.ButtonBase(c).Height(26).Radius(6).Padding(0, 12).
+	button := ui.ButtonBase(c).Height(28).Radius(theme.RadiusControl).Padding(0, 12).
 		Justify(ui.Center).AlignItems(ui.Center).Cursor(ui.CursorPointer)
 	if primary {
-		button = button.Background(t.Primary)
+		// The one blue thing in a dialog is the answer it wants: ink reads as
+		// another piece of text at button size.
+		button = button.Background(t.Brand)
 	} else {
-		button = button.Background(t.SidebarAccent)
+		button = button.Background(t.Field).Border(1, t.LineSoft)
 	}
 	button.Children(func() {
-		colour := t.MutedFg
+		colour, weight := t.Ink2, 500
 		if primary {
-			colour = t.PrimaryFg
+			colour, weight = ui.RGBA(255, 255, 255, 1), 600
 		}
-		ui.Text(c, label).FontSize(11).FontWeight(500).TextColor(colour)
+		ui.Text(c, label).FontSize(theme.TextSmall).FontWeight(weight).TextColor(colour)
 	})
 	button.OnClick(onClick)
 }

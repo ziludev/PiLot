@@ -82,18 +82,18 @@ func (a *App) zoomDialog(c *ui.Context, t theme.Tokens) {
 	}
 	ui.Modal(c, &a.zoom.open, func() {
 		w, h := a.zoomSize()
-		ui.Column(c).Width(w+20).Padding(10).Gap(8).Radius(10).
+		ui.Column(c).Width(w+20).Padding(10).Gap(8).Radius(theme.Radius).
 			Background(t.Popover).Border(1, t.Border).Children(func() {
 			switch {
 			case a.zoom.failed:
-				ui.Text(c, i18n.T("imageBroken")).FontSize(11).TextColor(t.MutedFg)
+				ui.Text(c, i18n.T("imageBroken")).FontSize(theme.TextSmall).TextColor(t.MutedFg)
 			case a.zoom.bitmap == nil:
 				ui.Row(c).Width(w).Height(h).Justify(ui.Center).AlignItems(ui.Center).
 					Children(func() {
-						ui.Text(c, i18n.T("loading")).FontSize(11).TextColor(t.MutedFg)
+						ui.Text(c, i18n.T("loading")).FontSize(theme.TextSmall).TextColor(t.MutedFg)
 					})
 			default:
-				ui.Image(c, a.zoom.bitmap).Size(w, h).Radius(6).Clip()
+				ui.Image(c, a.zoom.bitmap).Size(w, h).Radius(theme.RadiusChip).Clip()
 			}
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
 				ui.Text(c, a.zoom.caption).FontSize(9.5).TextColor(t.MutedFg).Grow(1)

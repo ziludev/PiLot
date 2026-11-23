@@ -2,7 +2,11 @@
 
 pi-durable-agent 的桌面客户端，用 Go 和 [mygo](https://github.com/egoist/mygo) 的 `ui` 包原生渲染（GPU，Metal），不走 webview。渲染基于 `github.com/egoist/mygo` **v0.10.0**（`go.mod`；为什么不是 0.6.4 见 `docs/mygo-version.md`）。
 
-窗口只有三块：左边 rail、中间 transcript、底下 composer。`94c8c28` 之后是这样——它之前的两版（React webview，以及后来那版带 diff / 提交 / 权限 / 运维面板的 Go 客户端）都已删除，代码和文档都没留；那些面板现在缺什么、接口在哪，看 [docs/gaps.md](docs/gaps.md)。
+窗口只有三块：左边 rail、中间 transcript、底下 composer。`94c8c28` 之后是这样——它之前的两版（React webview，以及后来那版带 diff / 提交 / 权限 / 运维面板的 Go 客户端）都已删除，代码和文档都没留；那些面板现在缺什么、接口在哪，看 [docs/gaps.md](docs/gaps.md)。右侧另有三个抽屉：改动（文件表 + patch）、记忆、时间线——同一个右边缘，一次只开一个。
+
+## 视觉
+
+配色、圆角和字号来自 [Beautiful UI](https://www.beautifului.dev)（MIT，React 组件，这里只取令牌）：三层底色（窗口 `Page` → rail `Canvas` → 会话与抽屉是一张 `Surface` 卡片，两者之间不放分隔线）、一张灰阶表（`Ink`/`Ink2`/`Ink3`、`Line`/`LineSoft`/`Field`/`Inset`/`Hover`）、一个品牌蓝和四个语义色。圆角只有四档：chip 6、控件 8、卡片 10、窗口 14；文字 14 / 13 / 12.5 / 11.5 / 11。全部在 `internal/theme` 里，组件只引用令牌，不写字面值——深浅两套主题因此是同一份布局。
 
 ## 构建与运行
 
