@@ -46,14 +46,18 @@ type taskDetailPanel struct {
 	// read as one line or as what it was told and what it answered; the row
 	// above is the index, this is the evidence.
 	stepOpen map[int]bool
-	// A routine's schedule, being read or being typed: editing swaps the
-	// dialog's buttons for one field and keeps the list behind it untouched.
-	// saving is the replace in flight, saveErr what the bridge said about the
-	// last attempt.
-	editing  bool
-	schedule string
-	saving   bool
-	saveErr  string
+	// A routine's schedule, being read or being edited: editing swaps the
+	// dialog's buttons for the picker and keeps the list behind it untouched.
+	// freq is 0 daily, 1 weekdays, 2 weekly, 3 every; at is the time of day
+	// the two clock shapes fire at, every the hours between rounds. saving is
+	// the replace in flight, saveErr what the bridge said about the last
+	// attempt.
+	editing bool
+	freq    int
+	at      time.Time
+	every   float64
+	saving  bool
+	saveErr string
 	// scroll is the body's offset, kept across frames so the dialog stays where
 	// the reader left it while the task's log streams in.
 	scroll ui.ScrollState
@@ -215,19 +219,85 @@ func scheduleText(input json.RawMessage) string {
 	return ""
 }
 
-// startReschedule opens the field on the schedule that is running now.
+// scheduleFields is a routine's clock as the picker holds it.
+type scheduleFields struct {
+	freq  int
+	at    time.Time
+	every float64
+}
+
+// readSchedule loads a routine's clock out of its input, so the picker opens on
+// what is running. A weekly routine is offered as Monday's: it is the only
+// weekday the picker can state, and the two routines in use are both Monday's.
+func readSchedule(input json.RawMessage, now time.Time) scheduleFields {
+	// Six hours is the shape most routines in use take; a routine that fires by
+	// the clock overwrites this the moment its input is read.
+	fields := scheduleFields{at: now, every: 6}
+	var raw struct {
+		Schedule struct {
+			Kind    string `json:"kind"`
+			At      int    `json:"at"`
+			EveryMs int64  `json:"everyMs"`
+		} `json:"schedule"`
+	}
+	if len(input) == 0 || json.Unmarshal(input, &raw) != nil {
+		return fields
+	}
+	schedule := raw.Schedule
+	switch schedule.Kind {
+	case "daily":
+		fields.freq = 0
+	case "weekdays":
+		fields.freq = 1
+	case "weekly":
+		fields.freq = 2
+	case "every":
+		fields.freq = 3
+		fields.every = float64(schedule.EveryMs) / 3_600_000
+		if fields.every < 1 {
+			fields.every = 1
+		}
+		return fields
+	default:
+		// No clock to load: the picker stays on the hour the dialog opened.
+		return fields
+	}
+	fields.at = time.Date(now.Year(), now.Month(), now.Day(), schedule.At/60, schedule.At%60, 0, 0, now.Location())
+	return fields
+}
+
+// scheduleLine writes the picker's choice in the words the routine tool takes.
+func (a *App) scheduleLine() string {
+	clock := a.detail.at.Format("15:04")
+	switch a.detail.freq {
+	case 1:
+		return "weekdays " + clock
+	case 2:
+		return "weekly mon " + clock
+	case 3:
+		hours := int(a.detail.every)
+		if hours < 1 {
+			hours = 1
+		}
+		return "every " + itoa(hours) + "h"
+	}
+	return "daily " + clock
+}
+
+// startReschedule opens the picker on the schedule that is running now.
 func (a *App) startReschedule() {
 	task := a.detail.task
 	if task == nil {
 		return
 	}
+	fields := readSchedule(task.Input, a.now)
 	a.detail.editing = true
-	a.detail.schedule = scheduleText(task.Input)
+	a.detail.freq, a.detail.at, a.detail.every = fields.freq, fields.at, fields.every
 	a.detail.saveErr = ""
 	a.invalidate()
 }
 
-// submitReschedule hands the typed line to the bridge, which replaces the
+// submitReschedule hands the picked line to the bridge, which replaces the
 // sleeping task: a deadline belongs to the sleep it is in, so moving it means
 // a new task with the same text and the same chat.
 func (a *App) submitReschedule() {
@@ -235,12 +305,7 @@ func (a *App) submitReschedule() {
 	if task == nil || a.detail.saving {
 		return
 	}
-	line := strings.TrimSpace(a.detail.schedule)
-	if line == "" {
-		a.detail.saveErr = i18n.T("taskScheduleEmpty")
-		a.invalidate()
-		return
-	}
+	line := a.scheduleLine()
 	a.detail.saving = true
 	seq := a.detail.seq
 	go func() {
@@ -311,19 +376,31 @@ func (a *App) taskDetailDialog(c *ui.Context, t theme.Tokens) {
 			// eight points from the button every hand reaches for: it takes the far
 			// end of the row, and close keeps the near one.
 			// A routine asleep on a clock is the one task whose setting a person can
-			// change from here, so it takes the far end beside stop. While the field
-			// is open it replaces the row: two buttons beside a text field is a form
-			// with no room for the text.
+			// change from here, so it takes the far end beside stop. While the
+			// picker is open it replaces the row: a schedule written as a command
+			// line is a syntax to remember, and the shape of a routine's clock is
+			// four choices deep.
 			if a.detail.editing {
-				ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-					ui.TextInput(c, &a.detail.schedule).FillWidth().FontSize(11)
-					a.dialogButton(c, t, i18n.T("save"), true, func() {
-						a.submitReschedule()
-					})
-					a.dialogButton(c, t, i18n.T("cancel"), false, func() {
-						a.detail.editing = false
-						a.detail.saveErr = ""
-						a.invalidate()
+				ui.Column(c).FillWidth().Gap(8).Children(func() {
+					ui.Segmented(c, &a.detail.freq,
+						i18n.T("freqDaily"), i18n.T("freqWeekdays"),
+						i18n.T("freqWeekly"), i18n.T("freqEvery"))
+					ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+						if a.detail.freq == 3 {
+							ui.NumberInput(c, &a.detail.every, 1, 24, 1)
+							ui.Text(c, i18n.T("freqHours")).FontSize(11).TextColor(t.MutedFg)
+						} else {
+							ui.TimeInput(c, &a.detail.at)
+						}
+						ui.Row(c).Grow(1)
+						a.dialogButton(c, t, i18n.T("save"), true, func() {
+							a.submitReschedule()
+						})
+						a.dialogButton(c, t, i18n.T("cancel"), false, func() {
+							a.detail.editing = false
+							a.detail.saveErr = ""
+							a.invalidate()
+						})
 					})
 				})
 				if a.detail.saveErr != "" {

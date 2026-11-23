@@ -431,10 +431,12 @@ func TestRescheduleReplacesTheRoutine(t *testing.T) {
 	}
 	tt.Frame()
 	if !a.detail.editing {
-		t.Fatal("clicking the button did not open the field")
+		t.Fatal("clicking the button did not open the picker")
 	}
-	if a.detail.schedule != "daily 09:00" {
-		t.Fatalf("the field opened on %q", a.detail.schedule)
+	// The picker opens on what is running: daily, 09:00 — not on an empty form
+	// the reader has to type the old schedule into before changing one field.
+	if a.detail.freq != 0 || a.detail.at.Hour() != 9 || a.detail.at.Minute() != 0 {
+		t.Fatalf("the picker opened on freq=%d at=%s", a.detail.freq, a.detail.at.Format("15:04"))
 	}
 
 	posted := make(chan map[string]any, 1)
@@ -451,7 +453,8 @@ func TestRescheduleReplacesTheRoutine(t *testing.T) {
 	t.Cleanup(server.Close)
 	a.api = api.New(server.URL, "")
 
-	a.detail.schedule = "weekly mon 08:30"
+	a.detail.freq = 2
+	a.detail.at = time.Date(a.detail.at.Year(), a.detail.at.Month(), a.detail.at.Day(), 8, 30, 0, 0, a.detail.at.Location())
 	tt.Frame()
 	if err := tt.Click("保存"); err != nil {
 		t.Fatalf("the save button was not clickable: %v", err)
@@ -498,6 +501,36 @@ func TestRescheduleIsOnlyForASleepingRoutine(t *testing.T) {
 	}
 }
 
+// TestReadScheduleLoadsThePicker: every shape a routine fires in lands in the
+// picker as the choice that says the same thing.
+func TestReadScheduleLoadsThePicker(t *testing.T) {
+	now := time.Date(2026, 11, 23, 21, 0, 0, 0, time.Local)
+	cases := []struct {
+		input string
+		freq  int
+		clock string
+		every float64
+	}{
+		{`{"schedule":{"kind":"daily","at":540}}`, 0, "09:00", 0},
+		{`{"schedule":{"kind":"weekdays","at":570}}`, 1, "09:30", 0},
+		{`{"schedule":{"kind":"weekly","weekday":1,"at":510}}`, 2, "08:30", 0},
+		{`{"schedule":{"kind":"every","everyMs":21600000}}`, 3, "", 6},
+		{`{"prompt":"nothing"}`, 0, "21:00", 0},
+	}
+	for _, c := range cases {
+		fields := readSchedule(json.RawMessage(c.input), now)
+		if fields.freq != c.freq {
+			t.Errorf("%s: freq %d", c.input, fields.freq)
+		}
+		if c.every != 0 && fields.every != c.every {
+			t.Errorf("%s: every %v", c.input, fields.every)
+		}
+		if c.clock != "" && fields.at.Format("15:04") != c.clock {
+			t.Errorf("%s: at %s", c.input, fields.at.Format("15:04"))
+		}
+	}
+}
+
 // TestScheduleTextReadsBackWhatWasWritten: the field opens on the schedule
 // that is running, in the same words the routine tool takes.
 func TestScheduleTextReadsBackWhatWasWritten(t *testing.T) {
@@ -515,5 +548,40 @@ func TestScheduleTextReadsBackWhatWasWritten(t *testing.T) {
 		if got := scheduleText(json.RawMessage(c.input)); got != c.want {
 			t.Errorf("%s → %q, want %q", c.input, got, c.want)
 		}
+	}
+}
+
+// TestThePickerIsClickedNotTyped: changing a routine's clock is choosing from
+// four shapes and a time, not remembering the routine tool's syntax.
+func TestThePickerIsClickedNotTyped(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	tt := ui.NewTester(a.View, 1180, 820)
+
+	input := json.RawMessage(`{"schedule":{"kind":"daily","at":540},"text":"看红灯","surfaceId":"feishu:1","anchor":1}`)
+	detailWithLog(t, a, tt, api.TaskDetail{
+		ID: 7, Kind: "app.routine", ConversationID: 11, Status: "sleeping",
+		Until: time.Now().Add(6 * time.Hour).UnixMilli(), Title: "每天早上看红灯", Input: input,
+	}, nil)
+	tt.Frame()
+	if err := tt.Click("改日程"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+
+	if err := tt.Click("工作日"); err != nil {
+		t.Fatalf("weekdays was not clickable: %v", err)
+	}
+	tt.Frame()
+	if a.detail.freq != 1 || a.scheduleLine() != "weekdays 09:00" {
+		t.Fatalf("weekdays gave freq=%d line=%q", a.detail.freq, a.scheduleLine())
+	}
+
+	if err := tt.Click("每隔"); err != nil {
+		t.Fatalf("every was not clickable: %v", err)
+	}
+	tt.Frame()
+	if a.detail.freq != 3 || a.scheduleLine() != "every 6h" {
+		t.Fatalf("every gave freq=%d line=%q", a.detail.freq, a.scheduleLine())
 	}
 }
