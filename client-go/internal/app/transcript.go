@@ -229,91 +229,110 @@ func lastLineText(text string) string {
 func (a *App) thinkingRow(c *ui.Context, t theme.Tokens, row threadRow) {
 	key := row.id
 	open := a.vm.folds[key]
-	header := ui.ButtonBase(c).FillWidth().Height(22).Radius(5).Padding(0, 4).
-		Cursor(ui.CursorPointer).Gap(4).AlignItems(ui.Center).Label(i18n.T("thinking"))
-	header.Children(func() {
-		if open {
-			ui.Icon(c, icons.ChevronDown).Size(11, 11).TextColor(t.MutedFg)
-		} else {
-			ui.Icon(c, icons.ChevronRight).Size(11, 11).TextColor(t.MutedFg)
-		}
-		ui.Text(c, i18n.T("thinking")).FontSize(11.5).TextColor(t.MutedFg)
-		if !open {
-			ui.Text(c, oneLine(row.text)).FontSize(10.5).TextColor(t.MutedFg).
-				MaxLines(1).Grow(1)
-		}
-	})
-	header.OnClick(func() {
-		a.vm.folds[key] = !open
-		a.invalidate()
-	})
-	if !open {
-		return
-	}
-	ui.Column(c).FillWidth().Padding(0, 0, 2, 18).Children(func() {
-		markdown.View(c, row.text, nil)
-	})
-}
-
-// stepsRow folds one run's tool calls into a line the reader can open when they
-// want the detail.
-func (a *App) stepsRow(c *ui.Context, t theme.Tokens, row threadRow) {
-	key := row.id
-	open := a.vm.folds[key]
-	header := ui.ButtonBase(c).FillWidth().Height(24).Radius(5).Padding(0, 4).
-		Cursor(ui.CursorPointer).Gap(4).AlignItems(ui.Center)
-	header.Children(func() {
-		if open {
-			ui.Icon(c, icons.ChevronDown).Size(11, 11).TextColor(t.MutedFg)
-		} else {
-			ui.Icon(c, icons.ChevronRight).Size(11, 11).TextColor(t.MutedFg)
-		}
-		a.stepsStatusIcon(c, t, row.steps)
-		ui.Text(c, a.stepsSummary(row)).FontSize(12).TextColor(t.MutedFg).MaxLines(1)
-	})
-	header.OnClick(func() {
-		a.vm.folds[key] = !open
-		a.invalidate()
-	})
-	if !open {
-		return
-	}
-	groups := groupSteps(row.steps)
-	ui.Column(c).FillWidth().Padding(0, 0, 2, 18).Gap(3).Children(func() {
-		// Four calls read at a glance and a table of contents for them is noise.
-		// Past that the run opens on what it used, because `bash ×16` says more
-		// than the sixteen calls under it do — and the last tool keeps its calls
-		// unfolded, since it is the one that just answered the question.
-		if len(row.steps) <= stepGroupThreshold {
-			a.stepLines(c, t, row.steps)
-			return
-		}
-		for i, group := range groups {
-			gkey := key + "/" + group.label
-			unfolded, seen := a.vm.groups[gkey]
-			if !seen {
-				unfolded = i == len(groups)-1
-			}
-			label := stepGroupLabel(group)
-			head := ui.ButtonBase(c).FillWidth().Height(22).Radius(5).Padding(0, 4).
-				Cursor(ui.CursorPointer).Gap(4).AlignItems(ui.Center).Label(label)
-			head.Children(func() {
-				if unfolded {
+	// In the answer's own column: a thought belongs to the message it led to,
+	// not to the middle of the page.
+	ui.Row(c).FillWidth().Padding(6, 0).Gap(9).AlignItems(ui.Start).Children(func() {
+		ui.Box(c).Width(avatarSize)
+		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
+			header := ui.ButtonBase(c).FillWidth().Height(22).Radius(5).Padding(0).
+				Justify(ui.Start).Cursor(ui.CursorPointer).Gap(4).AlignItems(ui.Center).
+				Label(i18n.T("thinking"))
+			header.Children(func() {
+				if open {
 					ui.Icon(c, icons.ChevronDown).Size(10, 10).TextColor(t.MutedFg)
 				} else {
 					ui.Icon(c, icons.ChevronRight).Size(10, 10).TextColor(t.MutedFg)
 				}
-				a.stepsStatusIcon(c, t, group.steps)
-				ui.Text(c, label).FontSize(10.5).FontWeight(500).TextColor(t.MutedFg).MaxLines(1)
+				ui.Text(c, i18n.T("thinking")).FontSize(11.5).TextColor(t.MutedFg)
+				if !open {
+					ui.Text(c, oneLine(row.text)).FontSize(10.5).TextColor(t.MutedFg).
+						MaxLines(1).Grow(1)
+				}
 			})
-			head.OnClick(func() {
-				a.vm.groups[gkey] = !unfolded
+			header.OnClick(func() {
+				a.vm.folds[key] = !open
 				a.invalidate()
 			})
-			if unfolded {
-				a.stepLines(c, t, group.steps)
+			if open {
+				// A rule down the side, the way a quoted passage is marked: the
+				// trace is read as background, not as the answer.
+				ui.Row(c).FillWidth().Padding(2, 0).Gap(8).AlignItems(ui.Stretch).Children(func() {
+					ui.Box(c).Width(2).Radius(1).Background(t.Border)
+					ui.Column(c).Grow(1).MinWidth(0).Children(func() {
+						markdown.View(c, row.text, nil)
+					})
+				})
 			}
-		}
+		})
+	})
+}
+
+// stepsRow folds one run's tool calls into a line the reader can open when they
+// want the detail. It shares the answer's column, so the run reads as part of
+// the message rather than as a caption under it.
+func (a *App) stepsRow(c *ui.Context, t theme.Tokens, row threadRow) {
+	key := row.id
+	open := a.vm.folds[key]
+	ui.Row(c).FillWidth().Padding(6, 0).Gap(9).AlignItems(ui.Start).Children(func() {
+		ui.Box(c).Width(avatarSize)
+		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
+			header := ui.ButtonBase(c).FillWidth().Height(22).Radius(5).Padding(0).
+				Justify(ui.Start).Cursor(ui.CursorPointer).Gap(4).AlignItems(ui.Center)
+			header.Children(func() {
+				if open {
+					ui.Icon(c, icons.ChevronDown).Size(10, 10).TextColor(t.MutedFg)
+				} else {
+					ui.Icon(c, icons.ChevronRight).Size(10, 10).TextColor(t.MutedFg)
+				}
+				a.stepsStatusIcon(c, t, row.steps)
+				ui.Text(c, a.stepsSummary(row)).FontSize(11.5).TextColor(t.MutedFg).MaxLines(1)
+			})
+			header.OnClick(func() {
+				a.vm.folds[key] = !open
+				a.invalidate()
+			})
+			if !open {
+				return
+			}
+			groups := groupSteps(row.steps)
+			ui.Column(c).FillWidth().Padding(2, 0, 2, 6).Gap(3).Children(func() {
+				// Four calls read at a glance and a table of contents for them is
+				// noise. Past that the run opens on what it used, because `bash
+				// ×16` says more than the sixteen calls under it do — and the last
+				// tool keeps its calls unfolded, since it is the one that just
+				// answered the question.
+				if len(row.steps) <= stepGroupThreshold {
+					a.stepLines(c, t, row.steps)
+					return
+				}
+				for i, group := range groups {
+					gkey := key + "/" + group.label
+					unfolded, seen := a.vm.groups[gkey]
+					if !seen {
+						unfolded = i == len(groups)-1
+					}
+					label := stepGroupLabel(group)
+					head := ui.ButtonBase(c).FillWidth().Height(22).Radius(5).Padding(0).
+						Justify(ui.Start).Cursor(ui.CursorPointer).Gap(4).AlignItems(ui.Center).Label(label)
+					head.Children(func() {
+						if unfolded {
+							ui.Icon(c, icons.ChevronDown).Size(10, 10).TextColor(t.MutedFg)
+						} else {
+							ui.Icon(c, icons.ChevronRight).Size(10, 10).TextColor(t.MutedFg)
+						}
+						a.stepsStatusIcon(c, t, group.steps)
+						ui.Text(c, label).FontSize(10.5).FontWeight(500).TextColor(t.MutedFg).MaxLines(1)
+					})
+					head.OnClick(func() {
+						a.vm.groups[gkey] = !unfolded
+						a.invalidate()
+					})
+					if unfolded {
+						a.stepLines(c, t, group.steps)
+					}
+				}
+			})
+		})
 	})
 }
 
