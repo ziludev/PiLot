@@ -200,6 +200,13 @@ type threadStore struct {
 	// olderTried is when the last read backwards started: a page that failed
 	// must not be retried on every frame.
 	olderTried time.Time
+	// prefetched counts the pages read ahead for this chat: the pages behind
+	// the newest one are fetched while the reader is still at the bottom, so
+	// walking up finds them already here instead of a pause.
+	prefetched int
+	// prefetching marks the read ahead in flight, which draws no line: nothing
+	// is waiting on it yet.
+	prefetching bool
 }
 
 // New builds the window state and starts the work that feeds it: a five-second
@@ -811,6 +818,9 @@ func (a *App) applyPage(result *pageResult) {
 		a.noteSeen(result.convID, entry.ID)
 	}
 	th.version++
+	// The reader is at the newest page, most likely reading it: the page behind
+	// is fetched now rather than the moment they reach for it.
+	a.prefetchOlder(result.convID)
 }
 
 // applyFrame merges the socket's window into the page already held. It never
@@ -1073,18 +1083,40 @@ func attachmentImages(images []imageRef) []api.Image {
 
 // NewChat, AttachImages and RestartAgent are the menu's verbs; they run the
 
+// prefetchPages is how far ahead of the reader a chat is read: three pages of
+// 120 is a few screens of scrolling, without fetching a year of history nobody
+// scrolls to.
+const prefetchPages = 2
+
 // olderResult is one page read backwards from the oldest entry on screen.
 type olderResult struct {
-	convID  int
-	entries []protocol.Entry
-	hasMore bool
-	err     error
+	convID   int
+	entries  []protocol.Entry
+	hasMore  bool
+	prefetch bool
+	err      error
 }
 
 // loadOlder reads the page before the oldest entry on screen. The bridge pages
 // backwards by entry id, so a chat longer than one page is read whole by
 // walking up rather than by asking for everything at once.
 func (a *App) loadOlder(convID int) {
+	a.readOlder(convID, false)
+}
+
+// prefetchOlder reads the page behind the newest one once per chat, while the
+// reader is still at the bottom. It draws nothing and waits for nobody; its
+// only job is that walking up does not pause.
+func (a *App) prefetchOlder(convID int) {
+	th := a.threads[convID]
+	if th == nil || th.prefetched >= prefetchPages || !th.hasMore || th.loadingOlder {
+		return
+	}
+	th.prefetched++
+	a.readOlder(convID, true)
+}
+
+func (a *App) readOlder(convID int, prefetch bool) {
 	th := a.threads[convID]
 	if th == nil || !th.hasMore || th.loadingOlder || len(th.entries) == 0 {
 		return
@@ -1096,12 +1128,15 @@ func (a *App) loadOlder(convID int) {
 		}
 	}
 	th.loadingOlder = true
-	a.invalidate()
+	th.prefetching = prefetch
+	if !prefetch {
+		a.invalidate()
+	}
 	go func() {
 		ctx, cancel := context.WithTimeout(a.ctx, 20*time.Second)
 		defer cancel()
 		page, err := a.api.ConversationBefore(ctx, convID, oldest)
-		result := &olderResult{convID: convID, err: err}
+		result := &olderResult{convID: convID, err: err, prefetch: prefetch}
 		if err == nil {
 			result.entries = page.Entries
 			result.hasMore = page.HasMore
@@ -1122,9 +1157,14 @@ func (a *App) applyOlder(result *olderResult) {
 		return
 	}
 	th.loadingOlder = false
+	th.prefetching = false
 	if result.err != nil {
-		a.notice = i18n.T("loadOlderFailed") + " · " + result.err.Error()
-		a.noticeOK = false
+		// A prefetch that fails is not news: the reader has not asked for that
+		// page yet, and walking up will try again.
+		if !result.prefetch {
+			a.notice = i18n.T("loadOlderFailed") + " · " + result.err.Error()
+			a.noticeOK = false
+		}
 		a.invalidate()
 		return
 	}
@@ -1142,4 +1182,9 @@ func (a *App) applyOlder(result *olderResult) {
 	th.hasMore = result.hasMore
 	th.version++
 	a.invalidate()
+	// One page ahead is not enough for a chat read over a while: the next one
+	// is already on its way by the time the reader reaches this page's top.
+	if result.prefetch && th.hasMore {
+		a.prefetchOlder(result.convID)
+	}
 }

@@ -69,7 +69,7 @@ func (a *App) transcriptView(c *ui.Context, t theme.Tokens) {
 	}
 	ui.Row(c).Grow(1).FillWidth().Justify(ui.Center).Children(func() {
 		ui.Column(c).Grow(1).FillHeight().MaxWidth(maxContent).Children(func() {
-			if th.loadingOlder {
+			if th.loadingOlder && !th.prefetching {
 				a.olderLine(c, t)
 			}
 			ui.List(c, &a.vm.threadList, len(rows), func(row int) {
@@ -730,7 +730,9 @@ func (a *App) olderLoader(th *threadStore) {
 		return
 	}
 	first, last := a.vm.threadList.Visible()
-	if last < 0 || first > 2 {
+	// A screen early: the page is read while the reader is still moving
+	// towards it, so it lands like the next message rather than like a load.
+	if last < 0 || first > 10 {
 		// Not laid out yet, or the top of this page is not on screen.
 		return
 	}
