@@ -268,8 +268,9 @@ export function detailPanel(details: Omit<TurnDetails, "at">): Record<string, un
   const decisionLines = (details.decisions ?? []).map(formatDecision);
   const body = decisionLines.length > 0 ? ["**决策**", ...decisionLines, ...lines] : lines;
   // Steps and seconds only: the money used to be printed here as well as in the line under the
-  // answer, and the panel header is the wrong place for a ledger nobody opens it for.
-  const summary = `${details.steps.length} 步 · ${details.seconds}s${
+  // answer, and the panel header is the wrong place for a ledger nobody opens it for. A `seconds`
+  // of 0 is the card copy of a turn that pings below it: the ping already ends with "· 68s".
+  const summary = `${details.steps.length} 步${details.seconds > 0 ? ` · ${details.seconds}s` : ""}${
     decisionLines.length > 0 ? ` · ${decisionLines.length} 次决策` : ""
   }`;
   return {
@@ -477,7 +478,7 @@ export function card(
     if (trail !== undefined && trail.steps.length > 0) {
       elements.push(detailPanel(trail));
     }
-    if (meta !== undefined) {
+    if (meta !== undefined && meta.trim().length > 0) {
       elements.push({ tag: "markdown", content: meta, text_size: "notation" });
     }
     if (buttons !== undefined && buttons.length > 0) {
@@ -1021,7 +1022,8 @@ export function touchedLine(files: string[]): string {
 
 function withTouched(meta: string, files: string[]): string {
   const line = touchedLine(files);
-  return line === "" ? meta : `${meta}\n${line}`;
+  if (line === "") return meta;
+  return meta.trim() === "" ? line : `${meta}\n${line}`;
 }
 
 export function turnMeta(input: {
@@ -1033,14 +1035,14 @@ export function turnMeta(input: {
   /**
    * A group card is read by whoever asked, not by the person paying. 十四步、886k tokens、
    * $0.29、deepseek-flash 这些是账本，同事看到只会觉得「这 bot 在说什么」——所以群里那行
-   * 只留一个勾。
+   * 什么都不留。
    */
   quiet?: boolean;
 }): string {
-  if (input.quiet === true) return "✅";
-  const parts = ["✅"];
-  if (input.tools > 0) parts.push(`${input.tools} 个工具`);
-  return parts.join(" · ");
+  // A line holding nothing but the tick was read as a stray emoji under the answer: the green
+  // header already says "✅ 答完了", and in a thread the ping right below says it again.
+  if (input.quiet === true) return "";
+  return input.tools > 0 ? `✅ · ${input.tools} 个工具` : "";
 }
 
 /** A quoted message, as the model needs it: who wrote it and what it said. */
@@ -3270,11 +3272,18 @@ const continuing = new Set<string>();
       // too, which in a group read as the same answer twice — and the head is the first line, so
       // "我这边的情况如下：" was all it ever said. A group's root message is a broadcast, not
       // somebody waiting, so it stays silent; a topic thread pings even inside a group.
+      const pings =
+        seconds >= config.feishu.donePingSeconds &&
+        (replyOptions.thread === true || message.chat_type !== "group");
       const ping = async (text: string): Promise<void> => {
-        if (seconds < config.feishu.donePingSeconds) return;
-        if (replyOptions.thread !== true && message.chat_type === "group") return;
+        if (!pings) return;
         await pingDone(chatId, message.message_id ?? "", text, { thread: replyOptions.thread === true });
       };
+      /** The ping under the card ends with "· 68s"; a folded panel saying 68s again read as a stutter,
+       *  so the copy that goes into the card drops its seconds. The saved copy keeps them: the client
+       *  and the old 「查看详情」 button have no ping beside them. */
+      const forCard = (panel: Omit<TurnDetails, "at"> | undefined): Omit<TurnDetails, "at"> | undefined =>
+        pings && panel !== undefined ? { ...panel, seconds: 0 } : panel;
       // One builder for all four exits. The failure paths used to hand over a card with a reason
       // and nothing to look at, exactly when "which step broke, and what did it print" is the
       // question the owner is about to ask.
@@ -3349,7 +3358,7 @@ const continuing = new Set<string>();
           meta,
           undefined,
           claim === undefined ? { template: "green", title: "✅ 答完了" } : doneVerdict(claim),
-          steps,
+          forCard(steps),
         );
         await ping(`✅ 答完了 · ${seconds}s`);
         // A conversation this long makes every step cost about a minute, and the tokens still fit the
@@ -3405,7 +3414,7 @@ const continuing = new Set<string>();
           `⏸️ ${seconds}s · 步数上限`,
           continueButton(message.message_id),
           { template: "orange", title: `⏸️ 到了 ${config.maxTurns} 步上限` },
-          await turnPanel(spent === undefined ? 0 : Math.max(0, spent.spentToday - budget.spentToday)),
+          forCard(await turnPanel(spent === undefined ? 0 : Math.max(0, spent.spentToday - budget.spentToday))),
         );
         await ping(`⏸️ 这轮到了 ${config.maxTurns} 步上限，续跑后仍未收尾 · ${seconds}s`);
       } else if (settled.reason === "aborted") {
@@ -3419,7 +3428,7 @@ const continuing = new Set<string>();
           `⏹️ ${seconds}s`,
           continueButton(message.message_id),
           { template: "grey", title: "⏹️ 已中断" },
-          await turnPanel(spent === undefined ? 0 : Math.max(0, spent.spentToday - budget.spentToday)),
+          forCard(await turnPanel(spent === undefined ? 0 : Math.max(0, spent.spentToday - budget.spentToday))),
         );
         await ping(`⏹️ 已中断 · ${seconds}s`);
       } else {
@@ -3435,7 +3444,7 @@ const continuing = new Set<string>();
           `⏹️ ${seconds}s`,
           continueButton(message.message_id),
           { template: "grey", title: `⚠️ 这次没答出来 · ${reason}` },
-          await turnPanel(spent === undefined ? 0 : Math.max(0, spent.spentToday - budget.spentToday)),
+          forCard(await turnPanel(spent === undefined ? 0 : Math.max(0, spent.spentToday - budget.spentToday))),
         );
         await ping(`⚠️ 这条没答出来（${reason}）· ${seconds}s`);
       }

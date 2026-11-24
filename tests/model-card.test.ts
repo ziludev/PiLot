@@ -40,8 +40,9 @@ test("the card line carries the tick and how many tools ran", () => {
   assert.equal(line, "✅ · 14 个工具");
 });
 
-test("a group card shows the tick and nothing else", () => {
+test("a group card repeats neither the tick nor the ledger", () => {
   // 同事要的是答案，不是账单：把 tokens 和 $0.29 摆在群里，看起来就像机器人自言自语。
+  // 勾也不用留：绿色表头已经写了「✅ 答完了」，话题里下面那条 ping 还会再说一次。
   const line = turnMeta({
     tools: 14,
     tokens: 12_345,
@@ -50,10 +51,10 @@ test("a group card shows the tick and nothing else", () => {
     thinking: "high",
     quiet: true,
   });
-  assert.equal(line, "✅");
+  assert.equal(line, "");
 });
 
-test("a turn that spent nothing still shows the tick", () => {
+test("a turn that ran no tools leaves no line at all", () => {
   const line = turnMeta({ tools: 0, tokens: 0, costUsd: 0, model: "", thinking: "" });
-  assert.equal(line, "✅");
+  assert.equal(line, "");
 });

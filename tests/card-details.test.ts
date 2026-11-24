@@ -75,3 +75,10 @@ test("an earlier step under budget still says it printed nothing", () => {
   const body = text(panel({ steps: [{ name: "read", ok: true, preview: "" }], seconds: 2, costUsd: 0 }));
   assert.match(body, /（无输出）/);
 });
+
+test("a card whose turn pings drops the seconds the ping already says", () => {
+  // `forCard` zeroes the seconds: the ping right under the card ends with "· 68s".
+  const card = panel({ steps: [{ name: "bash", ok: true, preview: "ok" }], seconds: 0, costUsd: 0 });
+  assert.match(card.header.title.content, /^\*\*本轮执行详情\*\* · 1 步$/);
+  assert.doesNotMatch(card.header.title.content, /0s/);
+});
