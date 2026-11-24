@@ -54,6 +54,61 @@ export const ConversationProjectDoc = defineDoc<{
   checkpointWhen: () => false,
 });
 
+/**
+ * The branches this team's work walks between. 提测 goes to a test branch, not to
+ * the project's default: confusing the two made a fresh branch look already
+ * released. Defaults are this team's names and overridable per project.
+ */
+export type ProjectWorkflow = {
+  /** Where a chat's work is cut from, when the chat does not say otherwise. */
+  origin: string;
+  /** Where 提测 goes. */
+  testBase: string;
+  /** Where the release request goes. */
+  releaseTarget: string;
+  /** How many rounds of machine review a merge request gets. */
+  roundLimit: number;
+};
+
+export const DEFAULT_WORKFLOW: ProjectWorkflow = {
+  origin: "",
+  testBase: "release/test",
+  releaseTarget: "feature/server",
+  roundLimit: 3,
+};
+
+export const WorkflowDoc = defineDoc<{ byProject: Record<string, ProjectWorkflow> }>({
+  kind: "app.project-workflow",
+  version: 1,
+  scope: "session",
+  initial: () => ({ byProject: {} }),
+  checkpointWhen: () => false,
+});
+
+/** A project's workflow, with the team defaults filled in. */
+export async function workflowOf(harness: Harness, context: Context, projectId: string): Promise<ProjectWorkflow> {
+  const doc = await harness.snapshot(WorkflowDoc, context);
+  const stored = doc?.byProject[projectId];
+  return { ...DEFAULT_WORKFLOW, ...(stored ?? {}) };
+}
+
+/** Changes one project's workflow; empty strings mean "keep the default". */
+export async function setWorkflow(
+  harness: Harness,
+  context: Context,
+  projectId: string,
+  patch: Partial<ProjectWorkflow>,
+): Promise<ProjectWorkflow> {
+  await harness.commit(async (tx) => {
+    const doc = await tx.doc(WorkflowDoc);
+    const next = { ...(doc.byProject ?? {}) };
+    const merged = { ...DEFAULT_WORKFLOW, ...(next[projectId] ?? {}), ...patch };
+    next[projectId] = merged;
+    doc.byProject = next;
+  }, context);
+  return workflowOf(harness, context, projectId);
+}
+
 export async function listProjects(harness: Harness, context: Context): Promise<Project[]> {
   return (await harness.snapshot(ProjectsDoc, context))?.projects ?? [];
 }

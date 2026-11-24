@@ -31,3 +31,12 @@ export async function projectPathOf(
   }
   return dirForConversation(harness, context, conversationId);
 }
+
+/** The project a chat belongs to, for looking up its workflow. */
+export async function projectIdOf(
+  harness: Harness,
+  context: Context,
+  conversationId: number,
+): Promise<string | undefined> {
+  return projectOf(harness, context, conversationId);
+}

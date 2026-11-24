@@ -104,6 +104,9 @@ async function openRequest(projectPath: string, branch: string, target: string):
 
 export type StageReport = {
   branch: string;
+  /** The branch work is cut from, where the dev stage is measured. */
+  origin: string;
+  /** Where 提测 goes: a branch, not the project's default. */
   base: string;
   target: string;
   rounds: number;
@@ -120,33 +123,46 @@ export type StageReport = {
 export async function deriveStages(
   projectPath: string,
   worktree: string,
-  options: { base: string; branch: string; target: string; roundLimit: number },
+  options: { origin?: string; base: string; branch: string; target: string; roundLimit: number },
 ): Promise<StageReport> {
-  const base = options.base.trim().length > 0 ? options.base.trim() : "main";
+  const base = options.base.trim().length > 0 ? options.base.trim() : "release/test";
+  // 开发 is measured from where the branch was cut, not from where it is going:
+  // a chat on release/test's child has no commits over master, and would look
+  // stalled if the two were confused.
+  const origin = (options.origin ?? "").trim().length > 0 ? (options.origin ?? "").trim() : base;
   const branch = options.branch.trim();
   const target = options.target.trim().length > 0 ? options.target.trim() : "feature/server";
   const limit = options.roundLimit > 0 ? options.roundLimit : 3;
   const stages: Stage[] = [];
 
-  const { ahead, behind } = await distance(projectPath, base, branch);
-  const mergedIntoBase = await mergedInto(projectPath, branch, base);
-  const inBase = mergedIntoBase || ahead === 0;
+  const { ahead } = await distance(projectPath, origin, branch);
+  const { behind } = await distance(projectPath, base, branch);
+  // In the test branch means merged, not "has nothing to merge": a branch that
+  // has not started yet is not a branch that already passed 提测.
+  const inBase = await mergedInto(projectPath, branch, base);
+  const devDone = ahead > 0 || inBase;
 
   stages.push({
     key: "dev",
     label: "开发",
-    state: ahead > 0 ? "done" : "active",
+    state: devDone ? "done" : "active",
     detail: ahead > 0 ? `${ahead} 个提交` : branch,
-    nextAction: ahead > 0 ? undefined : "在这个分支上改代码并提交",
+    nextAction: devDone ? undefined : "在这个分支上改代码并提交",
   });
 
   const baseRequest = await openRequest(projectPath, branch, base).catch(() => undefined);
   stages.push({
     key: "test",
     label: `提测到 ${base}`,
-    state: inBase ? "done" : baseRequest !== undefined ? "active" : "active",
-    detail: inBase ? undefined : baseRequest !== undefined ? `!${baseRequest}` : `${behind} 个提交落后`,
-    nextAction: inBase ? undefined : baseRequest !== undefined ? "等 MR 合入" : `合到 ${base} 并推送`,
+    state: inBase ? "done" : devDone ? "active" : "todo",
+    detail: inBase ? undefined : baseRequest !== undefined ? `!${baseRequest}` : devDone ? `${behind} 个提交落后` : undefined,
+    nextAction: inBase
+      ? undefined
+      : !devDone
+        ? "开发完成后合到 " + base
+        : baseRequest !== undefined
+          ? "等 MR 合入"
+          : `合到 ${base} 并推送`,
   });
 
   // Release is where the cap lives: a merge request that has used its rounds cannot
@@ -200,6 +216,6 @@ export async function deriveStages(
     });
   }
 
-  log("stages", "derived", { branch, base, target, rounds, limit });
-  return { branch, base, target, rounds, roundLimit: limit, reviewers, stages };
+  log("stages", "derived", { branch, origin, base, target, rounds, limit });
+  return { branch, origin, base, target, rounds, roundLimit: limit, reviewers, stages };
 }

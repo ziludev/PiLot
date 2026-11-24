@@ -2,7 +2,8 @@ import { defineExtension, defineTool, hook, ToolTask } from "@earendil-works/pi-
 import { obj, str } from "@earendil-works/pi-schema";
 import { getHarness, getSessionContext } from "./runtime-ref.ts";
 import { deriveStages } from "./stages.ts";
-import { baseOf } from "./projects.ts";
+import { baseOf, workflowOf, DEFAULT_WORKFLOW } from "./projects.ts";
+import { projectIdOf } from "./workflow-ctx.ts";
 import { dirForConversation, projectPathOf } from "./workflow-ctx.ts";
 import { gitBranchOf } from "./git-info.ts";
 import { log } from "./log.ts";
@@ -26,11 +27,16 @@ async function stagesFor(conversationId: number) {
   if (harness === undefined || context === undefined) throw new Error("workflow: no session");
   const cwd = await dirForConversation(harness, context, conversationId);
   const project = await projectPathOf(harness, context, conversationId);
-  const base = (await baseOf(harness, context, conversationId)) ?? "release/test";
+  // Same numbers the strip draws: 提测 goes to the project's test branch, the
+  // release request to its target, and the cap is the project's own.
+  const projectId = await projectIdOf(harness, context, conversationId);
+  const flow = projectId === undefined ? DEFAULT_WORKFLOW : await workflowOf(harness, context, projectId);
+  const origin = (await baseOf(harness, context, conversationId)) ?? flow.origin;
   return deriveStages(project, cwd, {
-    base,
+    origin,
+    base: flow.testBase,
     branch: (await gitBranchOf(cwd)).trim(),
-    target: "feature/server",
+    target: flow.releaseTarget,
     roundLimit: ROUND_LIMIT,
   });
 }

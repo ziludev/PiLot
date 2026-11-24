@@ -475,20 +475,45 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         return send(res, 200, result);
       }
 
+      if (req.method === "GET" && path === "/api/workflow") {
+        const conversationId = Number(url.searchParams.get("conversationId"));
+        if (!Number.isFinite(conversationId)) return send(res, 400, { error: "conversationId required" });
+        return send(res, 200, { conversationId, workflow: await runtime.workflowOf(conversationId) });
+      }
+
+      if (req.method === "POST" && path === "/api/workflow") {
+        const body = await readJson(req);
+        const projectId = typeof body["projectId"] === "string" ? (body["projectId"] as string) : "";
+        if (projectId.length === 0) return send(res, 400, { error: "projectId required" });
+        const patch: Record<string, unknown> = {};
+        for (const key of ["origin", "testBase", "releaseTarget"]) {
+          if (typeof body[key] === "string") patch[key] = (body[key] as string).trim();
+        }
+        if (typeof body["roundLimit"] === "number" && (body["roundLimit"] as number) > 0) patch["roundLimit"] = body["roundLimit"];
+        const workflow = await runtime.setWorkflow(projectId, patch);
+        return send(res, 200, { projectId, workflow });
+      }
+
       if (req.method === "GET" && path === "/api/stages") {
         const conversationId = Number(url.searchParams.get("conversationId"));
         if (!Number.isFinite(conversationId)) return send(res, 400, { error: "conversationId required" });
         const projectPath = await runtime.projectPathOf(conversationId);
         const worktree = await dirFor(conversationId);
-        const base = (await runtime.baseBranchOf(conversationId)).trim();
+        // 提测 goes to the project's test branch, not to the branch the work was
+        // cut from: the two being the same is what made a fresh branch look
+        // already released.
+        const flow = await runtime.workflowOf(conversationId);
+        const origin = (await runtime.baseBranchOf(conversationId)).trim();
         const current = (await execGit(worktree, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "")).trim();
-        const target = (url.searchParams.get("target") ?? "feature/server").trim();
-        const limit = Number(url.searchParams.get("roundLimit") ?? "3");
+        const base = (url.searchParams.get("testBase") ?? flow.testBase).trim();
+        const target = (url.searchParams.get("target") ?? flow.releaseTarget).trim();
+        const limit = Number(url.searchParams.get("roundLimit") ?? String(flow.roundLimit));
         const report = await deriveStages(projectPath, worktree, {
-          base: base.length > 0 ? base : "main",
+          origin: origin.length > 0 ? origin : flow.origin,
+          base: base.length > 0 ? base : "release/test",
           branch: current,
           target,
-          roundLimit: Number.isFinite(limit) ? limit : 3,
+          roundLimit: Number.isFinite(limit) && limit > 0 ? limit : flow.roundLimit,
         });
         return send(res, 200, { project: projectPath, worktree, ...report });
       }

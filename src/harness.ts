@@ -54,7 +54,7 @@ import { acquireStorageLock } from "./storage-lock.ts";
 import { startToolbox, codingToolsFromToolbox } from "./toolbox/index.ts";
 import type { Toolbox } from "./toolbox/client.ts";
 import { ensureRepo } from "./changes.ts";
-import { chatBranchOf, setChatBranch } from "./projects.ts";
+import { chatBranchOf, setChatBranch, workflowOf, setWorkflow, type ProjectWorkflow } from "./projects.ts";
 import { listExtensions, setExtension, type ExtensionRow } from "./extensions-admin.ts";
 import { workflowExtension } from "./workflow.ts";
 import { liveConversationIds } from "./conversations.ts";
@@ -172,6 +172,9 @@ export type AgentRuntime = {
   ): Promise<{ conversation: Conversation; dir: string; branch: string } | { error: string }>;
   /** Compare/merge base for a conversation, defaulting to the project's HEAD. */
   baseBranchOf(conversationId: number): Promise<string>;
+  /** The branches this chat's work walks between (提测 target, release target, rounds). */
+  workflowOf(conversationId: number): Promise<ProjectWorkflow>;
+  setWorkflow(projectId: string, patch: Partial<ProjectWorkflow>): Promise<ProjectWorkflow>;
   originBranchOf(conversationId: number): Promise<string | undefined>;
   setBaseBranch(conversationId: number, branch: string): Promise<void>;
   projects(): Promise<Project[]>;
@@ -456,6 +459,12 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     if (explicit !== undefined) return explicit;
     const path = await projectPathOf(conversationId);
     return (await gitBranchOf(path)) || "HEAD";
+  }
+
+  async function workflowFor(conversationId: number): Promise<ProjectWorkflow> {
+    const projectId = await projectOf(harness, context, conversationId);
+    if (projectId === undefined) return workflowOf(harness, context, "");
+    return await workflowOf(harness, context, projectId);
   }
 
   async function originBranchOf(conversationId: number): Promise<string | undefined> {
@@ -788,6 +797,8 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     extensions,
     setExtension: setExtensionForChat,
     baseBranchOf,
+    workflowOf: workflowFor,
+    setWorkflow: (projectId: string, patch: Partial<ProjectWorkflow>) => setWorkflow(harness, context, projectId, patch),
     originBranchOf,
     setBaseBranch,
     projects: () => listProjects(harness, context),
