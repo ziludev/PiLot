@@ -244,6 +244,25 @@ TS 侧
 对照：整包 Go 化桥接层（`src/` 全部重写，2910 行 feishu.ts + 调度/SQLite/agent 循环）估 2–3 周，
 且要重跑全部 248 个测试与线上灰度——除非目标就是「整个 runtime 统一 Go」，否则不做。
 
+### 8.5 死 token 自愈（2026-11-24）
+线上复盘：13:53 代理抖动把 SDK 的 token 刷新打断，之后网关一直拿一个**飞书已作废、本地还没到
+过期时间**的 tenant token 发请求，14:20 起每次都是 `99991663 Invalid access token`。症状是最难
+查的一种：进程活着、`/healthz` 还报 `connected:true`、长连接照收事件，只是发不出去——桥接层那侧
+表现为「turn start 之后一条日志都没有」（卡在 `card created`），用户看到的是「无响应」。
+
+根因在 SDK 的行为：tenant token 在内存里缓存到它自己记的过期时刻，飞书回 `99991663/99991668`
+它**不重取也不重试**。所以修法不是加长重试，而是换一个没有旧缓存的东西：
+- `send.go` 新增 `clientSet`，持有 `build func() *lark.Client`；`guard()` 包住五个操作和
+  `bot/v3/info`，只在 `isStaleToken(err)`（= `99991663`/`99991668`）时 `reset()` 重建 client 并
+  **重试一次**。其它错误（超时、限流、消息已撤回）一次都不重试——超时重试会发两遍。
+- `reset()` 只在「手里这个 client 仍是失败的那个」时才重建，一串并发失败只重建一次。
+- 重建就是全部修复：新 client 的 token cache 是空的，下一次调用自然重新取 token。
+- `newServer` 因此收 `build func() *lark.Client` 而不是 client（凭据只有 `main` 知道），
+  测试传 `nil` 仍然可用。日志多一条 `{"t":"stale token","what":...,"err":...}`。
+
+实测：`99991663` 之后自动恢复，无需 `kickstart`；`go test ./...` 全绿（`token_test.go` 5 个用例
+钉住「只重试死 token、只重试一次、并发只重建一次」）。
+
 ## 11. 决策点
 
 评审时只需要回答一个问题：**换 Go 的动机是「可靠性」还是「技术栈统一」？**

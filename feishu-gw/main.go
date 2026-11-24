@@ -102,7 +102,9 @@ func main() {
 	if conf.debug {
 		level = larkcore.LogLevelDebug
 	}
-	client := lark.NewClient(conf.appID, conf.appSecret, lark.WithLogLevel(level))
+	// A builder rather than one client: the server replaces it when Feishu rejects the cached tenant
+	// token, and a fresh client is what starts a fresh token cache.
+	newClient := func() *lark.Client { return lark.NewClient(conf.appID, conf.appSecret, lark.WithLogLevel(level)) }
 
 	forwarder := &forwarder{base: conf.bridgeURL, token: conf.bridgeToken, out: out, state: state}
 	events := dispatcher.NewEventDispatcher("", "")
@@ -150,7 +152,7 @@ func main() {
 		ws.WithOnError(func(err error) { out.emit("ws error", map[string]any{"err": err.Error()}) }),
 	)
 
-	server := newServer(conf, client, state, out)
+	server := newServer(conf, newClient, state, out)
 	listener, err := net.Listen("tcp", conf.addr)
 	if err != nil {
 		log.Fatalf("listen %s: %v", conf.addr, err)

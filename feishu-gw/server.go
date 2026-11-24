@@ -14,16 +14,17 @@ import (
 )
 
 type server struct {
-	conf   config
-	send   *sender
-	state  *stats
-	out    *logging
-	mux    *http.ServeMux
-	client *lark.Client
+	conf  config
+	send  *sender
+	state *stats
+	out   *logging
+	mux   *http.ServeMux
 }
 
-func newServer(conf config, client *lark.Client, state *stats, out *logging) *server {
-	s := &server{conf: conf, send: &sender{client: client}, state: state, out: out, mux: http.NewServeMux(), client: client}
+// newServer takes a builder rather than a client: the sender rebuilds the client when Feishu rejects
+// the cached tenant token, and the builder is the only thing that knows the credentials.
+func newServer(conf config, build func() *lark.Client, state *stats, out *logging) *server {
+	s := &server{conf: conf, send: &sender{clients: newClientSet(build), out: out}, state: state, out: out, mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /healthz", s.healthz)
 	s.mux.HandleFunc("GET /v1/bot", s.guarded(s.bot))
 	s.mux.HandleFunc("POST /v1/message", s.guarded(s.create))
@@ -78,7 +79,7 @@ func (s *server) healthz(writer http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *server) bot(writer http.ResponseWriter, request *http.Request) {
-	openID, name, err := botIdentity(request.Context(), s.client)
+	openID, name, err := s.send.botIdentity(request.Context())
 	if err != nil {
 		s.fail(writer, "could not read bot identity", err)
 		return
