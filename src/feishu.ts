@@ -267,9 +267,11 @@ export function detailPanel(details: Omit<TurnDetails, "at">): Record<string, un
   // The trail goes first: "why it took two minutes" is read before "what it ran".
   const decisionLines = (details.decisions ?? []).map(formatDecision);
   const body = decisionLines.length > 0 ? ["**决策**", ...decisionLines, ...lines] : lines;
+  // Steps and seconds only: the money used to be printed here as well as in the line under the
+  // answer, and the panel header is the wrong place for a ledger nobody opens it for.
   const summary = `${details.steps.length} 步 · ${details.seconds}s${
-    details.costUsd > 0.00005 ? ` · $${details.costUsd.toFixed(4)}` : ""
-  }${decisionLines.length > 0 ? ` · ${decisionLines.length} 次决策` : ""}`;
+    decisionLines.length > 0 ? ` · ${decisionLines.length} 次决策` : ""
+  }`;
   return {
     tag: "collapsible_panel",
     expanded: false,
@@ -877,6 +879,9 @@ export function renderLive(live: LiveSnapshot, trace?: CardTrace, trail?: Trail,
   const body = live.text.trim();
   const steps = trail === undefined ? "" : renderSteps(trail, Date.now());
   const thought = thinkingLine(live.thinking);
+  // Once there are tool rounds, the thought is what the model did *before* them: printing it above
+  // the steps spent a third of the card saying something the steps already answered.
+  const showThought = thought.length > 0 && steps.length === 0;
   const activity = live.activity !== undefined && live.activity.length > 0 ? `_${live.activity}_` : "";
   const parts: string[] = [];
   // A pipeline's stage is the biggest thing happening, so it goes above the tool rounds.
@@ -885,7 +890,7 @@ export function renderLive(live: LiveSnapshot, trace?: CardTrace, trail?: Trail,
   else if (body.length === 0 && thought.length === 0 && live.tools.length > 0) parts.push(withIcons(live.tools.join(" · ")));
   if (activity.length > 0) parts.push(activity);
   // Thought sits directly above the answer: the order the model produced them in.
-  if (thought.length > 0) parts.push(thought);
+  if (showThought) parts.push(thought);
   if (body.length > 0) parts.push(clip(body));
   else if (thought.length === 0 && (steps.length > 0 || live.tools.length === 0)) parts.push("🤔 思考中…");
   const inner = parts.join("\n\n");
@@ -1028,17 +1033,13 @@ export function turnMeta(input: {
   /**
    * A group card is read by whoever asked, not by the person paying. 十四步、886k tokens、
    * $0.29、deepseek-flash 这些是账本，同事看到只会觉得「这 bot 在说什么」——所以群里那行
-   * 只留一个勾，账还在下面折叠的「本轮执行详情」里，alex 想查随时能展开。
+   * 只留一个勾。
    */
   quiet?: boolean;
 }): string {
   if (input.quiet === true) return "✅";
   const parts = ["✅"];
   if (input.tools > 0) parts.push(`${input.tools} 个工具`);
-  if (input.tokens > 0) parts.push(`${formatTokens(input.tokens)} tokens`);
-  if (input.costUsd > 0.00005) parts.push(`$${input.costUsd.toFixed(4)}`);
-  if (input.model.length > 0) parts.push(input.model);
-  if (input.thinking.length > 0) parts.push(`thinking ${input.thinking}`);
   return parts.join(" · ");
 }
 

@@ -27,7 +27,7 @@ test("tokens read as a person would write them", () => {
   assert.equal(formatTokens(1_000_000), "1000.0k");
 });
 
-test("the card line carries tools, tokens, money and the model", () => {
+test("the card line carries the tick and how many tools ran", () => {
   const line = turnMeta({
     tools: 14,
     tokens: 12_345,
@@ -35,8 +35,9 @@ test("the card line carries tools, tokens, money and the model", () => {
     model: "deepseek-flash",
     thinking: "high",
   });
-  // No duration: the "答完了" ping right below the card already carries it.
-  assert.equal(line, "✅ · 14 个工具 · 12.3k tokens · $0.0312 · deepseek-flash · thinking high");
+  // Neither a duration (the "答完了" ping right below carries it) nor a ledger: tokens, money and the
+  // model id are in the log line and in the cost_usd metric, not under the answer.
+  assert.equal(line, "✅ · 14 个工具");
 });
 
 test("a group card shows the tick and nothing else", () => {

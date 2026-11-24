@@ -23,7 +23,8 @@ test("the trail is written above the steps, and the header counts it", () => {
     costUsd: 0.0281,
     decisions: [{ at: new Date(2026, 0, 2, 9, 5).getTime(), kind: "approval", text: "你允许了 write · 等了 2 分钟" }],
   });
-  assert.match(card.header.title.content, /1 步 · 171s · \$0\.0281 · 1 次决策/);
+  // Money stays out of the panel header: it is in the log line and the cost_usd metric.
+  assert.match(card.header.title.content, /1 步 · 171s · 1 次决策/);
   const body = text(card);
   assert.ok(body.indexOf("决策") < body.indexOf("bash"), "the reason comes before the work");
   assert.match(body, /09:05 你允许了 write · 等了 2 分钟/);
