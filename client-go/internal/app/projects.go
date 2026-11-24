@@ -205,7 +205,9 @@ func (a *App) projectsView(c *ui.Context, t theme.Tokens) {
 }
 
 func (a *App) projectsHeader(c *ui.Context, t theme.Tokens) {
-	ui.Row(c).FillWidth().Height(48).Padding(0, 12).AlignItems(ui.Center).Gap(8).Children(func() {
+	// DragWindow: the drawer sits at the top too, so its header drags as well.
+	ui.Row(c).FillWidth().Height(48).Padding(0, 12).AlignItems(ui.Center).Gap(8).
+		DragWindow().Children(func() {
 		ui.Text(c, i18n.T("projects")).FontSize(theme.TextTitle).FontWeight(500).TextColor(t.Ink).MaxLines(1)
 		ui.Spacer(c)
 		reload := ui.ButtonBase(c).Width(20).Height(20).Radius(theme.RadiusChip).Cursor(ui.CursorPointer).

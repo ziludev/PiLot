@@ -117,7 +117,11 @@ func (a *App) paneView(c *ui.Context, t theme.Tokens) {
 }
 
 func (a *App) paneHeader(c *ui.Context, t theme.Tokens) {
-	ui.Row(c).FillWidth().Height(48).Padding(0, gutter).AlignItems(ui.Center).Gap(8).Children(func() {
+	// The header is the window's other title bar: with the rail's strip it makes
+	// the top of the window draggable, which is where a hand goes first.
+	header := ui.Row(c).FillWidth().Height(48).Padding(0, gutter).AlignItems(ui.Center).Gap(8).
+		DragWindow()
+	header.Children(func() {
 		if surface, ok := a.activeConv(); ok {
 			ui.Text(c, surface.Title).FontSize(theme.TextTitle).FontWeight(500).
 				TextColor(t.Ink).MaxLines(1)

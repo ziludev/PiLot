@@ -26,8 +26,9 @@ func (a *App) railView(c *ui.Context, t theme.Tokens) {
 		if dx, _, held := edge.Dragged(); dx != 0 || a.dragging {
 			a.resizeRail(dx, held)
 		}
-		// The window hides its title bar, so the traffic lights sit over this.
-		ui.Box(c).Height(titleBar)
+		// The window hides its title bar, so this strip is the title bar: it is
+		// what the traffic lights sit over and what a press drags the window by.
+		ui.Box(c).Height(titleBar).DragWindow()
 		a.sideHeader(c, t)
 		a.sideNav(c, t)
 		if a.railCollapsed {

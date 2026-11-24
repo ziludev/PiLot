@@ -220,7 +220,9 @@ func (a *App) memoryView(c *ui.Context, t theme.Tokens) {
 }
 
 func (a *App) memoryHeader(c *ui.Context, t theme.Tokens) {
-	ui.Row(c).FillWidth().Height(48).Padding(0, 12).AlignItems(ui.Center).Gap(8).Children(func() {
+	// DragWindow: the drawer sits at the top too, so its header drags as well.
+	ui.Row(c).FillWidth().Height(48).Padding(0, 12).AlignItems(ui.Center).Gap(8).
+		DragWindow().Children(func() {
 		title := i18n.T("memory")
 		if a.mem.suggesting {
 			title = i18n.T("memSuggest")

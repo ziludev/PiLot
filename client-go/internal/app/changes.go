@@ -342,7 +342,9 @@ func (a *App) changesView(c *ui.Context, t theme.Tokens) {
 }
 
 func (a *App) changesHeader(c *ui.Context, t theme.Tokens) {
-	ui.Row(c).FillWidth().Height(48).Padding(0, 12).AlignItems(ui.Center).Gap(8).Children(func() {
+	// DragWindow: the drawer sits at the top too, so its header drags as well.
+	ui.Row(c).FillWidth().Height(48).Padding(0, 12).AlignItems(ui.Center).Gap(8).
+		DragWindow().Children(func() {
 		// The workspace, not the tab: the tabs below already say which half this
 		// is, and naming the repository is what tells a person where they are.
 		title := a.changes.workspace
