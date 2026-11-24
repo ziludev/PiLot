@@ -37,25 +37,62 @@ func (a *App) shell(c *ui.Context, t theme.Tokens) {
 			pane := ui.Column(c).FillHeight().Grow(1).
 				Radius(theme.RadiusWindow).Border(1, t.Line).Background(t.Surface).Clip()
 			pane.Children(func() { a.paneView(c, t) })
-			if a.mem.open {
-				a.drawerSlot(c, t)
-				a.memoryView(c, t)
-			}
-			// One right edge, one drawer: two columns of detail do not fit, and
-			// a stale flag must not be able to draw one over the other.
-			if a.changes.open && !a.projects.open {
-				a.drawerSlot(c, t)
-				a.changesView(c, t)
-			}
-			if a.projects.open && !a.mem.open {
-				a.drawerSlot(c, t)
-				a.projectsView(c, t)
-			}
-			if a.tl.open {
-				a.drawerSlot(c, t)
-				a.timelineView(c, t)
+			// A drawer takes a column of its own only when the window could grow
+			// for it. On a display with no room left it would have to come out of
+			// the chat, so it floats above the chat's right edge instead — same
+			// sheet, still on the canvas, and the reading measure never moves.
+			if !a.drawerOverlay {
+				a.drawersInRow(c, t)
 			}
 		})
+	})
+	if a.drawerOverlay {
+		ui.Overlay(c, func() { a.drawerOverlayView(c, t) })
+	}
+}
+
+// drawersInRow draws the open drawer as a sibling of the conversation card.
+func (a *App) drawersInRow(c *ui.Context, t theme.Tokens) {
+	if a.mem.open {
+		a.drawerSlot(c, t)
+		a.memoryView(c, t)
+	}
+	// One right edge, one drawer: two columns of detail do not fit, and a stale
+	// flag must not be able to draw one over the other.
+	if a.changes.open && !a.projects.open {
+		a.drawerSlot(c, t)
+		a.changesView(c, t)
+	}
+	if a.projects.open && !a.mem.open {
+		a.drawerSlot(c, t)
+		a.projectsView(c, t)
+	}
+	if a.tl.open {
+		a.drawerSlot(c, t)
+		a.timelineView(c, t)
+	}
+}
+
+// drawerOverlayView pins the open drawer to the window's right edge, above the
+// conversation, so the chat keeps the width it had before the drawer opened.
+func (a *App) drawerOverlayView(c *ui.Context, t theme.Tokens) {
+	// The sheet carries the card look itself: pinned by three edges it has no
+	// layout parent to inherit it from, and a bare column reads as a hole in the
+	// window rather than a sheet lying on it.
+	sheet := ui.Column(c).Absolute().Top(paneInset).Right(paneInset).Bottom(paneInset).
+		Radius(theme.RadiusWindow).Border(1, t.Line).Background(t.Surface).Clip().
+		Shadow(0, 14, 34, 0, ui.RGBA(0, 0, 0, 0.20))
+	sheet.Children(func() {
+		switch {
+		case a.changes.open:
+			a.changesView(c, t)
+		case a.tl.open:
+			a.timelineView(c, t)
+		case a.mem.open:
+			a.memoryView(c, t)
+		case a.projects.open:
+			a.projectsView(c, t)
+		}
 	})
 }
 
@@ -70,7 +107,7 @@ func (a *App) drawerSlot(c *ui.Context, t theme.Tokens) {
 func (a *App) paneView(c *ui.Context, t theme.Tokens) {
 	ui.Column(c).Grow(1).FillHeight().Children(func() {
 		a.paneHeader(c, t)
-	a.stageBar(c, t)
+		a.stageBar(c, t)
 		a.syncFind()
 		a.findBar(c, t)
 		a.transcriptView(c, t)

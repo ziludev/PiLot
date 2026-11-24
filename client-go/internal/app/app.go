@@ -46,6 +46,9 @@ type App struct {
 	// windowGrew is the width this app has added to the window for the open
 	// drawer, so closing it gives back exactly that and no more.
 	windowGrew float32
+	// drawerOverlay is true when the window could not grow for the open drawer:
+	// the drawer then floats above the chat instead of narrowing it.
+	drawerOverlay bool
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -1156,6 +1159,7 @@ type windowSizer interface {
 	Size() (int, int)
 	SetSize(width, height int)
 	Bounds() mygo.Rectangle
+	IsMaximized() bool
 }
 
 // callerWindow and workArea are variables so the tester, which has no window,
@@ -1207,6 +1211,13 @@ func (a *App) fitWindowToDrawer() {
 		a.windowGrew = want
 		return
 	}
+	// A zoomed window is at the display's edge by definition, and resizing it
+	// would undo the zoom: the drawer floats instead.
+	if w.IsMaximized() {
+		a.windowGrew = 0
+		a.drawerOverlay = want > 0
+		return
+	}
 	width, height := w.Size()
 	next := width + int(want-a.windowGrew)
 	if next < minWindowWidth {
@@ -1224,7 +1235,11 @@ func (a *App) fitWindowToDrawer() {
 	if next != width {
 		w.SetSize(next, height)
 	}
-	a.windowGrew += float32(next - width)
+	grew := float32(next - width)
+	a.windowGrew = grew
+	// Short of the room the drawer wants, the chat would pay for it: float the
+	// sheet above instead.
+	a.drawerOverlay = want > grew+0.5
 }
 
 func (a *App) View(c *ui.Context) {
