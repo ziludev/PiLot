@@ -119,8 +119,9 @@ func (a *App) decideWith(callID string, approved, session, all bool) {
 	}()
 }
 
-// newChat starts an empty chat in the built-in workspace and opens it.
-func (a *App) newChat() { a.newChatIn("") }
+// newChat asks which project and which branch before starting a chat: the branch
+// is what ties one requirement across projects.
+func (a *App) newChat() { a.openNewChat() }
 
 // newChatIn starts an empty chat in a project's worktree. An empty id is the
 // built-in sandbox — the same thing the rail's + has always done.

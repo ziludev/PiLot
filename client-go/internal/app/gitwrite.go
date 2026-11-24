@@ -144,6 +144,10 @@ func (a *App) applyWrite(convID int, kind writeKind, text string, bad bool) {
 		// The patch that was committed is gone from the worktree now.
 		a.refreshChanges()
 	}
+	if !bad {
+		// A commit, a push or a merge moves the branch the strip is about.
+		a.loadStages(convID)
+	}
 }
 
 // mergeOutcome reads the bridge's refusal as the instructions it is.

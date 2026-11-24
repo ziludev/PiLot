@@ -17,7 +17,11 @@ import { surfaceMeta, updateSurfaceMeta } from "./surface-meta.ts";
 import { chatAccess, ownerChatId, setChatLevel, type ChatLevel } from "./access.ts";
 import { recent } from "./audit.ts";
 import { removeWorktree, worktreePaths } from "./worktree.ts";
-import { branches, commitDiff, commitLog, compareUrl, pushBranch, remoteInfo } from "./git-info.ts";
+import { branches, commitDiff, commitLog, compareUrl, gitBranchOf, pushBranch, remoteInfo } from "./git-info.ts";
+import { createBranch, deleteBranch, listBranches } from "./branches.ts";
+import { deriveStages } from "./stages.ts";
+import { createMergeRequest, findMergeRequest, mergeMergeRequest } from "./mr.ts";
+import { jobTrace, pipelineWithJobs, retryWork } from "./pipeline.ts";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { ChatMemory, GlobalMemory, WorkMemory } from "./memory.ts";
@@ -435,8 +439,81 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         // Client chats get their own namespace so they never collide with Feishu ids.
         const surfaceId = requested.startsWith("client:") ? requested : `client:${Date.now().toString(36)}`;
         const projectId = typeof body["projectId"] === "string" ? (body["projectId"] as string) : undefined;
-        const conversation = await runtime.newConversation(surfaceId, projectId);
+        // A named branch is how one requirement spans several projects: every project's
+        // worktree then checks out the same name.
+        const branch = typeof body["branch"] === "string" ? (body["branch"] as string).trim() : "";
+        const conversation = await runtime.newConversation(surfaceId, projectId, undefined, branch.length > 0 ? branch : undefined);
         return send(res, 200, { conversationId: conversation.id as unknown as number, surfaceId });
+      }
+
+      if (req.method === "POST" && path === "/api/branch-name") {
+        const body = await readJson(req);
+        const conversationId = conversationIdOf(body);
+        if (conversationId === undefined) return send(res, 400, { error: "conversationId required" });
+        const branch = typeof body["branch"] === "string" ? (body["branch"] as string).trim() : "";
+        if (branch.length === 0) return send(res, 400, { error: "branch required" });
+        const named = await runtime.setBranchName(conversationId, branch);
+        log("http", "branch name", { conversationId, branch, status: named.status });
+        return send(res, 200, named);
+      }
+
+      if (req.method === "GET" && path === "/api/extensions") {
+        const conversationId = Number(url.searchParams.get("conversationId"));
+        if (!Number.isFinite(conversationId)) return send(res, 400, { error: "conversationId required" });
+        const rows = await runtime.extensions(conversationId);
+        return send(res, 200, { extensions: rows });
+      }
+
+      if (req.method === "POST" && path === "/api/extensions") {
+        const body = await readJson(req);
+        const conversationId = conversationIdOf(body);
+        if (conversationId === undefined) return send(res, 400, { error: "conversationId required" });
+        const name = typeof body["name"] === "string" ? (body["name"] as string) : "";
+        if (name.length === 0) return send(res, 400, { error: "name required" });
+        const enabled = body["enabled"] === true;
+        const result = await runtime.setExtension(conversationId, name, enabled);
+        return send(res, 200, result);
+      }
+
+      if (req.method === "GET" && path === "/api/stages") {
+        const conversationId = Number(url.searchParams.get("conversationId"));
+        if (!Number.isFinite(conversationId)) return send(res, 400, { error: "conversationId required" });
+        const projectPath = await runtime.projectPathOf(conversationId);
+        const worktree = await dirFor(conversationId);
+        const base = (await runtime.baseBranchOf(conversationId)).trim();
+        const current = (await execGit(worktree, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "")).trim();
+        const target = (url.searchParams.get("target") ?? "feature/server").trim();
+        const limit = Number(url.searchParams.get("roundLimit") ?? "3");
+        const report = await deriveStages(projectPath, worktree, {
+          base: base.length > 0 ? base : "main",
+          branch: current,
+          target,
+          roundLimit: Number.isFinite(limit) ? limit : 3,
+        });
+        return send(res, 200, { project: projectPath, worktree, ...report });
+      }
+
+      if (req.method === "GET" && path === "/api/worktrees") {
+        const projectId = url.searchParams.get("projectId") ?? undefined;
+        const rows = await runtime.strays(projectId);
+        return send(res, 200, { worktrees: rows });
+      }
+
+      if (req.method === "POST" && path === "/api/worktrees/adopt") {
+        const body = await readJson(req);
+        const dir = typeof body["dir"] === "string" ? (body["dir"] as string) : "";
+        const projectId = typeof body["projectId"] === "string" ? (body["projectId"] as string) : undefined;
+        const requested = typeof body["surfaceId"] === "string" ? (body["surfaceId"] as string) : "";
+        const surfaceId = requested.startsWith("client:") ? requested : `client:${Date.now().toString(36)}`;
+        if (dir.length === 0) return send(res, 400, { error: "dir required" });
+        const adopted = await runtime.adoptWorktree(surfaceId, projectId, dir);
+        if ("error" in adopted) return send(res, 400, { error: adopted.error });
+        return send(res, 200, {
+          conversationId: adopted.conversation.id as unknown as number,
+          surfaceId,
+          dir: adopted.dir,
+          branch: adopted.branch,
+        });
       }
 
       if (req.method === "GET" && path === "/api/models") {
@@ -785,6 +862,139 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         }
         await runtime.setBaseBranch(conversationId, branch);
         return send(res, 200, { ok: true, base: branch });
+      }
+
+      if (req.method === "GET" && path === "/api/branches") {
+        const conversationId = Number(url.searchParams.get("conversationId"));
+        if (!Number.isFinite(conversationId)) return send(res, 400, { error: "conversationId required" });
+        const projectPath = await runtime.projectPathOf(conversationId);
+        const worktree = await dirFor(conversationId);
+        const base = await runtime.baseBranchOf(conversationId);
+        const current = (await execGit(worktree, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "")).trim();
+        const listing = await listBranches(projectPath, { base: base.trim(), current });
+        // named is what a person typed for this chat, which differs from the derived
+        // default and is what every other project's checkout of this chat will use.
+        const named = (await runtime.branchOf(conversationId)) ?? "";
+        return send(res, 200, { project: projectPath, worktree, named, ...listing });
+      }
+
+      if (req.method === "POST" && path === "/api/branch") {
+        const body = await readJson(req);
+        const conversationId = conversationIdOf(body);
+        if (conversationId === undefined) return send(res, 400, { error: "conversationId required" });
+        const action = typeof body["action"] === "string" ? (body["action"] as string) : "";
+        const name = typeof body["name"] === "string" ? (body["name"] as string).trim() : "";
+        if (name.length === 0) return send(res, 400, { error: "name required" });
+        const projectPath = await runtime.projectPathOf(conversationId);
+        const base = (await runtime.baseBranchOf(conversationId)).trim();
+        if (action === "create") {
+          const from = typeof body["from"] === "string" ? (body["from"] as string).trim() : "";
+          const result = await createBranch(projectPath, name, { from, base });
+          log("http", "branch create", { conversationId, name, status: result.status });
+          return send(res, 200, result);
+        }
+        if (action === "delete") {
+          const result = await deleteBranch(projectPath, name, { base });
+          log("http", "branch delete", { conversationId, name, status: result.status });
+          return send(res, 200, result);
+        }
+        return send(res, 400, { error: "unknown action" });
+      }
+
+      // The merge request of the chat's branch. Only the GitLab remote is served:
+      // glab is logged in to a specific host, and guessing at others would send a
+      // token somewhere it does not belong.
+      if (req.method === "GET" && path === "/api/mr") {
+        const conversationId = Number(url.searchParams.get("conversationId"));
+        if (!Number.isFinite(conversationId)) return send(res, 400, { error: "conversationId required" });
+        const projectPath = await runtime.projectPathOf(conversationId);
+        const worktree = await dirFor(conversationId);
+        const branch = (await gitBranchOf(worktree)).trim();
+        const base = (await runtime.baseBranchOf(conversationId)).trim();
+        const remote = await remoteInfo(projectPath);
+        const where = { project: projectPath, worktree, branch, base, remote };
+        if (remote.kind !== "gitlab") {
+          return send(res, 200, { ...where, status: remote.kind === "none" ? "no-remote" : "not-gitlab" });
+        }
+        if (branch.length === 0 || branch === "HEAD") return send(res, 200, { ...where, status: "detached" });
+        const lookup = await findMergeRequest(projectPath, branch);
+        return send(res, 200, { ...where, ...lookup });
+      }
+
+      if (req.method === "POST" && path === "/api/mr") {
+        const body = await readJson(req);
+        const conversationId = conversationIdOf(body);
+        if (conversationId === undefined) return send(res, 400, { error: "conversationId required" });
+        const action = typeof body["action"] === "string" ? (body["action"] as string) : "";
+        const projectPath = await runtime.projectPathOf(conversationId);
+        const worktree = await dirFor(conversationId);
+        const branch = (await gitBranchOf(worktree)).trim();
+        const base = (await runtime.baseBranchOf(conversationId)).trim();
+        if (action === "create") {
+          const title = typeof body["title"] === "string" ? (body["title"] as string).trim() : "";
+          const text = typeof body["body"] === "string" ? (body["body"] as string) : undefined;
+          if (branch.length === 0 || branch === "HEAD") return send(res, 400, { error: "detached head" });
+          const target = typeof body["target"] === "string" ? (body["target"] as string).trim() : base;
+          const created = await createMergeRequest(projectPath, {
+            source: branch,
+            target: target.length > 0 ? target : base,
+            title: title.length > 0 ? title : branch,
+            body: text,
+            draft: body["draft"] === true,
+          });
+          log("http", "mr create", { conversationId, branch, status: created.status });
+          return send(res, 200, created);
+        }
+        if (action === "merge") {
+          const iid = Number(body["iid"]);
+          const merged = await mergeMergeRequest(projectPath, iid, {
+            squash: body["squash"] === true,
+            removeSource: body["removeSource"] === true,
+          });
+          log("http", "mr merge", { conversationId, iid, status: merged.status });
+          return send(res, 200, merged);
+        }
+        return send(res, 400, { error: "unknown action" });
+      }
+
+      if (req.method === "GET" && path === "/api/pipeline") {
+        const conversationId = Number(url.searchParams.get("conversationId"));
+        if (!Number.isFinite(conversationId)) return send(res, 400, { error: "conversationId required" });
+        const projectPath = await runtime.projectPathOf(conversationId);
+        const worktree = await dirFor(conversationId);
+        const branch = (await gitBranchOf(worktree)).trim();
+        if (branch.length === 0 || branch === "HEAD") {
+          return send(res, 200, { project: projectPath, worktree, branch, status: "detached" });
+        }
+        const lookup = await pipelineWithJobs(projectPath, branch);
+        return send(res, 200, { worktree, ...lookup });
+      }
+
+      if (req.method === "GET" && path === "/api/job") {
+        const conversationId = Number(url.searchParams.get("conversationId"));
+        const jobId = Number(url.searchParams.get("jobId"));
+        const tail = Number(url.searchParams.get("tail") ?? "80");
+        if (!Number.isFinite(conversationId) || !Number.isFinite(jobId)) {
+          return send(res, 400, { error: "conversationId and jobId required" });
+        }
+        const trace = await jobTrace(await runtime.projectPathOf(conversationId), jobId, Number.isFinite(tail) ? tail : 80);
+        return send(res, 200, { jobId, ...trace });
+      }
+
+      if (req.method === "POST" && path === "/api/pipeline") {
+        const body = await readJson(req);
+        const conversationId = conversationIdOf(body);
+        if (conversationId === undefined) return send(res, 400, { error: "conversationId required" });
+        const action = body["action"] === "cancel" ? "cancel" : "retry";
+        const jobId = Number(body["jobId"]);
+        const pipelineId = Number(body["pipelineId"]);
+        const wrote = await retryWork(await runtime.projectPathOf(conversationId), {
+          action,
+          jobId: Number.isFinite(jobId) && jobId > 0 ? jobId : undefined,
+          pipelineId: Number.isFinite(pipelineId) && pipelineId > 0 ? pipelineId : undefined,
+        });
+        log("http", "pipeline write", { conversationId, action, jobId, pipelineId, status: wrote.status });
+        return send(res, 200, wrote);
       }
 
       if (req.method === "GET" && path === "/api/git/diff") {

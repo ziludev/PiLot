@@ -250,3 +250,25 @@ func TestFileTextIsRetiredWhenTheDrawerMoves(t *testing.T) {
 		t.Fatalf("a reply for %s landed on %s", asked, a.changes.openFile)
 	}
 }
+
+// TestSnapshotChanges draws the table the drawer now is: 35 tall rows, the file
+// name at 13, the two counts right-aligned.
+func TestSnapshotChanges(t *testing.T) {
+	a := changesFixture(t)
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	writePNG(t, "/tmp/clientv2-changes.png", tt.Image())
+}
+
+// TestChangesFootSumsTheTable: the counts are per row, so the only place the
+// drawer can say what the work totals is a foot row.
+func TestChangesFootSumsTheTable(t *testing.T) {
+	a := changesFixture(t)
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	for _, want := range []string{"2 个文件", "+5", "−1"} {
+		if !tt.HasText(want) {
+			t.Errorf("the foot does not say %q; drew %v", want, tt.Texts())
+		}
+	}
+}

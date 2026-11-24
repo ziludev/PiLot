@@ -21,6 +21,7 @@ type railSection int
 const (
 	railChats railSection = iota
 	railTasks
+	railExtensions
 )
 
 type railRowKind int

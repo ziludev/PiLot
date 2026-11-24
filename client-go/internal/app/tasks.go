@@ -6,6 +6,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"pitta/internal/i18n"
+	"pitta/internal/icons"
 	"pitta/internal/protocol"
 	"pitta/internal/theme"
 )
@@ -126,31 +127,112 @@ func taskKindLabel(kind string) string {
 }
 
 func (a *App) railTaskRow(c *ui.Context, t theme.Tokens, row railRow) {
-	// The name over what kind of task it is: two lines, because a clipped name
-	// with its id on the same line is a task you cannot recognise.
-	item := ui.ButtonBase(c).FillWidth().Height(40).Radius(theme.RadiusControl).Padding(3, 8).
-		Cursor(ui.CursorPointer).Gap(8).AlignItems(ui.Center).
+	// Beautiful UI's TaskRows: 44 tall, a 24px badge, the name at 13 medium,
+	// the amount right-aligned in tabular figures, and one pill for the state.
+	item := ui.ButtonBase(c).FillWidth().Height(44).Radius(theme.RadiusControl).Padding(4, 8).
+		Cursor(ui.CursorPointer).Gap(10).AlignItems(ui.Center).
 		OnClick(func() { a.openTaskDetail(row.task.ID) })
+	if item.Hovered() {
+		item = item.Background(t.Hover)
+	}
+	name := a.taskTitle(row.task)
+	tone := taskTone(t, row.task.State)
+	// The rail is 232 wide: a name, a pill and a time column do not fit, so the
+	// time joins the second line the way TaskRows keeps its own second line.
+	sub := taskKindLabel(row.task.Kind)
+	if sub == name {
+		// 用量采样 over 用量采样: the kind said nothing the name did not.
+		sub = ""
+	}
+	if row.when != "" {
+		if sub != "" {
+			sub += " · "
+		}
+		sub += row.when
+	}
 	item.Children(func() {
-		name, kind := a.taskTitle(row.task), taskKindLabel(row.task.Kind)
-		ui.Column(c).Grow(1).Gap(2).Children(func() {
-			ui.Text(c, name).FontSize(theme.TextRow).FontWeight(500).TextColor(t.Ink2).MaxLines(1)
-			// A task with nothing to name it but its kind says it once, not
-			// twice under itself.
-			if kind != name {
-				ui.Text(c, kind).FontSize(theme.TextMicro).TextColor(t.Ink3).MaxLines(1)
+		ui.Box(c).Size(24, 24).Justify(ui.Center).AlignItems(ui.Center).Children(func() {
+			// A running task gets a spinner rather than a glyph: the badge is
+			// 24 points of answer to "is anything happening".
+			if row.task.State == "working" || row.task.State == "running" {
+				ui.Spinner(c).Size(13, 13).TextColor(t.Brand)
+				return
+			}
+			ui.Icon(c, tone.icon).Size(14, 14).TextColor(tone.color)
+		})
+		ui.Column(c).Grow(1).Gap(1).Children(func() {
+			ui.Text(c, name).FontSize(theme.TextBody).FontWeight(500).TextColor(t.Ink).MaxLines(1)
+			if sub != "" {
+				ui.Text(c, sub).FontSize(theme.TextMicro).TextColor(t.Ink3).MaxLines(1)
 			}
 		})
-		if row.when != "" || row.cost != "" {
-			ui.Column(c).Gap(1).AlignItems(ui.End).Children(func() {
-				if row.when != "" {
-					ui.Text(c, i18n.TF("nextAt", map[string]any{"time": row.when})).
-						FontSize(theme.TextMicro).TextColor(t.Ink3)
-				}
-				if row.cost != "" {
-					ui.Text(c, row.cost).FontSize(theme.TextMicro).TextColor(t.Ink3)
-				}
-			})
+		taskStatePill(c, t, row.task.State)
+	})
+}
+
+// taskStatePill is the one word that says what the row is doing, on a tinted
+// pill 22 tall — the shape TaskRows uses instead of a second text line.
+func taskStatePill(c *ui.Context, t theme.Tokens, state string) {
+	tone := taskTone(t, state)
+	ui.Row(c).Height(22).Padding(0, 8).Radius(11).AlignItems(ui.Center).
+		Background(tone.tint).Children(func() {
+		ui.Text(c, taskStateLabel(state)).FontSize(theme.TextSmall).FontWeight(500).
+			TextColor(tone.color).MaxLines(1)
+	})
+}
+
+// taskStateLabel is the pill's one word. The group headings above the rows use
+// the same words, so a row and its heading cannot name the same state twice.
+func taskStateLabel(state string) string {
+	switch state {
+	case "working", "running":
+		return i18n.T("groupWorking")
+	case "waiting":
+		return i18n.T("groupWaiting")
+	case "sleeping":
+		return i18n.T("groupSleeping")
+	}
+	return i18n.T("groupWorking")
+}
+
+// taskTone is one state's icon, ink and tint, so a row and its pill cannot
+// disagree about what colour running is.
+type taskToneDef struct {
+	icon  *ui.SVG
+	color ui.Color
+	tint  ui.Color
+}
+
+func taskTone(t theme.Tokens, state string) taskToneDef {
+	switch state {
+	case "working", "running":
+		return taskToneDef{icons.Clock, t.Brand, t.BrandTint}
+	case "waiting":
+		return taskToneDef{icons.Clock, t.Orange, t.OrangeTint}
+	case "sleeping":
+		return taskToneDef{icons.Moon, t.Ink3, t.Field}
+	}
+	return taskToneDef{icons.Check, t.Green, t.GreenTint}
+}
+
+// taskTableFoot is the task table's foot: how much work there is, and how much
+// of it is running. The per-state counts live on the filter chips, which is
+// where they are actionable; the foot only totals.
+func (a *App) taskTableFoot(c *ui.Context, t theme.Tokens) {
+	working := 0
+	for _, task := range a.tasks {
+		if task.State == "working" || task.State == "running" {
+			working++
+		}
+	}
+	ui.Box(c).FillWidth().Height(1).Background(t.Line)
+	ui.Row(c).FillWidth().Height(30).Padding(0, 8).Gap(6).AlignItems(ui.Center).
+		Background(t.Inset).Children(func() {
+		ui.Text(c, i18n.TF("taskSum", map[string]any{"n": len(a.tasks)})).
+			FontSize(theme.TextSmall).FontWeight(500).TextColor(t.Ink2).Grow(1).MaxLines(1)
+		if working > 0 {
+			ui.Text(c, itoa(working)+" "+i18n.T("groupWorking")).FontSize(theme.TextMicro).
+				TextColor(t.Brand).MaxLines(1)
 		}
 	})
 }
@@ -200,11 +282,12 @@ func (a *App) taskFilterRow(c *ui.Context, t theme.Tokens) {
 // and a rule are what turn a list of rows into a table.
 func (a *App) taskTableHead(c *ui.Context, t theme.Tokens) {
 	ui.Column(c).FillWidth().Children(func() {
-		ui.Row(c).FillWidth().Height(22).Padding(0, 4).AlignItems(ui.Center).Gap(8).Children(func() {
-			ui.Text(c, i18n.T("tasks")).Grow(1).FontSize(theme.TextMicro).
-				FontWeight(600).TextColor(t.Ink3).MaxLines(1)
-			ui.Text(c, i18n.T("taskNextRun")).FontSize(theme.TextMicro).
-				FontWeight(600).TextColor(t.Ink3).MaxLines(1)
+		// Records Table's header row: 35 tall, 12.5 at 500 in the second ink.
+		ui.Row(c).FillWidth().Height(35).Padding(0, 12).AlignItems(ui.Center).Gap(8).Children(func() {
+			ui.Text(c, i18n.T("tasks")).Grow(1).FontSize(theme.TextRow).
+				FontWeight(500).TextColor(t.Ink2).MaxLines(1)
+			ui.Text(c, i18n.T("taskNextRun")).FontSize(theme.TextRow).
+				FontWeight(500).TextColor(t.Ink2).MaxLines(1)
 		})
 		ui.Box(c).FillWidth().Height(1).Background(t.Line)
 	})

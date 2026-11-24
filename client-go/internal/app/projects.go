@@ -29,6 +29,17 @@ type projectsPanel struct {
 	busyID string
 	result string
 	bad    bool
+
+	// strays are the checkouts the project's sessions left behind: work no chat
+	// is showing, one button away from being adopted by a new one.
+	strays     []protocol.Worktree
+	straysFor  string
+	straysSeq  int
+	straysBusy bool
+	straysFail string
+	strayList  ui.ListState
+	// adopting is the directory whose adopt is in flight.
+	adopting string
 }
 
 func (a *App) toggleProjects() {
@@ -44,6 +55,7 @@ func (a *App) toggleProjects() {
 	a.mem.open = false
 	a.tl.open = false
 	a.loadProjects()
+	a.loadStrays()
 	a.invalidate()
 }
 
@@ -186,12 +198,14 @@ func (a *App) projectsView(c *ui.Context, t theme.Tokens) {
 			a.projectsHeader(c, t)
 			ui.Box(c).Width(memWidth).Height(1).Background(t.Line)
 			a.projectList(c, t)
+			ui.Box(c).FillWidth().Height(1).Background(t.Line)
+			a.straysSection(c, t)
 			a.projectsFooter(c, t)
 		})
 }
 
 func (a *App) projectsHeader(c *ui.Context, t theme.Tokens) {
-	ui.Row(c).FillWidth().Height(48).Padding(0, 14).AlignItems(ui.Center).Gap(8).Children(func() {
+	ui.Row(c).FillWidth().Height(48).Padding(0, 12).AlignItems(ui.Center).Gap(8).Children(func() {
 		ui.Text(c, i18n.T("projects")).FontSize(theme.TextTitle).FontWeight(500).TextColor(t.Ink).MaxLines(1)
 		ui.Spacer(c)
 		reload := ui.ButtonBase(c).Width(20).Height(20).Radius(theme.RadiusChip).Cursor(ui.CursorPointer).
@@ -205,7 +219,7 @@ func (a *App) projectsHeader(c *ui.Context, t theme.Tokens) {
 }
 
 func (a *App) projectList(c *ui.Context, t theme.Tokens) {
-	ui.Column(c).FillWidth().Grow(1).Padding(4, 6).Gap(2).Children(func() {
+	ui.Column(c).FillWidth().Padding(4, 6).Gap(2).Children(func() {
 		switch {
 		case a.projects.failed != "":
 			ui.Text(c, a.projects.failed).FontSize(theme.TextMicro).TextColor(t.Destructive).

@@ -119,6 +119,14 @@ func (a *App) sideNav(c *ui.Context, t theme.Tokens) {
 		a.sideRow(c, t, icons.Checklist, i18n.T("tasks"), len(a.tasks),
 			a.rail == railTasks, func() { a.setRail(railTasks) })
 		a.sideRow(c, t, icons.Folder, i18n.T("projects"), 0, a.projects.open, a.toggleProjects)
+		enabled := 0
+		for _, row := range a.ext.items {
+			if row.Enabled {
+				enabled++
+			}
+		}
+		a.sideRow(c, t, icons.PlugZap, i18n.T("extensions"), enabled,
+			a.rail == railExtensions, func() { a.setRail(railExtensions) })
 	})
 }
 
@@ -160,6 +168,9 @@ func (a *App) setRail(section railSection) {
 		return
 	}
 	a.rail = section
+	if section == railExtensions {
+		a.loadExtensions()
+	}
 	a.stamp++
 	a.vm.railList.Selected = nil
 	a.invalidate()
@@ -170,8 +181,11 @@ func (a *App) setRail(section railSection) {
 // field. Expanded, the field takes the whole row.
 func (a *App) sideSearch(c *ui.Context, t theme.Tokens) {
 	name := i18n.T("chats")
-	if a.rail == railTasks {
+	switch a.rail {
+	case railTasks:
 		name = i18n.T("tasks")
+	case railExtensions:
+		name = i18n.T("extensions")
 	}
 	ui.Row(c).FillWidth().Height(32).Padding(0, 8, 8, 8).AlignItems(ui.Center).Gap(4).Children(func() {
 		if a.railSearch {
@@ -283,6 +297,10 @@ func (a *App) railList(c *ui.Context, t theme.Tokens) {
 	// below the window (the footer's already spent 30 of it), so the list would
 	// think all its rows were on screen and refuse to scroll.
 	ui.Column(c).FillWidth().Grow(1).Padding(0, 8, 10, 8).Gap(6).Children(func() {
+		if a.rail == railExtensions {
+			a.extensionsBody(c, t)
+			return
+		}
 		if a.rail == railTasks {
 			a.taskFilterRow(c, t)
 			a.taskTableHead(c, t)
@@ -290,6 +308,9 @@ func (a *App) railList(c *ui.Context, t theme.Tokens) {
 		ui.List(c, &a.vm.railList, len(rows), func(row int) {
 			a.railRow(c, t, rows[row])
 		}).Grow(1).Width(a.railW - 16)
+		if a.rail == railTasks {
+			a.taskTableFoot(c, t)
+		}
 	})
 }
 

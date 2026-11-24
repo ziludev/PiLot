@@ -105,6 +105,26 @@ type Project struct {
 	CreatedAt int64  `json:"createdAt"`
 }
 
+// Worktree is one checkout left in a project's .worktrees: work a session did,
+// whether or not that session still exists.
+type Worktree struct {
+	Dir            string `json:"dir"`
+	ConversationID *int   `json:"conversationId"`
+	Branch         string `json:"branch"`
+	Ahead          int    `json:"ahead"`
+	Behind         int    `json:"behind"`
+	Dirty          bool   `json:"dirty"`
+	Merged         bool   `json:"merged"`
+	// Occupied is whether a conversation with that number is still in the store:
+	// adopting an occupied checkout gives two chats one directory.
+	Occupied bool `json:"occupied"`
+}
+
+// Worktrees is GET /api/worktrees: the project's leftovers, base first.
+type Worktrees struct {
+	Worktrees []Worktree `json:"worktrees"`
+}
+
 // Feishu is the bridge's health view of the Feishu transport.
 type Feishu struct {
 	Ready     bool   `json:"ready"`
@@ -288,6 +308,40 @@ type Branch struct {
 	Track    string `json:"track"`
 }
 
+// BranchOwner is the chat whose worktree holds a branch. A branch checked out in
+// one worktree cannot be checked out in a second, so the list has to say who
+// owns what rather than only which names exist.
+type BranchOwner struct {
+	ConversationID int    `json:"conversationId"`
+	Dir            string `json:"dir"`
+}
+
+// BranchRef is one row of GET /api/branches: how far the branch stands from the
+// base on both sides, and whether it is the base or the one checked out.
+type BranchRef struct {
+	Name     string       `json:"name"`
+	Current  bool         `json:"current"`
+	Base     bool         `json:"base"`
+	Upstream string       `json:"upstream"`
+	Track    string       `json:"track"`
+	Ahead    int          `json:"ahead"`
+	Behind   int          `json:"behind"`
+	Owner    *BranchOwner `json:"owner"`
+}
+
+// Branches is GET /api/branches: the checkout's branches, measured from base.
+type Branches struct {
+	// Named is what a person typed for this chat, empty when it keeps the derived
+	// agent/conv-N default. Every project's checkout of the chat uses this name.
+	Project  string      `json:"project"`
+	Worktree string      `json:"worktree"`
+	Named    string      `json:"named"`
+	Base     string      `json:"base"`
+	Current  string      `json:"current"`
+	Branches []BranchRef `json:"branches"`
+	Error    string      `json:"error"`
+}
+
 // Remote is where the worktree pushes to.
 type Remote struct {
 	URL    string `json:"url"`
@@ -325,6 +379,147 @@ type WorktreeRemoved struct {
 	Branch  string `json:"branch"`
 	Commits int    `json:"commits"`
 	Message string `json:"message"`
+}
+
+// MergeRequest is the open request for a chat's branch, as glab reports it.
+// Merge is reduced from GitLab's two status fields to the three answers the
+// client draws: "mergeable", "conflicted" or "unchecked".
+type MergeRequest struct {
+	IID     int    `json:"iid"`
+	Title   string `json:"title"`
+	State   string `json:"state"`
+	Draft   bool   `json:"draft"`
+	WebURL  string `json:"webUrl"`
+	Source  string `json:"source"`
+	Target  string `json:"target"`
+	Merge   string `json:"merge"`
+	Notes   int    `json:"notes"`
+	Author  string `json:"author"`
+	Updated string `json:"updated"`
+}
+
+// MRStatus is GET /api/mr. Status names the variant: "ok" carries MR when there
+// is one, and the rest say why there is no answer to give — "no-remote",
+// "not-gitlab", "detached", "not-authenticated", "no-glab" or "failed".
+type MRStatus struct {
+	Project  string        `json:"project"`
+	Worktree string        `json:"worktree"`
+	Branch   string        `json:"branch"`
+	Base     string        `json:"base"`
+	Remote   Remote        `json:"remote"`
+	Status   string        `json:"status"`
+	MR       *MergeRequest `json:"mr"`
+	Message  string        `json:"message"`
+	URL      string        `json:"url"`
+}
+
+// Extension is one installed plugin, and whether this chat is using it. Installed
+// is the registry's business; enabled is the conversation's.
+type Extension struct {
+	Name      string   `json:"name"`
+	Namespace string   `json:"namespace"`
+	Tools     []string `json:"tools"`
+	Sections  int      `json:"sections"`
+	Hooks     int      `json:"hooks"`
+	Wraps     int      `json:"wraps"`
+	Tasks     int      `json:"tasks"`
+	Enabled   bool     `json:"enabled"`
+	Fixed     string   `json:"fixed"`
+}
+
+// Stage is one step of the pipeline a chat's work walks through. The bridge names
+// no stage of its own: it reports what git and GitLab know, and the client draws it.
+// State is todo, active, done or blocked.
+type Stage struct {
+	Key        string `json:"key"`
+	Label      string `json:"label"`
+	State      string `json:"state"`
+	NextAction string `json:"nextAction"`
+	BlockedBy  string `json:"blockedBy"`
+	Detail     string `json:"detail"`
+}
+
+// Stages is GET /api/stages: the four steps, plus the review rounds that cap a
+// merge request. Rounds count distinct commits a person commented on.
+type Stages struct {
+	Project    string   `json:"project"`
+	Worktree   string   `json:"worktree"`
+	Branch     string   `json:"branch"`
+	Base       string   `json:"base"`
+	Target     string   `json:"target"`
+	Rounds     int      `json:"rounds"`
+	RoundLimit int      `json:"roundLimit"`
+	Reviewers  []string `json:"reviewers"`
+	Stages     []Stage  `json:"stages"`
+}
+
+// BranchName is POST /api/branch-name: what naming a chat's branch did, or what
+// stopped it (a pushed branch, a dirty checkout, a name already taken).
+type BranchName struct {
+	Status  string `json:"status"`
+	Branch  string `json:"branch"`
+	Message string `json:"message"`
+}
+
+// PipelineJob is one job of a CI run.
+type PipelineJob struct {
+	ID           int      `json:"id"`
+	Name         string   `json:"name"`
+	Stage        string   `json:"stage"`
+	Status       string   `json:"status"`
+	WebURL       string   `json:"webUrl"`
+	Duration     *float32 `json:"duration"`
+	AllowFailure bool     `json:"allowFailure"`
+}
+
+// PipelineRun is one run of the branch's pipeline.
+type PipelineRun struct {
+	ID      int    `json:"id"`
+	Status  string `json:"status"`
+	Ref     string `json:"ref"`
+	SHA     string `json:"sha"`
+	WebURL  string `json:"webUrl"`
+	Source  string `json:"source"`
+	Created string `json:"created"`
+	Updated string `json:"updated"`
+}
+
+// Pipeline is GET /api/pipeline: the branch's latest run and the jobs under it.
+type Pipeline struct {
+	Project  string        `json:"project"`
+	Worktree string        `json:"worktree"`
+	Branch   string        `json:"branch"`
+	Status   string        `json:"status"`
+	Message  string        `json:"message"`
+	Remote   *Remote       `json:"remote"`
+	Pipeline *PipelineRun  `json:"pipeline"`
+	Jobs     []PipelineJob `json:"jobs"`
+	Stages   []string      `json:"stages"`
+}
+
+// JobTrace is GET /api/job: the tail of one job's log.
+type JobTrace struct {
+	JobID   int    `json:"jobId"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
+	Text    string `json:"text"`
+	Cut     bool   `json:"cut"`
+}
+
+// PipelineWrite is POST /api/pipeline: "ok" or the reason it was not.
+type PipelineWrite struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+// MRWrite is POST /api/mr: Status is "created" or "merged", or one of the
+// reasons above.
+type MRWrite struct {
+	Status  string        `json:"status"`
+	MR      *MergeRequest `json:"mr"`
+	URL     string        `json:"url"`
+	IID     int           `json:"iid"`
+	Message string        `json:"message"`
 }
 
 // AccessLevel is how much a chat may do.

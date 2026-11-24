@@ -275,15 +275,53 @@ func (c *Client) RemoveProject(ctx context.Context, id string) (protocol.Project
 	return out, err
 }
 
+// Worktrees is GET /api/worktrees: the checkouts a project's sessions left
+// behind, with what the base already has and what it does not.
+func (c *Client) Worktrees(ctx context.Context, projectID string) ([]protocol.Worktree, error) {
+	var out protocol.Worktrees
+	path := "/api/worktrees?projectId=" + url.QueryEscape(projectID)
+	if err := c.get(ctx, path, &out); err != nil {
+		return nil, err
+	}
+	return out.Worktrees, nil
+}
+
+// AdoptResult is what POST /api/worktrees/adopt answers: the new chat, and the
+// directory and branch it kept.
+type AdoptResult struct {
+	ConversationID int    `json:"conversationId"`
+	SurfaceID      string `json:"surfaceId"`
+	Dir            string `json:"dir"`
+	Branch         string `json:"branch"`
+}
+
+// AdoptWorktree opens an existing checkout as a chat. The directory and the
+// branch stay where they are; only a conversation is new.
+func (c *Client) AdoptWorktree(ctx context.Context, projectID, dir string) (AdoptResult, error) {
+	var out AdoptResult
+	err := c.post(ctx, "/api/worktrees/adopt", struct {
+		ProjectID string `json:"projectId,omitempty"`
+		Dir       string `json:"dir"`
+	}{ProjectID: projectID, Dir: dir}, &out)
+	return out, err
+}
+
 // NewConversation starts a chat in projectID (empty uses the built-in workspace).
 func (c *Client) NewConversation(ctx context.Context, projectID string) (conversationID int, surfaceID string, err error) {
+	return c.NewConversationWithBranch(ctx, projectID, "")
+}
+
+// NewConversationWithBranch starts a chat on a branch a person named. The name is
+// what ties one requirement across projects: every project's checkout uses it.
+func (c *Client) NewConversationWithBranch(ctx context.Context, projectID, branch string) (conversationID int, surfaceID string, err error) {
 	var reply struct {
 		ConversationID int    `json:"conversationId"`
 		SurfaceID      string `json:"surfaceId"`
 	}
 	body := struct {
 		ProjectID string `json:"projectId,omitempty"`
-	}{ProjectID: projectID}
+		Branch    string `json:"branch,omitempty"`
+	}{ProjectID: projectID, Branch: branch}
 	if err := c.post(ctx, "/api/conversations", body, &reply); err != nil {
 		return 0, "", err
 	}
@@ -492,6 +530,169 @@ func (c *Client) Merge(ctx context.Context, convID int) (MergeResult, error) {
 	err := c.post(ctx, "/api/merge", struct {
 		ConversationID int `json:"conversationId"`
 	}{ConversationID: convID}, &out)
+	return out, err
+}
+
+// Branches is GET /api/branches: every branch in the checkout, each measured
+// against the chat's base. The drawer's branch tab is what reads it.
+func (c *Client) Branches(ctx context.Context, convID int) (*protocol.Branches, error) {
+	var out protocol.Branches
+	path := "/api/branches?conversationId=" + strconv.Itoa(convID)
+	if err := c.get(ctx, path, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SetBase moves the branch this chat's work is measured from, and where a merge
+// lands. The bridge validates the name; the drawer re-reads afterwards.
+func (c *Client) SetBase(ctx context.Context, convID int, branch string) error {
+	return c.post(ctx, "/api/git/base", struct {
+		ConversationID int    `json:"conversationId"`
+		Base           string `json:"base"`
+	}{ConversationID: convID, Base: branch}, nil)
+}
+
+// BranchResult is one of six answers from POST /api/branch. Fine-grained on
+// purpose: "in use by another chat" and "has unmerged commits" both refuse, and
+// the reason is what tells a person what to do next.
+type BranchResult struct {
+	Status         string `json:"status"` // created | deleted | exists | in-use | unmerged | protected | absent | invalid | error
+	Name           string `json:"name"`
+	Commits        int    `json:"commits"`
+	ConversationID int    `json:"conversationId"`
+	Message        string `json:"message"`
+}
+
+// CreateBranch makes a branch from another one without switching this worktree.
+// Extensions lists what is installed, with this chat's view of which are on.
+func (c *Client) Extensions(ctx context.Context, convID int) ([]protocol.Extension, error) {
+	var out struct {
+		Extensions []protocol.Extension `json:"extensions"`
+	}
+	if err := c.get(ctx, fmt.Sprintf("/api/extensions?conversationId=%d", convID), &out); err != nil {
+		return nil, err
+	}
+	return out.Extensions, nil
+}
+
+// SetExtension turns one extension on or off for one chat, which changes what the
+// model sees next turn.
+func (c *Client) SetExtension(ctx context.Context, convID int, name string, enabled bool) ([]protocol.Extension, error) {
+	var out struct {
+		Status     string               `json:"status"`
+		Extensions []protocol.Extension `json:"extensions"`
+	}
+	err := c.post(ctx, "/api/extensions", struct {
+		ConversationID int    `json:"conversationId"`
+		Name           string `json:"name"`
+		Enabled        bool   `json:"enabled"`
+	}{ConversationID: convID, Name: name, Enabled: enabled}, &out)
+	return out.Extensions, err
+}
+
+// Stages reads the pipeline the chat's work is on: develop, hand to test, ask for
+// release, ship. Every fact is derived by the bridge from git and GitLab.
+func (c *Client) Stages(ctx context.Context, convID int) (*protocol.Stages, error) {
+	var out protocol.Stages
+	if err := c.get(ctx, fmt.Sprintf("/api/stages?conversationId=%d", convID), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SetBranchName names or renames the chat's own branch, and answers what it did.
+func (c *Client) SetBranchName(ctx context.Context, convID int, branch string) (*protocol.BranchName, error) {
+	var out protocol.BranchName
+	err := c.post(ctx, "/api/branch-name", struct {
+		ConversationID int    `json:"conversationId"`
+		Branch         string `json:"branch"`
+	}{ConversationID: convID, Branch: branch}, &out)
+	return &out, err
+}
+
+func (c *Client) CreateBranch(ctx context.Context, convID int, name, from string) (BranchResult, error) {
+	var out BranchResult
+	err := c.post(ctx, "/api/branch", struct {
+		ConversationID int    `json:"conversationId"`
+		Action         string `json:"action"`
+		Name           string `json:"name"`
+		From           string `json:"from"`
+	}{ConversationID: convID, Action: "create", Name: name, From: from}, &out)
+	return out, err
+}
+
+// DeleteBranch removes a branch, never a base or a checked-out one.
+func (c *Client) DeleteBranch(ctx context.Context, convID int, name string) (BranchResult, error) {
+	var out BranchResult
+	err := c.post(ctx, "/api/branch", struct {
+		ConversationID int    `json:"conversationId"`
+		Action         string `json:"action"`
+		Name           string `json:"name"`
+	}{ConversationID: convID, Action: "delete", Name: name}, &out)
+	return out, err
+}
+
+// Pipeline is GET /api/pipeline: the branch's latest run and its jobs.
+func (c *Client) Pipeline(ctx context.Context, convID int) (*protocol.Pipeline, error) {
+	var out protocol.Pipeline
+	err := c.get(ctx, "/api/pipeline?conversationId="+strconv.Itoa(convID), &out)
+	return &out, err
+}
+
+// JobLog is GET /api/job: the tail of one job's log.
+func (c *Client) JobLog(ctx context.Context, convID, jobID, tail int) (*protocol.JobTrace, error) {
+	var out protocol.JobTrace
+	path := "/api/job?conversationId=" + strconv.Itoa(convID) +
+		"&jobId=" + strconv.Itoa(jobID) + "&tail=" + strconv.Itoa(tail)
+	err := c.get(ctx, path, &out)
+	return &out, err
+}
+
+// PipelineWrite retries or cancels a job, or the whole run.
+func (c *Client) PipelineWrite(ctx context.Context, convID int, action string, jobID, pipelineID int) (*protocol.PipelineWrite, error) {
+	var out protocol.PipelineWrite
+	err := c.post(ctx, "/api/pipeline", struct {
+		ConversationID int    `json:"conversationId"`
+		Action         string `json:"action"`
+		JobID          int    `json:"jobId"`
+		PipelineID     int    `json:"pipelineId"`
+	}{ConversationID: convID, Action: action, JobID: jobID, PipelineID: pipelineID}, &out)
+	return &out, err
+}
+
+// MergeRequestOf is GET /api/mr: the open request for the chat's branch, or the
+// reason there is none to ask about.
+func (c *Client) MergeRequestOf(ctx context.Context, convID int) (protocol.MRStatus, error) {
+	var out protocol.MRStatus
+	err := c.get(ctx, "/api/mr?conversationId="+strconv.Itoa(convID), &out)
+	return out, err
+}
+
+// CreateMergeRequest opens one: the bridge hands glab the source branch, the
+// target, the title and the body as separate arguments.
+func (c *Client) CreateMergeRequest(ctx context.Context, convID int, title, body string, draft bool) (protocol.MRWrite, error) {
+	var out protocol.MRWrite
+	err := c.post(ctx, "/api/mr", struct {
+		ConversationID int    `json:"conversationId"`
+		Action         string `json:"action"`
+		Title          string `json:"title"`
+		Body           string `json:"body"`
+		Draft          bool   `json:"draft"`
+	}{ConversationID: convID, Action: "create", Title: title, Body: body, Draft: draft}, &out)
+	return out, err
+}
+
+// MergeMergeRequest merges one, optionally squashing and dropping the branch.
+func (c *Client) MergeMergeRequest(ctx context.Context, convID, iid int, squash, removeSource bool) (protocol.MRWrite, error) {
+	var out protocol.MRWrite
+	err := c.post(ctx, "/api/mr", struct {
+		ConversationID int    `json:"conversationId"`
+		Action         string `json:"action"`
+		IID            int    `json:"iid"`
+		Squash         bool   `json:"squash"`
+		RemoveSource   bool   `json:"removeSource"`
+	}{ConversationID: convID, Action: "merge", IID: iid, Squash: squash, RemoveSource: removeSource}, &out)
 	return out, err
 }
 

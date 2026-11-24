@@ -54,8 +54,21 @@ import { acquireStorageLock } from "./storage-lock.ts";
 import { startToolbox, codingToolsFromToolbox } from "./toolbox/index.ts";
 import type { Toolbox } from "./toolbox/client.ts";
 import { ensureRepo } from "./changes.ts";
+import { chatBranchOf, setChatBranch } from "./projects.ts";
+import { listExtensions, setExtension, type ExtensionRow } from "./extensions-admin.ts";
+import { workflowExtension } from "./workflow.ts";
 import { liveConversationIds } from "./conversations.ts";
-import { ensureWorktree, reclaimWorktrees, type ReclaimResult } from "./worktree.ts";
+import {
+  attachBranch,
+  branchNameOK,
+  ensureWorktree,
+  isPushed,
+  localBranchExists,
+  reclaimWorktrees,
+  renameWorktreeBranch,
+  type ReclaimResult,
+} from "./worktree.ts";
+import { adoptTarget, listStrays, type StrayRow } from "./stray.ts";
 import { gitBranchOf } from "./git-info.ts";
 import {
   addProject,
@@ -115,6 +128,13 @@ export const ChatsToken = defineDoc<{ chats: Record<string, number> }>({
   checkpointWhen: () => false,
 });
 
+/** What naming a chat's branch answered: what it did, or what stopped it. */
+export type BranchNameResult = {
+  status: "renamed" | "attached" | "unchanged" | "invalid" | "pushed" | "exists" | "dirty" | "missing" | "error";
+  branch: string;
+  message?: string;
+};
+
 export type AgentRuntime = {
   harness: Harness;
   /** The Go service behind `bash`/`read`/`write`/`edit`; the agent does not start without it. */
@@ -125,7 +145,31 @@ export type AgentRuntime = {
   /** Drops checkouts whose conversation is gone, keeping anything not already merged. */
   reclaimOrphans(): Promise<ReclaimResult>;
   /** Creates a fresh conversation for a surface (client "new chat"). */
-  newConversation(surfaceId: string, projectId?: string, base?: string): Promise<Conversation>;
+  newConversation(surfaceId: string, projectId?: string, base?: string, branch?: string): Promise<Conversation>;
+  /** The branch a chat works on, as a person named it; empty when it keeps the default. */
+  branchOf(conversationId: number): Promise<string | undefined>;
+  /**
+   * Names the branch a chat works on. A branch nobody pushed may be renamed in place;
+   * one that is already on a remote may only be attached, because a rename would fork
+   * a name that pipelines and reviewers know.
+   */
+  setBranchName(conversationId: number, branch: string): Promise<BranchNameResult>;
+  /** Every extension installed, with this chat's view of which are on. */
+  extensions(conversationId: number): Promise<ExtensionRow[]>;
+  /** Turns one extension on or off for one chat, which changes what the model sees. */
+  setExtension(conversationId: number, name: string, enabled: boolean): Promise<{ status: "ok" | "unknown" | "fixed"; extensions: ExtensionRow[] }>;
+  /** Checkouts left in .worktrees/, with what the base already has and what it does not. */
+  strays(projectId?: string): Promise<StrayRow[]>;
+  /**
+   * A new conversation working in a checkout that already exists, on the branch it
+   * already holds. The old directory and the old branch stay where they are: the point
+   * is to keep using work that a lost session left behind, not to recreate it.
+   */
+  adoptWorktree(
+    surfaceId: string,
+    projectId: string | undefined,
+    dir: string,
+  ): Promise<{ conversation: Conversation; dir: string; branch: string } | { error: string }>;
   /** Compare/merge base for a conversation, defaulting to the project's HEAD. */
   baseBranchOf(conversationId: number): Promise<string>;
   originBranchOf(conversationId: number): Promise<string | undefined>;
@@ -239,6 +283,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   registry.install(subagentExtension);
   registry.install(projectExtension);
   registry.install(doneExtension);
+  registry.install(workflowExtension);
   registry.install(defineExtension({ name: "usage-sampler", tasks: [UsageSampler] }));
   registry.install(defineExtension({ name: "digest", tasks: [DailyDigest] }));
   if (mcp.extension !== undefined) registry.install(mcp.extension);
@@ -374,7 +419,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     return created;
   }
 
-  async function newConversation(surfaceId: string, projectId?: string, base?: string): Promise<Conversation> {
+  async function newConversation(surfaceId: string, projectId?: string, base?: string, branch?: string): Promise<Conversation> {
     const projects = await listProjects(harness, context);
     const project = projects.find((entry) => entry.id === projectId) ?? builtin;
     await prepareProject(project.path);
@@ -390,8 +435,11 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     // base change can say "that branch has commits this chat never touched".
     const origin = base ?? (await gitBranchOf(project.path)) ?? "HEAD";
     await setOrigin(harness, context, created.id as unknown as number, origin);
+    if (branch !== undefined && branch.length > 0) {
+      await setChatBranch(harness, context, created.id as unknown as number, branch);
+    }
     if (config.worktree !== "off") {
-      const worktree = await ensureWorktree(project.path, created.id as unknown as number, base);
+      const worktree = await ensureWorktree(project.path, created.id as unknown as number, base, branch);
       if (worktree !== undefined) await created.configure({ cwd: worktree.dir }, context);
     }
     await harness.commit(async (tx) => {
@@ -412,6 +460,60 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
 
   async function originBranchOf(conversationId: number): Promise<string | undefined> {
     return originOf(harness, context, conversationId);
+  }
+
+  /** The directory a chat actually works in: its worktree, or the project itself. */
+  async function cwdOf(conversationId: number): Promise<string> {
+    const conversation = await harness.conversation(conversationId as never, context).catch(() => undefined);
+    const agent = conversation === undefined ? undefined : await conversation.agent(context).catch(() => undefined);
+    if (agent?.cwd !== undefined && agent.cwd.length > 0) return agent.cwd;
+    return projectPathOf(conversationId);
+  }
+
+  async function extensions(conversationId: number): Promise<ExtensionRow[]> {
+    return listExtensions(harness, registry, context, conversationId);
+  }
+
+  async function setExtensionForChat(conversationId: number, name: string, enabled: boolean) {
+    return setExtension(harness, registry, context, conversationId, name, enabled);
+  }
+
+  async function branchOf(conversationId: number): Promise<string | undefined> {
+    return chatBranchOf(harness, context, conversationId);
+  }
+
+  /**
+   * Names the branch a chat works on, and moves the checkout with it. Nothing is
+   * forced: a pushed branch, a dirty checkout and a name that is taken all answer
+   * instead of acting, and the caller says which one stopped it.
+   */
+  async function setBranchName(conversationId: number, branch: string): Promise<BranchNameResult> {
+    const worktree = await cwdOf(conversationId);
+    const projectPath = await projectPathOf(conversationId);
+    if (!(await branchNameOK(projectPath, branch))) return { status: "invalid", branch };
+    const current = (await gitBranchOf(worktree)).trim();
+    const named = await chatBranchOf(harness, context, conversationId);
+    const from = current.length > 0 ? current : (named ?? "");
+    if (from === branch) {
+      await setChatBranch(harness, context, conversationId, branch);
+      return { status: "unchanged", branch };
+    }
+    // A branch that exists locally is attached rather than renamed into: that is how
+    // one requirement's branch reaches a second project's checkout.
+    const exists = await localBranchExists(projectPath, branch);
+    if (exists) {
+      const attached = await attachBranch(worktree, branch);
+      if (attached.status !== "ok") return { status: attached.status, branch, message: attached.message };
+      await setChatBranch(harness, context, conversationId, branch);
+      log("agent", "branch attached", { conversationId, branch });
+      return { status: "attached", branch };
+    }
+    if (await isPushed(projectPath, from)) return { status: "pushed", branch: from };
+    const renamed = await renameWorktreeBranch(worktree, from, branch);
+    if (renamed.status !== "renamed") return { status: renamed.status, branch, message: "message" in renamed ? renamed.message : undefined };
+    await setChatBranch(harness, context, conversationId, branch);
+    log("agent", "branch renamed", { conversationId, from, to: branch });
+    return { status: "renamed", branch };
   }
 
   async function setBaseBranch(conversationId: number, branch: string): Promise<void> {
@@ -612,6 +714,48 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
    * the only thing that can tell the difference between "still in use" and "nobody will
    * ever open this again", and it may only drop what the base branch already has.
    */
+  async function strays(projectId?: string): Promise<StrayRow[]> {
+    if (config.worktree === "off") return [];
+    const projects = await listProjects(harness, context);
+    const project = projects.find((entry) => entry.id === projectId) ?? builtin;
+    const base = (await gitBranchOf(project.path)) || "HEAD";
+    // Which conversations exist is the store's answer, not the open surfaces': a chat
+    // started from the client is in neither of the views the window keeps.
+    const live = liveConversationIds(config.dbPath) ?? new Set<number>();
+    return listStrays(project.path, base, live);
+  }
+
+  async function adoptWorktree(
+    surfaceId: string,
+    projectId: string | undefined,
+    dir: string,
+  ): Promise<{ conversation: Conversation; dir: string; branch: string } | { error: string }> {
+    const projects = await listProjects(harness, context);
+    const project = projects.find((entry) => entry.id === projectId) ?? builtin;
+    const target = await adoptTarget(project.path, dir);
+    if ("error" in target) return target;
+    const created = await harness.createConversation(
+      { ownership: { kind: "ownerless" }, agent: { ...agentChange, cwd: target.dir } },
+      context,
+    );
+    await bindProject(harness, context, created.id as unknown as number, project.id);
+    // The origin is the branch the checkout is on: that is what the work will be
+    // compared against and merged back from.
+    await setOrigin(harness, context, created.id as unknown as number, target.branch);
+    await harness.commit(async (tx) => {
+      const doc = await tx.doc(ChatsToken);
+      doc.chats[surfaceId] = created.id as unknown as number;
+    }, context);
+    rememberSurface(created.id as unknown as number, surfaceId);
+    log("worktree", "adopted stray checkout", {
+      surfaceId,
+      conversationId: created.id as unknown as number,
+      dir: target.dir,
+      branch: target.branch,
+    });
+    return { conversation: created, dir: target.dir, branch: target.branch };
+  }
+
   async function reclaimOrphans(): Promise<ReclaimResult> {
     const empty: ReclaimResult = { removed: [], kept: [] };
     if (config.worktree === "off") return empty;
@@ -635,8 +779,14 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     harness,
     conversationFor,
     attachSurface,
+    strays,
+    adoptWorktree,
     reclaimOrphans,
     newConversation,
+    branchOf,
+    setBranchName,
+    extensions,
+    setExtension: setExtensionForChat,
     baseBranchOf,
     originBranchOf,
     setBaseBranch,

@@ -40,11 +40,17 @@ export const ConversationProjectDoc = defineDoc<{
   baseByConversation?: Record<string, string>;
   /** Branch the worktree was created from; a different base means extra commits show up. */
   originByConversation?: Record<string, string>;
+  /**
+   * The branch this chat works on, when a person named it. Empty means the derived
+   * `agent/conv-<id>`: a named branch is how one requirement spans several projects,
+   * because every project's worktree then checks out the same name.
+   */
+  branchByConversation?: Record<string, string>;
 }>({
   kind: "app.conversation-project",
   version: 1,
   scope: "session",
-  initial: () => ({ byConversation: {}, baseByConversation: {}, originByConversation: {} }),
+  initial: () => ({ byConversation: {}, baseByConversation: {}, originByConversation: {}, branchByConversation: {} }),
   checkpointWhen: () => false,
 });
 
@@ -59,6 +65,32 @@ export async function projectOf(
 ): Promise<string | undefined> {
   const doc = await harness.snapshot(ConversationProjectDoc, context);
   return doc?.byConversation[String(conversationId)];
+}
+
+/** The branch a chat works on, as a person named it; empty when it keeps the default. */
+export async function chatBranchOf(
+  harness: Harness,
+  context: Context,
+  conversationId: number,
+): Promise<string | undefined> {
+  const doc = await harness.snapshot(ConversationProjectDoc, context);
+  return doc?.branchByConversation?.[String(conversationId)];
+}
+
+/** Names (or renames) the branch a chat works on, for every project it binds. */
+export async function setChatBranch(
+  harness: Harness,
+  context: Context,
+  conversationId: number,
+  branch: string,
+): Promise<void> {
+  await harness.commit(async (tx) => {
+    const doc = await tx.doc(ConversationProjectDoc);
+    const next = { ...(doc.branchByConversation ?? {}) };
+    if (branch.length > 0) next[String(conversationId)] = branch;
+    else delete next[String(conversationId)];
+    doc.branchByConversation = next;
+  }, context);
 }
 
 export async function baseOf(

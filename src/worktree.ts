@@ -14,11 +14,91 @@ type Worktree = { dir: string; branch: string };
  * each other, and the main tree stays clean until something is merged. This is the
  * isolation model ThinkRail uses (a workspace is a worktree).
  */
-export function worktreePaths(repoRoot: string, conversationId: number): Worktree {
+export function worktreePaths(repoRoot: string, conversationId: number, branch?: string): Worktree {
   return {
     dir: join(repoRoot, ".worktrees", `conv-${conversationId}`),
-    branch: `agent/conv-${conversationId}`,
+    // A person-named branch wins over the derived one: one requirement, one name,
+    // across every project the chat touches. The directory keeps the chat's id so
+    // renaming a branch never moves a checkout out from under the agent.
+    branch: branch !== undefined && branch.length > 0 ? branch : `agent/conv-${conversationId}`,
   };
+}
+
+/** Whether a name is a branch git would accept, so a typo is caught before it is used. */
+export async function branchNameOK(repoRoot: string, name: string): Promise<boolean> {
+  if (name.trim().length === 0 || name !== name.trim()) return false;
+  try {
+    await git(repoRoot, ["check-ref-format", "--branch", name]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether the branch exists in this repository already, here or in another worktree. */
+export async function localBranchExists(repoRoot: string, branch: string): Promise<boolean> {
+  const known = await git(repoRoot, ["branch", "--list", branch]).catch(() => "");
+  return known.trim().length > 0;
+}
+
+/** Whether the branch already exists on a remote, which makes renaming unsafe. */
+export async function isPushed(repoRoot: string, branch: string): Promise<boolean> {
+  const refs = await git(repoRoot, ["for-each-ref", "--format=%(refname:short)", "refs/remotes"]).catch(() => "");
+  const names = refs
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => line.slice(line.indexOf("/") + 1));
+  return names.includes(branch);
+}
+
+export type RenameResult =
+  | { status: "renamed"; branch: string }
+  | { status: "unchanged"; branch: string }
+  | { status: "invalid"; branch: string }
+  | { status: "pushed"; branch: string }
+  | { status: "exists"; branch: string }
+  | { status: "dirty"; branch: string }
+  | { status: "error"; message: string };
+
+/**
+ * Renames the branch a checkout is on. Only a branch that was never pushed may be
+ * renamed: a pushed one is already a name other people and pipelines know, and a
+ * rename would fork it into two.
+ */
+export async function renameWorktreeBranch(worktree: string, from: string, to: string): Promise<RenameResult> {
+  try {
+    if (from === to) return { status: "unchanged", branch: to };
+    if (worktree.length === 0) return { status: "error", message: "no checkout" };
+    const known = await git(worktree, ["branch", "--list", to]).catch(() => "");
+    if (known.trim().length > 0) return { status: "exists", branch: to };
+    const dirt = await git(worktree, ["status", "--porcelain"]).catch(() => "");
+    if (dirt.trim().length > 0) return { status: "dirty", branch: from };
+    await git(worktree, ["branch", "-m", to]);
+    log("worktree", "renamed", { from, to });
+    return { status: "renamed", branch: to };
+  } catch (error) {
+    logError("worktree", `could not rename ${from} to ${to}`, error);
+    return { status: "error", message: (error as Error).message };
+  }
+}
+
+/**
+ * Points a checkout at a branch that already exists, which is how a named branch is
+ * shared: the second project's worktree attaches instead of branching again.
+ */
+export async function attachBranch(worktree: string, branch: string): Promise<{ status: "ok" | "dirty" | "missing" | "error"; message?: string }> {
+  try {
+    const dirt = await git(worktree, ["status", "--porcelain"]).catch(() => "");
+    if (dirt.trim().length > 0) return { status: "dirty" };
+    await git(worktree, ["checkout", branch]);
+    log("worktree", "attached", { dir: worktree, branch });
+    return { status: "ok" };
+  } catch (error) {
+    const said = (error as Error).message;
+    if (/did not match|unknown revision|pathspec/i.test(said)) return { status: "missing", message: said.slice(0, 200) };
+    return { status: "error", message: said.slice(0, 200) };
+  }
 }
 
 async function git(repoRoot: string, args: string[]): Promise<string> {
@@ -31,8 +111,9 @@ export async function ensureWorktree(
   repoRoot: string,
   conversationId: number,
   base?: string,
+  branch?: string,
 ): Promise<Worktree | undefined> {
-  const target = worktreePaths(repoRoot, conversationId);
+  const target = worktreePaths(repoRoot, conversationId, branch);
   try {
     if (!existsSync(join(repoRoot, ".git"))) return undefined;
     if (existsSync(join(target.dir, ".git"))) return target;

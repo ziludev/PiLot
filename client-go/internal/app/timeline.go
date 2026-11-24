@@ -172,7 +172,7 @@ func (a *App) timelineView(c *ui.Context, t theme.Tokens) {
 }
 
 func (a *App) timelineHeader(c *ui.Context, t theme.Tokens) {
-	ui.Row(c).FillWidth().Height(48).Padding(0, 14).AlignItems(ui.Center).Gap(8).Children(func() {
+	ui.Row(c).FillWidth().Height(48).Padding(0, 12).AlignItems(ui.Center).Gap(8).Children(func() {
 		ui.Icon(c, icons.Clock).Size(13, 13).TextColor(t.Ink3)
 		ui.Text(c, i18n.T("timeline")).FontSize(theme.TextTitle).FontWeight(500).TextColor(t.Ink).MaxLines(1)
 		ui.Spacer(c)

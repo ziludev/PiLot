@@ -220,7 +220,7 @@ func (a *App) memoryView(c *ui.Context, t theme.Tokens) {
 }
 
 func (a *App) memoryHeader(c *ui.Context, t theme.Tokens) {
-	ui.Row(c).FillWidth().Height(48).Padding(0, 14).AlignItems(ui.Center).Gap(8).Children(func() {
+	ui.Row(c).FillWidth().Height(48).Padding(0, 12).AlignItems(ui.Center).Gap(8).Children(func() {
 		title := i18n.T("memory")
 		if a.mem.suggesting {
 			title = i18n.T("memSuggest")

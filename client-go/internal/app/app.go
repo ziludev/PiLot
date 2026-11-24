@@ -113,6 +113,8 @@ type App struct {
 
 	rail   railSection
 	filter string
+	// ext is the extensions list the rail shows in place of the chat rows.
+	ext extPanel
 	// taskFilter narrows the task tab to one state; empty means all three.
 	taskFilter string
 	now        time.Time
@@ -173,6 +175,12 @@ type App struct {
 	write writePanel
 	// projects is the drawer of repositories a chat can live in.
 	projects projectsPanel
+	// newChatPanel is the dialog that picks a project and a branch before a chat
+	// starts: the branch name is what ties one requirement across projects.
+	newChatPanel newChatState
+	// stageStrip is the pipeline strip for the open chat: derived by the bridge
+	// from git and GitLab, drawn here and never decided here.
+	stageStrip *protocol.Stages
 }
 
 type viewModel struct {
@@ -342,6 +350,9 @@ const (
 	// The changes drawer: the worktree patch and the branch it sits on.
 	evChanges
 	evGit
+	// The branch tab: the ref list, and one write's outcome.
+	evBranches
+	evBranchWrite
 	// A task's detail, its stop, and the usage calendar's daily samples.
 	evTaskDetail
 	evTaskLog
@@ -356,6 +367,20 @@ const (
 	evProjects
 	evProjectAdd
 	evProjectRemove
+	// The projects drawer's lower half: leftover checkouts, and one adopted.
+	evStrays
+	evAdopt
+	evExtensions
+	evExtToggle
+	// The merge tab: the open request, and the answer to opening or merging one.
+	evMerge
+	evMergeWrite
+	evPipeline
+	evJobLog
+	evPipelineWrite
+	evBranchName
+	evNewChat
+	evStages
 	// A picture opened from a message, once it has decoded.
 	evZoom
 	// ⌘P's answer: the checkout whose files were read, and which opening asked.
@@ -388,6 +413,9 @@ type event struct {
 	applied  *protocol.MemoryApplied
 	changes  *protocol.Changes
 	git      *protocol.Git
+	// branches is the ref list; branchOut is what a create or a delete answered.
+	branches  *protocol.Branches
+	branchOut *api.BranchResult
 	// taskID and task are the dialog's round trip: which task was asked about,
 	// and what came back.
 	taskID int
@@ -408,7 +436,23 @@ type event struct {
 	// projects is the drawer's catalogue; the path that asked to join it rides
 	// in path, above.
 	projects []protocol.Project
-	usage    []api.UsageDay
+	// worktrees is the projects drawer's leftover-checkout list.
+	worktrees []protocol.Worktree
+	// extensions is the installed set; the name a switch asked about rides in
+	// text, above.
+	extensions []protocol.Extension
+	// merge is the merge tab's read, and mergeWrite its write.
+	merge      *protocol.MRStatus
+	mergeWrite *protocol.MRWrite
+	// pipeline is the CI tab's read; jobID and the log fields carry a job's
+	// trace back to the row that asked for it.
+	pipeline    *protocol.Pipeline
+	branchName  *protocol.BranchName
+	stageReport *protocol.Stages
+	jobID       int
+	logCut      bool
+	logTail     string
+	usage       []api.UsageDay
 	// zoom is a decoded picture on its way to the overlay.
 	zoom *ui.Bitmap
 	// files is ⌘P's answer: the checkout's paths, relative to its root.
@@ -757,6 +801,10 @@ func (a *App) apply(ev event) {
 		a.applyChanges(ev.convID, ev.changes, ev.err)
 	case evGit:
 		a.applyGit(ev.convID, ev.git, ev.err)
+	case evBranches:
+		a.applyBranches(ev.convID, ev.branches, ev.err)
+	case evBranchWrite:
+		a.applyBranchWrite(ev.convID, ev.text, ev.branchOut, ev.err)
 	case evTaskDetail:
 		a.applyTaskDetail(ev.taskID, ev.seq, ev.task, ev.err)
 	case evTaskLog:
@@ -777,6 +825,30 @@ func (a *App) apply(ev event) {
 		a.applyRepoFiles(ev.seq, ev.path, ev.files, ev.err)
 	case evProjects:
 		a.applyProjects(ev.seq, ev.projects, ev.err)
+	case evStrays:
+		a.applyStrays(ev.seq, ev.text, ev.worktrees, ev.err)
+	case evAdopt:
+		a.applyAdopt(ev.path, ev.convID, ev.err)
+	case evExtensions:
+		a.applyExtensions(ev.seq, ev.convID, ev.extensions, ev.err)
+	case evExtToggle:
+		a.applyExtToggle(ev.convID, ev.text, ev.extensions, ev.err)
+	case evMerge:
+		a.applyMerge(ev.convID, ev.merge, ev.err)
+	case evMergeWrite:
+		a.applyMergeWrite(ev.convID, ev.mergeWrite, ev.err)
+	case evPipeline:
+		a.applyPipeline(ev.convID, ev.pipeline, ev.err)
+	case evJobLog:
+		a.applyJobLog(ev.jobID, ev.text, ev.logCut, ev.logTail)
+	case evPipelineWrite:
+		a.applyPipelineWrite(ev.text)
+	case evBranchName:
+		a.applyBranchName(ev.convID, ev.branchName, ev.err)
+	case evNewChat:
+		a.applyNewChat(ev.convID, ev.err)
+	case evStages:
+		a.applyStages(ev.convID, ev.stageReport, ev.err)
 	case evProjectAdd:
 		a.applyProjectAdd(ev.path, ev.text, ev.writeBad)
 	case evProjectRemove:
@@ -870,6 +942,15 @@ func (a *App) applyFrame(result *frameResult) {
 	if result.convID != a.active {
 		return
 	}
+	wasRunning := a.running()
+	defer func() {
+		// A turn that just ended may have committed, pushed or merged, and the
+		// strip is derived from the repository: re-derive it rather than leave
+		// yesterday's answer sitting over today's branch.
+		if wasRunning && !a.running() {
+			a.loadStages(a.active)
+		}
+	}()
 	th := a.thread(result.convID)
 	a.wsLive = true
 	if result.frame.Value == nil {
@@ -976,6 +1057,10 @@ func (a *App) selectConversation(convID int) {
 	delete(a.vm.unread, convID)
 	a.draft, a.draftImage = a.prefs.draftAt(convID), nil
 	savePrefs(a.prefs)
+	// The strip belongs to the chat on screen, so it is re-derived on every switch
+	// rather than carried over: a stale "blocked" would stop work that is fine.
+	a.stageStrip = nil
+	a.loadStages(convID)
 	a.histIndex = len(a.history)
 	a.vm.threadList.FollowEnd = true
 	a.focusComposer = true
@@ -1078,6 +1163,7 @@ func (a *App) View(c *ui.Context) {
 	a.modelDialog(c, t)
 	a.cheatsheetDialog(c, t)
 	a.renameDialog(c, t)
+	a.newChatDialog(c, t)
 	a.settingsDialog(c, t)
 	a.taskDetailDialog(c, t)
 	a.zoomDialog(c, t)

@@ -70,6 +70,7 @@ func (a *App) drawerSlot(c *ui.Context, t theme.Tokens) {
 func (a *App) paneView(c *ui.Context, t theme.Tokens) {
 	ui.Column(c).Grow(1).FillHeight().Children(func() {
 		a.paneHeader(c, t)
+	a.stageBar(c, t)
 		a.syncFind()
 		a.findBar(c, t)
 		a.transcriptView(c, t)

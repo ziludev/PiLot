@@ -47,6 +47,63 @@ type changesPanel struct {
 	busy   bool
 	failed string
 
+	// countW is the 改动 column's width, and dragFrom is where a drag on its
+	// edge began: the header's handle writes here, the rows read it.
+	countW   float32
+	dragFrom float32
+
+	// tab is which half of the drawer is showing: the patch, or the branches.
+	// Both answer questions about the same worktree, and a 460-point drawer has
+	// room for one at a time.
+	tab string
+
+	// branches is the branch list behind the second tab: the checkout's refs,
+	// each measured from base, plus the two moves the drawer offers.
+	branches     []protocol.BranchRef
+	branchBase   string
+	branchCur    string
+	branchBusy   bool
+	branchFailed string
+	branchNaming bool
+	branchDraft  string
+	branchList   ui.ListState
+	// branchConv is the chat the list was read for; a refresh for another chat
+	// must not land in this one's drawer.
+	branchConv int
+	// toast is the last write's outcome, shown once above the branch list.
+	toast string
+
+	// mr is the open request behind the third tab, read from GitLab through the
+	// bridge. mrConv is the chat it was read for, so a late answer for another
+	// chat cannot land in this drawer.
+	mr           protocol.MRStatus
+	mrConv       int
+	mrBusy       bool
+	mrFailed     string
+	mrTitle      string
+	mrDraftTitle bool
+	mrSquash     bool
+
+	// pipeline is the CI tab's last read, and the job log under it. ciConv is
+	// the chat it was read for, like mrConv.
+	pipeline    *protocol.Pipeline
+	ciConv      int
+	ciBusy      bool
+	ciFailed    string
+	ciList      ui.ListState
+	ciWriteBusy bool
+	openJob     int
+	ciLog       string
+	ciLogCut    bool
+	ciLogBusy   bool
+	ciLogFailed string
+	logList     ui.ListState
+
+	// branchRenaming is the chat's own branch being named: an unpushed branch is
+	// renamed in place, one that exists is attached.
+	branchRenaming  bool
+	branchNameDraft string
+
 	branch string
 	// base and remote are what the write verbs would act on: where a merge
 	// lands, and whether there is anything to push to.
@@ -89,6 +146,9 @@ func (a *App) toggleChanges() {
 		a.projects.open = false
 		a.tl.open = false
 		a.refreshChanges()
+		if a.changes.tab == tabBranches {
+			a.refreshBranches()
+		}
 	}
 	a.invalidate()
 }
@@ -239,11 +299,24 @@ func (a *App) changesView(c *ui.Context, t theme.Tokens) {
 		Radius(theme.RadiusWindow).Border(1, t.Line).Background(t.Surface).Clip().
 		Children(func() {
 			a.changesHeader(c, t)
+			a.changesTabs(c, t)
 			ui.Box(c).Width(changesWidth).Height(1).Background(t.Line)
 			if a.changes.failed != "" {
 				ui.Column(c).FillWidth().Padding(12, 12).Children(func() {
 					ui.Text(c, a.changes.failed).FontSize(theme.TextSmall).TextColor(t.Destructive).MaxLines(4)
 				})
+			}
+			if a.changes.tab == tabBranches {
+				a.branchesBody(c, t)
+				return
+			}
+			if a.changes.tab == tabMerge {
+				a.mergeBody(c, t)
+				return
+			}
+			if a.changes.tab == tabPipeline {
+				a.pipelineBody(c, t)
+				return
 			}
 			if a.changes.openFile != "" {
 				a.changesFileHead(c, t, a.changes.openFile)
@@ -260,18 +333,29 @@ func (a *App) changesView(c *ui.Context, t theme.Tokens) {
 }
 
 func (a *App) changesHeader(c *ui.Context, t theme.Tokens) {
-	ui.Row(c).FillWidth().Height(48).Padding(0, 14).AlignItems(ui.Center).Gap(8).Children(func() {
-		ui.Text(c, i18n.T("changesTab")).FontSize(theme.TextTitle).FontWeight(500).TextColor(t.Ink).MaxLines(1)
+	ui.Row(c).FillWidth().Height(48).Padding(0, 12).AlignItems(ui.Center).Gap(8).Children(func() {
+		// The workspace, not the tab: the tabs below already say which half this
+		// is, and naming the repository is what tells a person where they are.
+		title := a.changes.workspace
+		if title == "" {
+			title = i18n.T("changesTab")
+		}
+		ui.Text(c, title).FontSize(theme.TextTitle).FontWeight(500).TextColor(t.Ink).MaxLines(1)
 		if branch := a.changes.branch; branch != "" {
-			ui.Text(c, branch).FontSize(theme.TextMicro).TextColor(t.Ink3).MaxLines(1)
+			ui.Text(c, branch).Font(monoFont).FontSize(theme.TextMicro).TextColor(t.Ink3).MaxLines(1)
 		}
 		ui.Spacer(c)
 		refresh := ui.ButtonBase(c).Size(20, 20).Radius(theme.RadiusChip).Justify(ui.Center).AlignItems(ui.Center).
 			Cursor(ui.CursorPointer).Tooltip(i18n.T("refresh"))
 		refresh.Children(func() {
-			ui.Icon(c, icons.Clock).Size(11, 11).TextColor(t.MutedFg)
+			ui.Icon(c, icons.RefreshCw).Size(11, 11).TextColor(t.Ink3)
 		})
-		refresh.OnClick(func() { a.refreshChanges() })
+		refresh.OnClick(func() {
+			a.refreshChanges()
+			if a.changes.tab == tabBranches {
+				a.refreshBranches()
+			}
+		})
 		// The way out of the diff: the files themselves, in the editor the user
 		// already has open for everything else.
 		editor := ui.ButtonBase(c).Size(20, 20).Radius(theme.RadiusChip).Justify(ui.Center).AlignItems(ui.Center).
@@ -373,13 +457,15 @@ func (a *App) changesBody(c *ui.Context, t theme.Tokens) {
 	}
 	ui.Column(c).FillWidth().Padding(0, 12).Grow(1).Children(func() {
 		// The header is what turns the list into a table: a column of counts
-		// with no name over it is a column the reader has to decode.
-		ui.Row(c).FillWidth().Height(22).Padding(0, 4).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, i18n.T("changeFiles")).FontSize(theme.TextMicro).FontWeight(600).
-				TextColor(t.Ink3).Grow(1)
-			ui.Row(c).Width(changeCountWidth).Justify(ui.End).Children(func() {
-				ui.Text(c, i18n.T("changeStat")).FontSize(theme.TextMicro).FontWeight(600).
-					TextColor(t.Ink3).MaxLines(1)
+		// with no name over it is a column the reader has to decode. Its metrics
+		// are Records Table's: 35 tall, 12.5 at 500, the second ink.
+		ui.Row(c).FillWidth().Height(35).Padding(0, 12).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, i18n.T("changeFiles")).FontSize(theme.TextRow).FontWeight(500).
+				TextColor(t.Ink2).Grow(1)
+			a.countResizeHandle(c, t)
+			ui.Row(c).Width(a.countColWidth()).Justify(ui.End).Children(func() {
+				ui.Text(c, i18n.T("changeStat")).FontSize(theme.TextRow).FontWeight(500).
+					TextColor(t.Ink2).MaxLines(1)
 			})
 		})
 		ui.Box(c).FillWidth().Height(1).Background(t.Line)
@@ -387,34 +473,98 @@ func (a *App) changesBody(c *ui.Context, t theme.Tokens) {
 			a.changeFileRow(c, t, a.changes.files[row])
 		}).Grow(1).Width(changesWidth - 24)
 	})
+	a.changesTotals(c, t)
 	if a.changes.truncated {
 		ui.Text(c, i18n.T("changesTruncated")).FontSize(theme.TextMicro).TextColor(t.MutedFg).Padding(4, 12)
 	}
 }
 
-// changeCountWidth is the column the two counts share, so the numbers line up
-// down the table instead of ending wherever the words do.
-const changeCountWidth = 64
+// The 改动 column: 64 to begin with, dragged from its header edge, and never so
+// narrow that "+128" wraps or so wide that the file names lose their room.
+const (
+	changeCountWidth = 64
+	changeCountMin   = 48
+	changeCountMax   = 200
+)
+
+// countColWidth is that width. The zero value means nobody has dragged it.
+func (a *App) countColWidth() float32 {
+	if a.changes.countW <= 0 {
+		return changeCountWidth
+	}
+	return a.changes.countW
+}
+
+// countResizeHandle is the 12-point grab strip on the column's left edge —
+// Records Table's resize handle, and dragging left widens the column.
+func (a *App) countResizeHandle(c *ui.Context, t theme.Tokens) {
+	handle := ui.ButtonBase(c).Width(12).Height(35).Cursor(ui.CursorResizeColumn)
+	if handle.Hovered() || handle.Dragging() {
+		handle = handle.Children(func() {
+			ui.Box(c).Width(2).FillHeight().Radius(1).Background(t.LineStrong)
+		})
+	}
+	if handle.Dragging() {
+		if a.changes.dragFrom == 0 {
+			a.changes.dragFrom = a.countColWidth()
+		}
+		width := a.changes.dragFrom - handle.DragOffset().X
+		if width < changeCountMin {
+			width = changeCountMin
+		}
+		if width > changeCountMax {
+			width = changeCountMax
+		}
+		a.changes.countW = width
+	} else if a.changes.dragFrom != 0 {
+		a.changes.dragFrom = 0
+	}
+}
+
+// changesTotals is the table's foot: how many files, and what they add up to.
+// A Records Table carries a summary row; without one the counts are per row and
+// never summed, which is the question a reader asks first.
+func (a *App) changesTotals(c *ui.Context, t theme.Tokens) {
+	added, removed := 0, 0
+	for _, file := range a.changes.files {
+		added += file.Added
+		removed += file.Removed
+	}
+	ui.Box(c).FillWidth().Height(1).Background(t.Line)
+	ui.Row(c).FillWidth().Height(35).Padding(0, 12).Gap(6).AlignItems(ui.Center).
+		Background(t.Inset).Children(func() {
+		ui.Text(c, i18n.TF("changeSum", map[string]any{"files": len(a.changes.files)})).
+			FontSize(theme.TextTitle).FontWeight(500).TextColor(t.Ink2).Grow(1).MaxLines(1)
+		if added > 0 {
+			ui.Text(c, "+"+strconv.Itoa(added)).FontSize(theme.TextRow).TextColor(t.Green)
+		}
+		if removed > 0 {
+			ui.Text(c, "−"+strconv.Itoa(removed)).FontSize(theme.TextRow).TextColor(t.Red)
+		}
+	})
+}
 
 func (a *App) changeFileRow(c *ui.Context, t theme.Tokens, file protocol.FileChange) {
-	row := ui.Row(c).FillWidth().Height(28).Gap(8).Padding(0, 4).AlignItems(ui.Center).
-		Cursor(ui.CursorPointer).Radius(theme.RadiusChip)
+	// A Records Table cell is 35 tall with 8 of side padding, 13 at 500.
+	row := ui.Row(c).FillWidth().Height(35).Gap(8).Padding(0, 8).AlignItems(ui.Center).
+		Cursor(ui.CursorPointer)
 	if row.Hovered() {
 		row = row.Background(t.Hover)
 	}
 	row.Children(func() {
-		ui.Text(c, changeLetter(file.Status)).FontSize(theme.TextMicro).FontWeight(600).
+		ui.Text(c, changeLetter(file.Status)).FontSize(theme.TextRow).FontWeight(500).
 			TextColor(changeColor(t, file.Status)).Width(12)
-		ui.Text(c, file.Path).FontSize(theme.TextSmall).TextColor(t.Ink).MaxLines(1).Grow(1)
-		counts := ui.Row(c).Width(changeCountWidth).Gap(4).Justify(ui.End).Children(func() {
+		ui.Text(c, file.Path).FontSize(theme.TextBody).FontWeight(500).TextColor(t.Ink).
+			MaxLines(1).Grow(1)
+		counts := ui.Row(c).Width(a.countColWidth()).Gap(4).Justify(ui.End).Children(func() {
 			// Added and removed are two facts, not a fraction: the colour says
 			// which is which without a slash between them.
 			if file.Added > 0 {
-				ui.Text(c, "+"+strconv.Itoa(file.Added)).FontSize(theme.TextMicro).
+				ui.Text(c, "+"+strconv.Itoa(file.Added)).FontSize(theme.TextRow).
 					TextColor(t.Green).MaxLines(1)
 			}
 			if file.Removed > 0 {
-				ui.Text(c, "−"+strconv.Itoa(file.Removed)).FontSize(theme.TextMicro).
+				ui.Text(c, "−"+strconv.Itoa(file.Removed)).FontSize(theme.TextRow).
 					TextColor(t.Red).MaxLines(1)
 			}
 		})
