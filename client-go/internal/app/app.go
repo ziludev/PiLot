@@ -43,6 +43,9 @@ type App struct {
 	cfg Config
 	api *api.Client
 	win *mygo.Window
+	// windowGrew is the width this app has added to the window for the open
+	// drawer, so closing it gives back exactly that and no more.
+	windowGrew float32
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -1143,7 +1146,89 @@ func (a *App) runSoFar() (time.Duration, bool) {
 }
 
 // View is the frame: apply what arrived, then draw.
+// minWindowWidth matches the window's own minimum: the chat card must keep a
+// reading measure even when the drawer is open on a small display.
+const minWindowWidth = 720
+
+// windowSizer is the part of a window this file needs, so the growth can be
+// tested without an app running.
+type windowSizer interface {
+	Size() (int, int)
+	SetSize(width, height int)
+	Bounds() mygo.Rectangle
+}
+
+// callerWindow and workArea are variables so the tester, which has no window,
+// can stand in for one.
+var callerWindow = func(ctx context.Context) windowSizer {
+	w := mygo.CallerWindow(ctx)
+	if w == nil {
+		return nil
+	}
+	return w
+}
+
+// workArea is the screen's right edge in screen coordinates, or 0 when it cannot
+// be read: the window grows to the right and has to stop there.
+var workArea = func(bounds mygo.Rectangle) float32 {
+	if mygo.Screen == nil {
+		return 0
+	}
+	area := mygo.Screen.DisplayMatching(bounds).WorkArea
+	return float32(area.X + area.Width)
+}
+
+// drawerSpan is how much width the open drawer claims, gap included.
+func (a *App) drawerSpan() float32 {
+	switch {
+	case a.changes.open:
+		return changesWidth + paneInset
+	case a.tl.open:
+		return timelineWidth + paneInset
+	case a.mem.open:
+		return memWidth + paneInset
+	case a.projects.open:
+		return memWidth + paneInset
+	}
+	return 0
+}
+
+// fitWindowToDrawer widens the window by the drawer it just opened, and gives the
+// width back when it closes. A drawer that eats the chat's column makes the chat
+// narrower the moment you ask for a diff, which is the opposite of helpful: the
+// window grows outward instead, and the reading column keeps its measure.
+func (a *App) fitWindowToDrawer() {
+	want := a.drawerSpan()
+	if want == a.windowGrew {
+		return
+	}
+	w := callerWindow(a.ctx)
+	if w == nil {
+		a.windowGrew = want
+		return
+	}
+	width, height := w.Size()
+	next := width + int(want-a.windowGrew)
+	if next < minWindowWidth {
+		next = minWindowWidth
+	}
+	// The window grows to the right, so it must stop at the display's edge rather
+	// than sliding under it.
+	if bounds := w.Bounds(); workArea != nil {
+		if edge := workArea(bounds); edge > 0 {
+			if limit := int(edge-float32(bounds.X)) - 24; next > limit {
+				next = limit
+			}
+		}
+	}
+	if next != width {
+		w.SetSize(next, height)
+	}
+	a.windowGrew += float32(next - width)
+}
+
 func (a *App) View(c *ui.Context) {
+	a.fitWindowToDrawer()
 	// The menus the rail opens — the row's ⋯ and the others — are drawn by the
 	// window rather than by the system, so their items take the theme's type and
 	// colors instead of macOS's.
