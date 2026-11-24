@@ -74,7 +74,8 @@ func (a *App) sideHeader(c *ui.Context, t theme.Tokens) {
 			// Full width, centred like a nav row: a 28-point button sat six points
 			// left of the icons, so the logo was off the rail's axis.
 			open := ui.ButtonBase(c).FillWidth().Height(32).Radius(theme.RadiusControl).Justify(ui.Center).
-				AlignItems(ui.Center).Cursor(ui.CursorPointer).Tooltip(i18n.T("expandRail"))
+				AlignItems(ui.Center).Cursor(ui.CursorPointer)
+			sideTip(c, t, open, i18n.T("expandRail"))
 			if open.Hovered() {
 				open = open.Background(t.Hover2)
 			}
@@ -83,7 +84,8 @@ func (a *App) sideHeader(c *ui.Context, t theme.Tokens) {
 			return
 		}
 		ws := ui.ButtonBase(c).Grow(1).Height(32).Radius(theme.RadiusControl).Padding(0, 8).Gap(6).
-			AlignItems(ui.Center).Cursor(ui.CursorPointer).Tooltip(i18n.T("projects"))
+			AlignItems(ui.Center).Cursor(ui.CursorPointer)
+		sideTip(c, t, ws, i18n.T("projects"))
 		if ws.Hovered() {
 			ws = ws.Background(t.Hover2)
 		}
@@ -102,7 +104,8 @@ func (a *App) sideHeader(c *ui.Context, t theme.Tokens) {
 		ws.OnClick(a.toggleProjects)
 
 		fold := ui.ButtonBase(c).Size(32, 32).Radius(theme.RadiusControl).Justify(ui.Center).
-			AlignItems(ui.Center).Cursor(ui.CursorPointer).Tooltip(i18n.T("collapseRail"))
+			AlignItems(ui.Center).Cursor(ui.CursorPointer)
+		sideTip(c, t, fold, i18n.T("collapseRail"))
 		if fold.Hovered() {
 			fold = fold.Background(t.Hover2)
 		}
@@ -130,6 +133,20 @@ func (a *App) sideNav(c *ui.Context, t theme.Tokens) {
 		}
 		a.sideRow(c, t, icons.PlugZap, i18n.T("extensions"), enabled,
 			a.rail == railExtensions, func() { a.setRail(railExtensions) })
+	})
+}
+
+// sideTip shows a tip beside a control in the top strip. The default placement is
+// above the control, which is where the window's traffic lights are: a tip there
+// covers them and reads as a stray label over the window's own controls.
+func sideTip(c *ui.Context, t theme.Tokens, anchor ui.Element, label string) {
+	ui.TooltipBase(c, anchor, func(tip ui.Element) {
+		tip.AttachTo(anchor, ui.AnchorRight, ui.AnchorLeft).MarginStart(8).
+			Padding(4, 8).Radius(theme.RadiusChip).Background(t.TipBg).TextColor(t.TipFg)
+		tip.Children(func() {
+			ui.Text(c, label).FontSize(theme.TextSmall).FontWeight(500).TextColor(t.TipFg).
+				MaxLines(1)
+		})
 	})
 }
 
