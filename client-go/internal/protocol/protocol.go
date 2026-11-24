@@ -333,13 +333,25 @@ type BranchRef struct {
 type Branches struct {
 	// Named is what a person typed for this chat, empty when it keeps the derived
 	// agent/conv-N default. Every project's checkout of the chat uses this name.
-	Project  string      `json:"project"`
-	Worktree string      `json:"worktree"`
+	Project string `json:"project"`
+	// ProjectID is the project's id, which is what a workflow edit is addressed
+	// to; the path is not an id and the two are not interchangeable.
+	ProjectID string      `json:"projectId"`
+	Worktree  string      `json:"worktree"`
 	Named    string      `json:"named"`
 	Base     string      `json:"base"`
 	Current  string      `json:"current"`
 	Branches []BranchRef `json:"branches"`
 	Error    string      `json:"error"`
+}
+
+// Workflow is where this project's work walks: the branch 提测 hands to, the
+// branch the release request goes to, and how many review rounds a request gets.
+type Workflow struct {
+	Origin        string `json:"origin"`
+	TestBase      string `json:"testBase"`
+	ReleaseTarget string `json:"releaseTarget"`
+	RoundLimit    int    `json:"roundLimit"`
 }
 
 // Remote is where the worktree pushes to.

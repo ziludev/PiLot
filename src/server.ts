@@ -900,7 +900,9 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         // named is what a person typed for this chat, which differs from the derived
         // default and is what every other project's checkout of this chat will use.
         const named = (await runtime.branchOf(conversationId)) ?? "";
-        return send(res, 200, { project: projectPath, worktree, named, ...listing });
+        // projectId is what a workflow edit is addressed to; the path is not an id.
+        const projectId = await runtime.projectOfConversation(conversationId);
+        return send(res, 200, { project: projectPath, projectId, worktree, named, ...listing });
       }
 
       if (req.method === "POST" && path === "/api/branch") {

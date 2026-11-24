@@ -47,6 +47,15 @@ type changesPanel struct {
 	busy   bool
 	failed string
 
+	// flow is where this project's work walks (提测 target, release target) and
+	// flowEdit is which of the two the footer's field is editing.
+	flow        protocol.Workflow
+	flowConv    int
+	flowProject string
+	flowBusy    bool
+	flowEdit    string
+	flowDraft   string
+
 	// countW is the 改动 column's width, and dragFrom is where a drag on its
 	// edge began: the header's handle writes here, the rows read it.
 	countW   float32

@@ -372,6 +372,8 @@ const (
 	evAdopt
 	evExtensions
 	evExtToggle
+	evWorkflow
+	evWorkflowSet
 	// The merge tab: the open request, and the answer to opening or merging one.
 	evMerge
 	evMergeWrite
@@ -441,6 +443,8 @@ type event struct {
 	// extensions is the installed set; the name a switch asked about rides in
 	// text, above.
 	extensions []protocol.Extension
+	// workflow is a workflow read or write; text carries the project it belongs to.
+	workflow *protocol.Workflow
 	// merge is the merge tab's read, and mergeWrite its write.
 	merge      *protocol.MRStatus
 	mergeWrite *protocol.MRWrite
@@ -833,6 +837,10 @@ func (a *App) apply(ev event) {
 		a.applyExtensions(ev.seq, ev.convID, ev.extensions, ev.err)
 	case evExtToggle:
 		a.applyExtToggle(ev.convID, ev.text, ev.extensions, ev.err)
+	case evWorkflow:
+		a.applyWorkflow(ev.convID, ev.workflow, ev.err)
+	case evWorkflowSet:
+		a.applyWorkflowSet(ev.text, ev.workflow, ev.err)
 	case evMerge:
 		a.applyMerge(ev.convID, ev.merge, ev.err)
 	case evMergeWrite:

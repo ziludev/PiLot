@@ -565,6 +565,29 @@ type BranchResult struct {
 }
 
 // CreateBranch makes a branch from another one without switching this worktree.
+// Workflow reads the branches this chat's work walks between.
+func (c *Client) Workflow(ctx context.Context, convID int) (protocol.Workflow, error) {
+	var out struct {
+		Workflow protocol.Workflow `json:"workflow"`
+	}
+	err := c.get(ctx, "/api/workflow?conversationId="+strconv.Itoa(convID), &out)
+	return out.Workflow, err
+}
+
+// SetWorkflow changes one project's workflow. The fields given are the ones a
+// person edited; empty strings are refused rather than written.
+func (c *Client) SetWorkflow(ctx context.Context, projectID string, patch map[string]any) (protocol.Workflow, error) {
+	body := map[string]any{"projectId": projectID}
+	for key, value := range patch {
+		body[key] = value
+	}
+	var out struct {
+		Workflow protocol.Workflow `json:"workflow"`
+	}
+	err := c.post(ctx, "/api/workflow", body, &out)
+	return out.Workflow, err
+}
+
 // Extensions lists what is installed, with this chat's view of which are on.
 func (c *Client) Extensions(ctx context.Context, convID int) ([]protocol.Extension, error) {
 	var out struct {

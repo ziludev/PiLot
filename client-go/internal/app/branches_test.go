@@ -22,6 +22,9 @@ type branchBridge struct {
 	bases   []string
 	names   []string
 	renames []string
+	// flows is every workflow write's body, so a test can read what the field
+	// sent rather than what the panel decided.
+	flows []map[string]any
 }
 
 func newBranchBridge(t *testing.T) (*branchBridge, *httptest.Server) {
@@ -30,8 +33,22 @@ func newBranchBridge(t *testing.T) (*branchBridge, *httptest.Server) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
+		case "/api/workflow":
+			if r.Method == http.MethodPost {
+				var body map[string]any
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				b.mu.Lock()
+				b.flows = append(b.flows, body)
+				b.mu.Unlock()
+				out, _ := json.Marshal(map[string]any{"projectId": body["projectId"], "workflow": map[string]any{
+					"testBase": "release/test", "releaseTarget": "feature/server", "roundLimit": 3,
+				}})
+				_, _ = w.Write(out)
+				return
+			}
+			_, _ = w.Write([]byte(`{"workflow":{"testBase":"release/test","releaseTarget":"feature/server","roundLimit":3}}`))
 		case "/api/branches":
-			_, _ = w.Write([]byte(`{"base":"main","current":"agent/conv-12","branches":[` +
+			_, _ = w.Write([]byte(`{"projectId":"dora","base":"main","current":"agent/conv-12","branches":[` +
 				`{"name":"main","base":true,"ahead":0,"behind":0},` +
 				`{"name":"agent/conv-12","current":true,"ahead":3,"behind":1},` +
 				`{"name":"release/1.0","ahead":7,"behind":0,"owner":{"conversationId":1046,"dir":"/tmp/wt"}}` +
@@ -230,4 +247,48 @@ func TestSnapshotBranches(t *testing.T) {
 		t.Fatalf("the snapshot has no branches; drew %v", tt.Texts())
 	}
 	writePNG(t, "/tmp/clientv2-branches.png", tt.Image())
+}
+
+// TestWorkflowTargetsShowAndSave: the tab says where 提测 hands to and where the
+// release request goes, and editing one writes that project's workflow rather
+// than this chat's base.
+func TestWorkflowTargetsShowAndSave(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a, bridge := branchFixture(t)
+	a.setChangesTab(tabBranches)
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	// The tab reads the list and the workflow off the bridge; one drain applies
+	// both answers.
+	a.drain()
+	tt.Frame()
+	for _, want := range []string{"提测去向", "release/test", "上线去向", "feature/server"} {
+		if !tt.HasText(want) {
+			t.Fatalf("the tab does not say %q; drew %v", want, tt.Texts())
+		}
+	}
+	a.changes.flowDraft = "release/2.0"
+	a.saveWorkflow("testBase")
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		a.drain()
+		bridge.mu.Lock()
+		n := len(bridge.flows)
+		var got map[string]any
+		if n > 0 {
+			got = bridge.flows[n-1]
+		}
+		bridge.mu.Unlock()
+		if n > 0 {
+			if got["projectId"] != "dora" {
+				t.Errorf("the write is not addressed to the project: %v", got)
+			}
+			if got["testBase"] != "release/2.0" {
+				t.Errorf("the write does not carry the new branch: %v", got)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("no workflow write reached the bridge")
 }

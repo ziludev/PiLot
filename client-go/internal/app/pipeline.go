@@ -155,7 +155,13 @@ func (a *App) applyPipelineWrite(status string) {
 	a.changes.ciWriteBusy = false
 	a.changes.toast = status
 	if status == "ok" || status == "retried" || status == "canceled" {
+		// A retry is a new run: the stage strip's release step depends on it, so
+		// all of it is read again instead of showing the run that was retried.
 		a.refreshPipeline()
+		a.refreshMerge()
+		if conv := a.changes.conv; conv != 0 {
+			a.loadStages(conv)
+		}
 		if a.changes.openJob != 0 {
 			a.openJob(a.changes.openJob)
 		}

@@ -127,7 +127,14 @@ func (a *App) applyMergeWrite(conv int, out *protocol.MRWrite, err error) {
 	default:
 		a.changes.mrFailed = a.mergeReasonText(out.Status, out.Message)
 	}
+	// A created or merged request moves three things: the request, the branch it
+	// came from, and whether GitLab is running CI on it. All three are re-read
+	// here rather than waiting for a person to press refresh.
 	a.refreshMerge()
+	a.refreshPipeline()
+	if conv := a.changes.conv; conv != 0 {
+		a.loadStages(conv)
+	}
 	a.invalidate()
 }
 

@@ -48,7 +48,7 @@ import (
 // drawer's six lines are the last addition: a heading, an empty state, and one
 // verb per kind of event. The find key and the rail's collapse are the last two:
 // the sheet now lists a key for every place the window can go.
-const maxKeys = 397
+const maxKeys = 401
 
 func TestDictionariesMatch(t *testing.T) {
 	keys := Keys()

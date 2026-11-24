@@ -118,6 +118,7 @@ func (a *App) refreshBranches() {
 	a.changes.branchConv = conv
 	a.changes.branchBusy = true
 	a.changes.branchFailed = ""
+	a.loadWorkflow(conv)
 	go func() {
 		ctx, cancel := context.WithTimeout(a.ctx, 20*time.Second)
 		defer cancel()
@@ -126,11 +127,87 @@ func (a *App) refreshBranches() {
 	}()
 }
 
+// loadWorkflow reads the two branches this project's work walks between. The
+// branches tab owns it because it is the tab about branches.
+func (a *App) loadWorkflow(conv int) {
+	if a.api == nil || conv == 0 {
+		return
+	}
+	a.changes.flowConv = conv
+	a.changes.flowBusy = true
+	a.invalidate()
+	go func() {
+		ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
+		defer cancel()
+		got, err := a.api.Workflow(ctx, conv)
+		a.post(event{kind: evWorkflow, convID: conv, workflow: &got, err: err})
+	}()
+}
+
+func (a *App) applyWorkflow(conv int, got *protocol.Workflow, err error) {
+	if conv != a.changes.flowConv {
+		return
+	}
+	a.changes.flowBusy = false
+	if err != nil || got == nil {
+		a.invalidate()
+		return
+	}
+	a.changes.flow = *got
+	a.invalidate()
+}
+
+// saveWorkflow writes one edited branch back. The field stays open until the
+// bridge answers, so a refusal can say so under it.
+func (a *App) saveWorkflow(key string) {
+	project := a.changes.flowProject
+	value := strings.TrimSpace(a.changes.flowDraft)
+	if a.api == nil || project == "" || value == "" {
+		a.changes.flowEdit = ""
+		a.invalidate()
+		return
+	}
+	client := a.api
+	ctx := a.ctx
+	a.changes.flowBusy = true
+	a.invalidate()
+	go func() {
+		got, err := client.SetWorkflow(ctx, project, map[string]any{key: value})
+		a.post(event{kind: evWorkflowSet, text: project, workflow: &got, err: err})
+	}()
+}
+
+func (a *App) applyWorkflowSet(project string, got *protocol.Workflow, err error) {
+	if project != a.changes.flowProject {
+		return
+	}
+	a.changes.flowBusy = false
+	a.changes.flowEdit = ""
+	a.changes.flowDraft = ""
+	if err != nil {
+		a.changes.branchFailed = err.Error()
+		a.invalidate()
+		return
+	}
+	a.changes.branchFailed = ""
+	if got != nil {
+		a.changes.flow = *got
+	}
+	// The strip is derived from these branches, so it is asked again.
+	if conv := a.changes.flowConv; conv != 0 {
+		a.loadStages(conv)
+	}
+	a.invalidate()
+}
+
 func (a *App) applyBranches(convID int, list *protocol.Branches, err error) {
 	if convID != a.active {
 		return
 	}
 	a.changes.branchBusy = false
+	if list != nil {
+		a.changes.flowProject = list.ProjectID
+	}
 	if err != nil {
 		a.changes.branchFailed = err.Error()
 		return
@@ -276,6 +353,7 @@ func (a *App) branchesBody(c *ui.Context, t theme.Tokens) {
 	}
 	rows := a.changes.branches
 	ui.Column(c).FillWidth().Grow(1).Padding(0, 8, 8, 8).Gap(6).Children(func() {
+		a.workflowTargets(c, t)
 		ui.Row(c).Height(22).Padding(0, 4).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, i18n.T("branchesTab")).FontSize(theme.TextMicro).FontWeight(600).TextColor(t.Ink3).Grow(1)
 			ui.Text(c, i18n.TF("baseChip", map[string]any{"branch": a.changes.branchBase})).
@@ -286,6 +364,47 @@ func (a *App) branchesBody(c *ui.Context, t theme.Tokens) {
 			a.branchRow(c, t, rows[index])
 		}).Grow(1).Width(changesWidth - 16)
 		a.branchesFooter(c, t)
+	})
+}
+
+// workflowTargets is where the work goes: 提测 hands to one branch, the release
+// request goes to another. Both are a project's, not a chat's, and both are
+// editable here because this is the tab about branches.
+func (a *App) workflowTargets(c *ui.Context, t theme.Tokens) {
+	ui.Column(c).FillWidth().Gap(1).Children(func() {
+		a.workflowTargetRow(c, t, i18n.T("flowTest"), "testBase", a.changes.flow.TestBase)
+		a.workflowTargetRow(c, t, i18n.T("flowRelease"), "releaseTarget", a.changes.flow.ReleaseTarget)
+	})
+	ui.Box(c).FillWidth().Height(1).Background(t.Line)
+}
+
+func (a *App) workflowTargetRow(c *ui.Context, t theme.Tokens, label, key, value string) {
+	editing := a.changes.flowEdit == key
+	row := ui.Row(c).FillWidth().Height(30).Padding(0, 4).Gap(8).AlignItems(ui.Center)
+	row.Children(func() {
+		ui.Text(c, label).FontSize(theme.TextMicro).TextColor(t.Ink3).Width(60).MaxLines(1)
+		if editing {
+			ui.Row(c).Grow(1).Height(24).Radius(theme.RadiusChip).Padding(0, 6).
+				Background(t.Field).Border(1, t.LineSoft).AlignItems(ui.Center).Children(func() {
+				field := ui.TextInputBase(c, &a.changes.flowDraft).FontSize(theme.TextSmall).
+					Height(20).Grow(1)
+				field.OnSubmit(func() { a.saveWorkflow(key) })
+			})
+			return
+		}
+		ui.Text(c, value).FontSize(theme.TextSmall).FontWeight(500).TextColor(t.Ink).
+			Grow(1).MaxLines(1)
+		edit := ui.ButtonBase(c).Size(22, 22).Radius(theme.RadiusChip).Justify(ui.Center).
+			AlignItems(ui.Center).Cursor(ui.CursorPointer).Tooltip(i18n.T("flowEditTip"))
+		if edit.Hovered() {
+			edit = edit.Background(t.Field)
+		}
+		edit.Children(func() { ui.Icon(c, icons.Pencil).Size(11, 11).TextColor(t.Ink3) })
+		edit.OnClick(func() {
+			a.changes.flowEdit = key
+			a.changes.flowDraft = value
+			a.invalidate()
+		})
 	})
 }
 

@@ -278,6 +278,9 @@ var zh = map[string]string{
 	// The comparison base: what a chat's work is measured against, and where a
 	// merge lands.
 	"baseChip":          "基准 {branch}",
+	"flowTest":          "提测去向",
+	"flowRelease":       "上线去向",
+	"flowEditTip":       "改这个项目的去向分支",
 	"branchesTab":       "分支",
 	"branchesNone":      "这个仓库还没有分支",
 	"branchCurrent":     "当前",
@@ -724,6 +727,9 @@ var en = map[string]string{
 	"andMore":           " and {n} more",
 	// The comparison base.
 	"baseChip":          "base {branch}",
+	"flowTest":          "hand to",
+	"flowRelease":       "release to",
+	"flowEditTip":       "change where this project's work goes",
 	"branchesTab":       "Branches",
 	"branchesNone":      "This repository has no branches yet",
 	"branchCurrent":     "current",
