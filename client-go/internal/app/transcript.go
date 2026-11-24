@@ -334,9 +334,60 @@ func (a *App) assistantRow(c *ui.Context, t theme.Tokens, row threadRow) {
 		ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
 			a.images(c, row.images, 240, 160)
 			if row.text != "" {
-				markdown.View(c, row.text, a.transcriptMarkdown(t))
+				a.answerBody(c, t, row)
 			}
 			a.messageActions(c, t, row, hovered, false)
+		})
+	})
+}
+
+// longAnswerChars is where an answer stops being read and starts being scrolled:
+// about a screenful at 13 points in a 680-point measure.
+const longAnswerChars = 900
+
+// longAnswerHeight is the preview's height: fourteen lines and a little air, so
+// the cut lands inside a paragraph rather than after a heading.
+const longAnswerHeight = 300
+
+// answerBody is the model's answer, with the length of it behind a fold. A 2000
+// character status report pushes everything after it off the screen, and the
+// person reading a chat wants the newest exchange first, not one wall of prose.
+func (a *App) answerBody(c *ui.Context, t theme.Tokens, row threadRow) {
+	if len([]rune(row.text)) <= longAnswerChars {
+		markdown.View(c, row.text, a.transcriptMarkdown(t))
+		return
+	}
+	open := a.vm.longOpen[row.id]
+	ui.Column(c).FillWidth().Gap(4).Children(func() {
+		if open {
+			markdown.View(c, row.text, a.transcriptMarkdown(t))
+		} else {
+			preview := ui.Column(c).FillWidth().MaxHeight(longAnswerHeight).ClipY()
+			preview.Children(func() {
+				markdown.View(c, row.text, a.transcriptMarkdown(t))
+			})
+			// The clip lands inside a line whatever height is chosen, and half a
+			// glyph reads as a strikethrough. A scrim over the last few points
+			// fades it out instead, the way a fold is meant to look.
+			ui.Box(c).FillWidth().Height(14).Margin(-14, 0, 0, 0).
+				Gradient(t.Surface.Alpha(0), t.Surface, 180)
+		}
+		fold := ui.ButtonBase(c).Width(96).Height(20).Padding(0, 4).Radius(theme.RadiusChip).
+			Justify(ui.Start).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+		if fold.Hovered() {
+			fold = fold.Background(t.Field)
+		}
+		fold.Children(func() {
+			label := i18n.T("answerMore")
+			if open {
+				label = i18n.T("answerLess")
+			}
+			ui.Text(c, label).FontSize(theme.TextSmall).FontWeight(500).TextColor(t.Ink2).
+				MaxLines(1)
+		})
+		fold.OnClick(func() {
+			a.vm.longOpen[row.id] = !open
+			a.invalidate()
 		})
 	})
 }

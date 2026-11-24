@@ -47,6 +47,8 @@ var zh = map[string]string{
 
 	"emptyThread":     "还没有消息。",
 	"loadFailed":      "连不上 bridge",
+	"answerMore":      "展开全文",
+	"answerLess":      "收起",
 	"retry":           "重试",
 	"outputMore":      "… 还有 {n} 行",
 	"thinking":        "思考",
@@ -473,6 +475,8 @@ var en = map[string]string{
 
 	"emptyThread":     "No messages yet.",
 	"loadFailed":      "Can't reach the bridge",
+	"answerMore":      "show all",
+	"answerLess":      "collapse",
 	"retry":           "Retry",
 	"outputMore":      "… {n} more lines",
 	"thinking":        "Thinking",

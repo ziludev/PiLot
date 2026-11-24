@@ -204,7 +204,10 @@ type viewModel struct {
 	// groups is the disclosure state of a run's per-tool groups, keyed by
 	// (row id, tool name). A group not in the map is closed: the first thing
 	// an opened run shows is what it used, not every call it made.
-	groups     map[string]bool
+	groups map[string]bool
+	// longOpen is whether a long answer has been opened to its full length,
+	// keyed by row id. A message not in the map is folded to a preview.
+	longOpen   map[any]bool
 	projection map[int]projectionCache
 	railCache  []railRow
 	railStamp  uint64
@@ -286,6 +289,7 @@ func newApp(cfg Config) *App {
 			newFrom:    map[int]int{},
 			folds:      map[string]bool{},
 			groups:     map[string]bool{},
+			longOpen:   map[any]bool{},
 			projection: map[int]projectionCache{},
 		},
 	}

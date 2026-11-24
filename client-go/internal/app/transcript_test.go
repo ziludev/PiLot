@@ -1,11 +1,14 @@
 package app
 
 import (
+	"encoding/json"
 	"image"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
 
+	"pitta/internal/i18n"
 	"pitta/internal/protocol"
 )
 
@@ -87,4 +90,51 @@ func TestNarrowPaneKeepsItsGutter(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestLongAnswerFolds: a 2000-character answer is previewed at fourteen lines and
+// the rest is behind a control, because one status report otherwise pushes every
+// later exchange off the screen.
+func TestLongAnswerFolds(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	long := strings.Repeat("这一条是状态汇报，写得很长。"+"\n\n", 80)
+	body, err := json.Marshal([]map[string]string{{"type": "text", "text": long}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The fixture's active chat is 11; the answer replaces whatever it had.
+	th := a.thread(11)
+	th.entries = []protocol.Entry{entryJSON(t, 900, "pi.assistant",
+		a.now, `[{"role":"assistant","timestamp":__ts,"content":`+string(body)+`}]`)}
+	th.loaded = true
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	if !tt.HasText("展开全文") {
+		t.Fatalf("a long answer has no fold; drew %v", tt.Texts())
+	}
+	tt.Click("展开全文")
+	tt.Frame()
+	if !tt.HasText("收起") {
+		t.Fatalf("opening the answer did not offer to fold it again; drew %v", tt.Texts())
+	}
+}
+
+// TestSnapshotLongAnswer folds a long answer for the eye: the preview should stop
+// inside the prose, not run to the transcript's bottom.
+func TestSnapshotLongAnswer(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	long := strings.Repeat("这一条是状态汇报，写得很长，长到足以把后面的消息推出屏幕。"+"\n\n", 40)
+	body, err := json.Marshal([]map[string]string{{"type": "text", "text": long}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	th := a.thread(11)
+	th.entries = []protocol.Entry{entryJSON(t, 900, "pi.assistant", a.now,
+		`[{"role":"assistant","timestamp":__ts,"content":`+string(body)+`}]`)}
+	th.loaded = true
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	writePNG(t, "/tmp/clientv2-longanswer.png", tt.Image())
 }
