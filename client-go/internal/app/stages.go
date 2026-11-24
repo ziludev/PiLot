@@ -68,56 +68,78 @@ func (a *App) stageBar(c *ui.Context, t theme.Tokens) {
 	if a.stageStrip == nil || len(a.stageStrip.Stages) == 0 {
 		return
 	}
-	ui.Row(c).FillWidth().Height(30).Padding(0, 14).Gap(10).
-		AlignItems(ui.Center).Background(t.Surface).
-		Children(func() {
-			for index, stage := range a.stageStrip.Stages {
-				if index > 0 {
-					ui.Text(c, "›").FontSize(theme.TextMicro).TextColor(t.Ink3)
+	// Two rows, not one: the steps are the strip, and the sentence that says what
+	// to do about them is a second thought. On one row a narrow pane squeezed the
+	// labels into one character per line — 提测到 release/test became a column of
+	// hanzi — because a row shrinks whatever does not fit.
+	// The strip's height is spelled out: a Column that only knows its children
+	// laid out at zero height and let the transcript draw over it.
+	note := stageNote(a.stageStrip)
+	stage, askable := stageAttention(a.stageStrip)
+	askable = askable && stage.State == "active"
+	second := note != "" || a.stageStrip.Rounds > 0 || askable
+	height := float32(30)
+	if second {
+		height += 22
+	}
+	ui.Column(c).FillWidth().Height(height+1).Background(t.Surface).Children(func() {
+		ui.Row(c).FillWidth().Height(30).Padding(0, 14).Gap(10).AlignItems(ui.Center).
+			Children(func() {
+				for index, stage := range a.stageStrip.Stages {
+					if index > 0 {
+						ui.Text(c, "›").FontSize(theme.TextMicro).TextColor(t.Ink3)
+					}
+					dot, label, weight := stageStateTone(t, stage.State)
+					if stage.State == "active" {
+						ui.Spinner(c).Size(9, 9).TextColor(dot)
+					} else {
+						ui.Box(c).Width(6).Height(6).Radius(3).Background(dot)
+					}
+					ui.Text(c, stage.Label).FontSize(theme.TextRow).FontWeight(weight).
+						TextColor(label).MaxLines(1)
+					if stage.Detail != "" {
+						ui.Text(c, stage.Detail).FontSize(theme.TextMicro).TextColor(t.Ink3).
+							MaxLines(1)
+					}
 				}
-				dot, label, weight := stageStateTone(t, stage.State)
-				step := ui.Row(c).Gap(6).AlignItems(ui.Center)
-				if stage.State == "active" {
-					ui.Spinner(c).Size(9, 9).TextColor(dot)
+			})
+		if !second {
+			ui.Box(c).FillWidth().Height(1).Background(t.Line)
+			return
+		}
+		ui.Row(c).FillWidth().Height(22).Padding(0, 14, 4, 14).Gap(8).
+			AlignItems(ui.Center).Children(func() {
+				if note != "" {
+					ui.Text(c, note).FontSize(theme.TextMicro).TextColor(t.Ink3).
+						MaxLines(1).Grow(1)
 				} else {
-					ui.Box(c).Width(6).Height(6).Radius(3).Background(dot)
+					ui.Spacer(c)
 				}
-				ui.Text(c, stage.Label).FontSize(theme.TextRow).FontWeight(weight).TextColor(label)
-				if stage.Detail != "" {
-					ui.Text(c, stage.Detail).FontSize(theme.TextMicro).TextColor(t.Ink3).MaxLines(1)
+				if a.stageStrip.Rounds > 0 {
+					label := i18n.TF("stageRounds", map[string]any{"n": a.stageStrip.Rounds, "max": a.stageStrip.RoundLimit})
+					colour := t.Ink3
+					if a.stageStrip.Rounds >= a.stageStrip.RoundLimit {
+						colour = t.Red
+					}
+					ui.Text(c, label).FontSize(theme.TextMicro).FontWeight(600).
+						TextColor(colour).MaxLines(1)
 				}
-				step.Children(func() {})
-			}
-			ui.Spacer(c)
-			// One sentence, not a tooltip: the thing to do next belongs on screen.
-			if said := stageNote(a.stageStrip); said != "" {
-				ui.Text(c, said).FontSize(theme.TextMicro).TextColor(t.Ink3).MaxLines(1)
-			}
-			// Only the running step is offered: a blocked one waits on a person,
-			// and a done one has nothing left to ask for.
-			if stage, ok := stageAttention(a.stageStrip); ok && stage.State == "active" {
-				ask := ui.ButtonBase(c).Height(22).Padding(0, 8).Radius(theme.RadiusChip).
-					Justify(ui.Center).AlignItems(ui.Center).
-					Cursor(ui.CursorPointer).Tooltip(i18n.T("stageAskTip"))
-				if ask.Hovered() {
-					ask = ask.Background(t.Field)
+				if askable {
+					ask := ui.ButtonBase(c).Height(20).Padding(0, 8).Radius(theme.RadiusChip).
+						Justify(ui.Center).AlignItems(ui.Center).
+						Cursor(ui.CursorPointer).Tooltip(i18n.T("stageAskTip"))
+					if ask.Hovered() {
+						ask = ask.Background(t.Field)
+					}
+					ask.Children(func() {
+						ui.Text(c, i18n.T("stageAsk")).FontSize(theme.TextMicro).FontWeight(500).
+							TextColor(t.Brand).MaxLines(1)
+					})
+					ask.OnClick(a.stageAsk)
 				}
-				ask.Children(func() {
-					ui.Text(c, i18n.T("stageAsk")).FontSize(theme.TextMicro).FontWeight(500).
-						TextColor(t.Brand).MaxLines(1)
-				})
-				ask.OnClick(a.stageAsk)
-			}
-			if a.stageStrip.Rounds > 0 {
-				label := i18n.TF("stageRounds", map[string]any{"n": a.stageStrip.Rounds, "max": a.stageStrip.RoundLimit})
-				colour := t.Ink3
-				if a.stageStrip.Rounds >= a.stageStrip.RoundLimit {
-					colour = t.Red
-				}
-				ui.Text(c, label).FontSize(theme.TextMicro).FontWeight(600).TextColor(colour)
-			}
-		})
-	ui.Box(c).FillWidth().Height(1).Background(t.Line)
+			})
+		ui.Box(c).FillWidth().Height(1).Background(t.Line)
+	})
 }
 
 // stageAttention is the step the strip is about: the one blocked, or else the

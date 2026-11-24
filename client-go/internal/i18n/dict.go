@@ -769,7 +769,7 @@ var en = map[string]string{
 	"newChatBranch":         "Branch name (optional)",
 	"newChatBranchHint":     "Name it and every project in this chat checks out that same branch",
 	"newChatCreate":         "Create",
-	"stageAsk":              "have it do it",
+	"stageAsk":              "draft it",
 	"stageAskTip":           "write this step into the composer; you edit it before sending",
 	"stageAskDev":           "Finish the work on {branch} in this chat, check it yourself, then merge it into {base} and push.",
 	"stageAskTest":          "Merge {branch} into {base}, push, then read the pipeline and tell me which job failed.",

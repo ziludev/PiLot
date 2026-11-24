@@ -146,3 +146,25 @@ func TestStagesFollowTheBranch(t *testing.T) {
 		t.Fatal("the strip did not ask again after the turn ended")
 	}
 }
+
+// TestStageStripKeepsItsWordsWhole: with the drawer open the strip has about 460
+// points, and a single row there squeezed 提测到 release/test into a column of
+// one hanzi per line. MaxLines and a second row are what keep it a sentence.
+func TestStageStripKeepsItsWordsWhole(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := stageFixture(t, `{"branch":"feat/x","base":"release/test","target":"feature/server",`+
+		`"rounds":1,"roundLimit":3,"stages":[`+
+		`{"key":"dev","label":"开发","state":"done","detail":"2 个提交"},`+
+		`{"key":"test","label":"提测到 release/test","state":"active","nextAction":"合到 release/test 并推送"},`+
+		`{"key":"release","label":"发布到 feature/server","state":"todo"},`+
+		`{"key":"ship","label":"上线","state":"todo"}]}`)
+	a.changes.open = true
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	for _, want := range []string{"提测到 release/test", "发布到 feature/server", "合到 release/test 并推送"} {
+		if !tt.HasText(want) {
+			t.Errorf("the strip broke %q into pieces; drew %v", want, tt.Texts())
+		}
+	}
+	writePNG(t, "/tmp/clientv2-stages-narrow.png", tt.Image())
+}
