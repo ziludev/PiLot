@@ -71,7 +71,9 @@ func (a *App) toggleRailCollapsed() {
 func (a *App) sideHeader(c *ui.Context, t theme.Tokens) {
 	ui.Row(c).FillWidth().Height(40).Padding(0, 8, 10, 8).AlignItems(ui.Start).Gap(4).Children(func() {
 		if a.railCollapsed {
-			open := ui.ButtonBase(c).Size(28, 28).Radius(theme.RadiusControl).Justify(ui.Center).
+			// Full width, centred like a nav row: a 28-point button sat six points
+			// left of the icons, so the logo was off the rail's axis.
+			open := ui.ButtonBase(c).FillWidth().Height(32).Radius(theme.RadiusControl).Justify(ui.Center).
 				AlignItems(ui.Center).Cursor(ui.CursorPointer).Tooltip(i18n.T("expandRail"))
 			if open.Hovered() {
 				open = open.Background(t.Hover2)
