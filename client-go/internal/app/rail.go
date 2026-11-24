@@ -124,7 +124,11 @@ func (a *App) sideNav(c *ui.Context, t theme.Tokens) {
 			a.rail == railChats, func() { a.setRail(railChats) })
 		a.sideRow(c, t, icons.Checklist, i18n.T("tasks"), len(a.tasks),
 			a.rail == railTasks, func() { a.setRail(railTasks) })
-		a.sideRow(c, t, icons.Folder, i18n.T("projects"), 0, a.projects.open, a.toggleProjects)
+		// 项目 opens a drawer rather than switching the list, so it does not take
+		// the row highlight: with it lit, the drawer and the section the rail is
+		// showing were both marked, and two lit rows say nothing about where you
+		// are. The drawer is its own cue; folded, the logo carries it.
+		a.sideRow(c, t, icons.Folder, i18n.T("projects"), 0, false, a.toggleProjects)
 		enabled := 0
 		for _, row := range a.ext.items {
 			if row.Enabled {
