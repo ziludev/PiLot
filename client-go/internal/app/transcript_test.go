@@ -138,3 +138,31 @@ func TestSnapshotLongAnswer(t *testing.T) {
 	tt.Frame()
 	writePNG(t, "/tmp/clientv2-longanswer.png", tt.Image())
 }
+
+// TestUserTurnIsMarkdownAndFolds: the person's own long paste is read as markdown
+// and folded like an answer. Pasting a quoted bot reply used to carry its ** and
+// backticks as punctuation and fill the screen.
+func TestUserTurnIsMarkdownAndFolds(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	long := "[引用·bot 的消息]\n\n" + strings.Repeat("**又加两条**：`tests/x.ts` 里的那条断言反过来了。\n\n", 40)
+	body, err := json.Marshal([]map[string]string{{"type": "text", "text": long}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	th := a.thread(11)
+	th.entries = []protocol.Entry{entryJSON(t, 902, "pi.user", a.now,
+		`[{"role":"user","timestamp":__ts,"content":`+string(body)+`}]`)}
+	th.loaded = true
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	if !tt.HasText("展开全文") {
+		t.Fatalf("a long user turn has no fold; drew %v", tt.Texts())
+	}
+	for _, got := range tt.Texts() {
+		if strings.Contains(got, "**") || strings.Contains(got, "`tests/x.ts`") {
+			t.Fatalf("markdown was not read: %q", got)
+		}
+	}
+	writePNG(t, "/tmp/clientv2-userturn.png", tt.Image())
+}

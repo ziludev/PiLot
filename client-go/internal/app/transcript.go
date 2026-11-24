@@ -311,7 +311,11 @@ func (a *App) userRow(c *ui.Context, t theme.Tokens, row threadRow) {
 			bubble.Children(func() {
 				a.images(c, row.images, 180, 120)
 				if row.text != "" {
-					ui.Text(c, row.text).FontSize(theme.TextTitle).TextColor(t.Ink)
+					// The person's own words get the same markdown as an answer:
+					// a quoted bot reply pasted into the box carried its ** and
+					// backticks as punctuation otherwise, and a long one pushed
+					// the reply it was answering off the screen.
+					a.answerBody(c, t, row, t.Field)
 				}
 			})
 			a.messageActions(c, t, row, hovered, true)
@@ -334,7 +338,7 @@ func (a *App) assistantRow(c *ui.Context, t theme.Tokens, row threadRow) {
 		ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
 			a.images(c, row.images, 240, 160)
 			if row.text != "" {
-				a.answerBody(c, t, row)
+				a.answerBody(c, t, row, t.Surface)
 			}
 			a.messageActions(c, t, row, hovered, false)
 		})
@@ -352,7 +356,7 @@ const longAnswerHeight = 300
 // answerBody is the model's answer, with the length of it behind a fold. A 2000
 // character status report pushes everything after it off the screen, and the
 // person reading a chat wants the newest exchange first, not one wall of prose.
-func (a *App) answerBody(c *ui.Context, t theme.Tokens, row threadRow) {
+func (a *App) answerBody(c *ui.Context, t theme.Tokens, row threadRow, behind ui.Color) {
 	if len([]rune(row.text)) <= longAnswerChars {
 		markdown.View(c, row.text, a.transcriptMarkdown(t))
 		return
@@ -370,7 +374,7 @@ func (a *App) answerBody(c *ui.Context, t theme.Tokens, row threadRow) {
 			// glyph reads as a strikethrough. A scrim over the last few points
 			// fades it out instead, the way a fold is meant to look.
 			ui.Box(c).FillWidth().Height(14).Margin(-14, 0, 0, 0).
-				Gradient(t.Surface.Alpha(0), t.Surface, 180)
+				Gradient(behind.Alpha(0), behind, 180)
 		}
 		fold := ui.ButtonBase(c).Width(96).Height(20).Padding(0, 4).Radius(theme.RadiusChip).
 			Justify(ui.Start).AlignItems(ui.Center).Cursor(ui.CursorPointer)
