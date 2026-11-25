@@ -97,3 +97,15 @@ test("snapshots older than a week are dropped", async () => {
   assert.equal(existsSync(join(root, "2026-11-01")), false);
   assert.equal(existsSync(join(root, "2026-11-20")), true);
 });
+
+test("a day window does not matter if one day alone fills the disk", async () => {
+  const { source, root } = fixture();
+  for (const time of ["09:00:00", "10:00:00", "11:00:00", "12:00:00"]) {
+    await snapshotTree(source, new Date(`2026-11-20T${time}`), root);
+  }
+  await pruneSnapshots(new Date("2026-11-21T09:00:00Z"), 7, root, 2);
+  assert.equal(existsSync(join(root, "2026-11-20/110000")), true);
+  assert.equal(existsSync(join(root, "2026-11-20/120000")), true);
+  assert.equal(existsSync(join(root, "2026-11-20/100000")), false);
+  assert.equal(existsSync(join(root, "2026-11-20/090000")), false);
+});

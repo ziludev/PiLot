@@ -129,15 +129,32 @@ async function safeList(path: string): Promise<string[]> {
 }
 
 /**
- * Snapshots are only useful for the minutes after a mistake; keep a week and delete whole day
- * directories, which is also what keeps a mis-timed restore from reaching into months of history.
+ * Snapshots are only useful for the minutes after a mistake: a day window is plenty, and a busy day
+ * needs a cap of its own, because a full copy per turn times a hundred turns a day fills a laptop
+ * long before the window closes. Whole day directories still go together, which keeps a mis-timed
+ * restore from reaching back into months of history.
  */
-export async function pruneSnapshots(now = new Date(), days = 7, root = snapshotRoot()): Promise<void> {
+export const KEEP_DAYS = 2;
+export const KEEP_PER_DAY = 20;
+
+export async function pruneSnapshots(
+  now = new Date(),
+  days = KEEP_DAYS,
+  root = snapshotRoot(),
+  perDay = KEEP_PER_DAY,
+): Promise<void> {
   const cutoff = now.getTime() - days * 24 * 60 * 60 * 1000;
   for (const name of await safeList(root).catch(() => [])) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(name)) continue;
     const at = new Date(`${name}T00:00:00`).getTime();
-    if (Number.isNaN(at) || at >= cutoff) continue;
+    if (Number.isNaN(at) || at >= cutoff) {
+      // Kept days still get trimmed: newest first is what a restore wants anyway.
+      const times = (await safeList(join(root, name)).catch(() => [])).sort().reverse();
+      for (const stale of times.slice(Math.max(perDay, 1))) {
+        await rm(join(root, name, stale), { recursive: true, force: true });
+      }
+      continue;
+    }
     await rm(join(root, name), { recursive: true, force: true });
   }
 }

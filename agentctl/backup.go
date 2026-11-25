@@ -17,7 +17,9 @@ func (p project) keepSnapshots() int {
 			return value
 		}
 	}
-	return 14
+	// Three days of dailies is enough to catch "the bug showed up over the weekend": each copy is a
+	// full database, so the retention multiplies a growing file by two weeks of nothing to find.
+	return 3
 }
 
 // backup takes a hot snapshot through SQLite's own `.backup`, safe while the agent runs: the WAL is
