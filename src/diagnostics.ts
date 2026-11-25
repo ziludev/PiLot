@@ -123,18 +123,32 @@ export function parseLogsQuery(args: Record<string, unknown>): LogsQuery | strin
  * have to interrupt the conversation to get a human to type the query.
  */
 /** Where `project_search` may look: the workspace plus the project this chat is bound to. */
+/**
+ * `~/work/x` is a path the model writes, and `resolve(base, "~/work/x")` quietly makes it
+ * `<base>/~/work/x`: inside the allowed roots, so the guard passes and ripgrep is handed a path
+ * that cannot exist. On 11-25 that produced `rg … /workspace/~/work/…` and a search that "failed"
+ * for no stated reason. Expanding it first makes the guard answer with what is actually allowed.
+ */
+export function expandHome(raw: string): string {
+  if (raw === "~") return homedir();
+  return raw.startsWith("~/") ? join(homedir(), raw.slice(2)) : raw;
+}
+
 export function searchRoot(
   args: Record<string, unknown>,
   roots: readonly string[],
 ): { ok: true; path: string } | { ok: false; reason: string } {
   const base = roots[0] ?? config.workspace;
   const raw = typeof args["path"] === "string" && args["path"].length > 0 ? args["path"] : "";
-  const absolute = raw.length === 0 ? base : resolve(base, raw);
+  const expanded = expandHome(raw);
+  const absolute = raw.length === 0 ? base : resolve(base, expanded);
   const inside = roots.some((root) => {
     const resolved = resolve(root);
     return absolute === resolved || absolute.startsWith(`${resolved}/`);
   });
-  return inside ? { ok: true, path: absolute } : { ok: false, reason: `不能再搜 ${raw}：只允许本会话所属项目和工作区。` };
+  return inside
+    ? { ok: true, path: absolute }
+    : { ok: false, reason: `不能再搜 ${raw}：只允许本会话所属项目和工作区（${roots.join("、")}）。` };
 }
 
 function clip(text: string): string {

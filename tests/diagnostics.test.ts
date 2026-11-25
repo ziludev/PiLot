@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cliFailure, parseDbQuery, parseLogsQuery, searchRoot } from "../src/diagnostics.ts";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { cliFailure, expandHome, parseDbQuery, parseLogsQuery, searchRoot } from "../src/diagnostics.ts";
 
 /**
  * The two read-only tools exist so a colleague can search the code and look at logs without a
@@ -44,6 +46,20 @@ test("project_search stays inside the chat's own project", () => {
   // A sibling whose name starts the same is not inside the project.
   assert.equal(searchRoot({ path: "/Users/example/work/example-service-secrets" }, roots).ok, false);
   assert.equal(searchRoot({ path: "../../../etc" }, roots).ok, false);
+});
+
+test("a ~ path is expanded, not tucked under the workspace and handed to ripgrep", () => {
+  // 11-25 21:37: `rg … /workspace/~/work/sitin-…` — the guard passed because `~/work/x` resolved
+  // inside the workspace, and the search "failed" with no reason anyone could act on.
+  assert.equal(expandHome("~/work/x"), join(homedir(), "work/x"));
+  assert.equal(expandHome("~"), homedir());
+  assert.equal(expandHome("/etc"), "/etc");
+
+  const outside = searchRoot({ path: "~/work/other-repo" }, [WS]);
+  assert.equal(outside.ok, false);
+  assert.match(String((outside as { reason: string }).reason), /只允许/);
+  // A home path that really is the workspace still works.
+  assert.equal(searchRoot({ path: `${WS}/user-service` }, [WS]).ok, true);
 });
 
 test("db_query defaults to the dev cluster and clamps the row count", () => {
