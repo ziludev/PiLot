@@ -23,8 +23,10 @@ test("the trail is written above the steps, and the header counts it", () => {
     costUsd: 0.0281,
     decisions: [{ at: new Date(2026, 0, 2, 9, 5).getTime(), kind: "approval", text: "你允许了 write · 等了 2 分钟" }],
   });
-  // Money stays out of the panel header: it is in the log line and the cost_usd metric.
-  assert.match(card.header.title.content, /1 步 · 171s · 1 次决策/);
+  // Money and duration stay out of the panel header: the ping under the card says how long, and
+  // the money is in the log line and the cost_usd metric.
+  assert.match(card.header.title.content, /1 步 · 1 次决策/);
+  assert.doesNotMatch(card.header.title.content, /171s|\$/);
   const body = text(card);
   assert.ok(body.indexOf("决策") < body.indexOf("bash"), "the reason comes before the work");
   assert.match(body, /09:05 你允许了 write · 等了 2 分钟/);
@@ -76,9 +78,9 @@ test("an earlier step under budget still says it printed nothing", () => {
   assert.match(body, /（无输出）/);
 });
 
-test("a card whose turn pings drops the seconds the ping already says", () => {
-  // `forCard` zeroes the seconds: the ping right under the card ends with "· 68s".
-  const card = panel({ steps: [{ name: "bash", ok: true, preview: "ok" }], seconds: 0, costUsd: 0 });
+test("the panel never prints a duration, ping or no ping", () => {
+  // The ping right under the card ends with "· 68s"; the panel saying it again read as a stutter.
+  const card = panel({ steps: [{ name: "bash", ok: true, preview: "ok" }], seconds: 68, costUsd: 0 });
   assert.match(card.header.title.content, /^\*\*本轮执行详情\*\* · 1 步$/);
-  assert.doesNotMatch(card.header.title.content, /0s/);
+  assert.doesNotMatch(card.header.title.content, /68s|s\b/);
 });

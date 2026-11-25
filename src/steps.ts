@@ -241,19 +241,20 @@ function seconds(ms: number): string {
   return `${Math.floor(value / 60)}m${String(value % 60).padStart(2, "0")}s`;
 }
 
-/** The trail as card lines: finished rounds ticked, the running one marked, oldest dropped first. */
-export function renderSteps(trail: Trail, now: number, options: { limit?: number } = {}): string {
-  const limit = options.limit ?? 5;
-  const lines: string[] = [];
-  const hidden = Math.max(0, trail.rounds.length - limit);
-  if (hidden > 0) lines.push(`⋯ 前面还有 ${hidden} 步`);
-  for (const round of trail.rounds.slice(hidden)) {
-    lines.push(`✓ ${stepLine(round.label, round.hint, seconds(round.ms), round.tail)}`);
-  }
+/**
+ * The one tool line a live card shows: the round that is running, or the last one that ended.
+ *
+ * A finished round is history — it is in the answer card's panel — and five of them stacked on a
+ * running card pushed the answer off a phone screen. The count of finished rounds lives in the
+ * subtitle instead, so this stays a single line.
+ */
+export function renderRunning(trail: Trail, now: number): string {
   if (trail.key !== undefined && trail.key.length > 0 && (trail.label ?? "").length > 0) {
-    lines.push(`▸ ${stepLine(trail.label ?? "", trail.hint, seconds(now - trail.since))}`);
+    return `▸ ${stepLine(trail.label ?? "", trail.hint, seconds(now - trail.since))}`;
   }
-  return lines.join("\n");
+  const last = trail.rounds[trail.rounds.length - 1];
+  if (last === undefined) return "";
+  return `✓ ${stepLine(last.label, last.hint, seconds(last.ms), last.tail)}`;
 }
 
 /** `🌿 bash \`git log --oneline -3\` · 2s`: the name, what it ran, how long, and the last thing it said. */

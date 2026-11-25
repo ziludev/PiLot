@@ -1,18 +1,21 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-test("a running pipeline's stage sits above the tool rounds", async () => {
+test("a running pipeline's stage sits above the tool round", async () => {
   const { renderLive } = await import("../src/feishu.ts");
-  const live = { text: "", tools: [], rounds: [], thinking: "", at: Date.now() };
+  const live = { text: "", tools: [], thinking: "", at: Date.now() };
   const trail = {
-    rounds: [{ at: Date.now() - 3_000, label: "bash", ok: true, ms: 3_000 }],
-    steps: 3,
+    rounds: [{ at: Date.now() - 3_000, label: "bash", ok: true, ms: 3_000, hint: "git log --oneline -3" }],
+    since: Date.now(),
+    key: "bash",
+    label: "read",
+    hint: "src/feishu.ts",
   };
-  const out = renderLive(live as never, undefined, trail as never, ["▸ 按设计文档实现代码 · 2m 18s"]);
+  const out = renderLive(live as never, trail as never, ["▸ 按设计文档实现代码 · 2m 18s"]);
   const stage = out.indexOf("▸ 按设计文档实现代码");
-  const round = out.indexOf("bash");
+  const round = out.indexOf("read");
   assert.ok(stage >= 0, `no stage line in:\n${out}`);
-  assert.ok(stage < round, `stage should come before the tool rounds:\n${out}`);
+  assert.ok(stage < round, `stage should come before the tool round:\n${out}`);
 });
 
 test("the model's thinking rides above its answer, clipped to a line", async () => {
@@ -34,10 +37,10 @@ test("a card with no thinking says so instead of showing an empty thought", asyn
   assert.match(out, /⌨️ bash/);
 });
 
-// A turn here looks like five `bash` in a row — the web is curl, the repo is git, the tests are
-// `go test`. Icons picked by tool name alone therefore drew a keyboard five times, and the reader
-// still had to look into every line to find out where the run was.
-test("each bash round on the card says which command it ran, with the icon that goes with it", async () => {
+// The card used to stack up to five finished rounds above the answer, which on a phone meant the
+// screen was history and no line said what was happening now. One round earns a line; the count of
+// finished ones is in the subtitle (`第 3 步`).
+test("only the round that is running earns a line on the live card", async () => {
   const { renderLive } = await import("../src/feishu.ts");
   const live = { text: "", tools: [], thinking: "", at: Date.now() };
   const trail = {
@@ -51,10 +54,10 @@ test("each bash round on the card says which command it ran, with the icon that 
     hint: "cd client-go && go test ./...",
     tail: "ok pitta/internal/app",
   };
-  const out = renderLive(live as never, undefined, trail as never);
-  assert.match(out, /🌿 bash `git log --oneline -3`/);
-  assert.match(out, /🌐 bash `curl -s https:\/\/example\.com`/);
+  const out = renderLive(live as never, trail as never);
   assert.match(out, /🧪 bash `cd client-go && go test \.\/\.\.\.`/);
+  assert.doesNotMatch(out, /git log --oneline -3/, `a finished round is history, not the live card:\n${out}`);
+  assert.doesNotMatch(out, /curl -s/, `a finished round is history, not the live card:\n${out}`);
 });
 
 test("a clipped thought starts on a sentence, not mid-markdown", async () => {

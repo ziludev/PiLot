@@ -3,13 +3,13 @@ import { readdir, readFile, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import * as Lark from "@larksuiteoapi/node-sdk";
-import { UsageDoc } from "@earendil-works/pi-durable";
+
 import { config, requireFeishuCredentials, requireFeishuOwner } from "./config.ts";
 import { markTree, touchedSince } from "./changes.ts";
 import { gatewayClient, gatewayEndpoint, type FeishuIm, type ImResponse } from "./feishu-gw.ts";
 import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
 import { runInFlight, watchLive, type LiveSnapshot } from "./live.ts";
-import { advance, renderSteps, skillOf, stepCount, toolIcon, withIcons, type Trail } from "./steps.ts";
+import { advance, renderRunning, skillOf, stepCount, toolIcon, withIcons, type Trail } from "./steps.ts";
 import { composeAnswer, type AnswerBlock } from "./answer.ts";
 import {
   conversationForSurface,
@@ -211,12 +211,27 @@ type CardHeader = { template: "green" | "orange" | "grey" | "red" | "blue"; titl
  * has to carry it again — otherwise the header exists only until the first update 15s later.
  */
 const WORKING_HEADER: CardHeader = { template: "blue", title: "⏳ 处理中" };
+/**
+ * Feishu's own two status marks on the message a turn answers. They live outside the card on
+ * purpose: a card patch is silent, so in a group these ticks are what a passer-by reads without
+ * opening the thread.
+ */
+const REACTION_WORKING = "OnIt";
+const REACTION_DONE = "DONE";
+
+/** Why a run stopped, in words a person uses. The enum stays in the log and in the transcript. */
+export function stopReason(reason: string | undefined): string {
+  if (reason === undefined || reason === "unanswered") return "模型没给出答案";
+  if (reason === "turn_limit") return `跑到 ${config.maxTurns} 步上限`;
+  if (reason === "aborted") return "被叫停了";
+  return reason;
+}
 
 /** The band on a card that is not the turn's own: a recovered answer arrives as a new message. */
 function standaloneHeader(reason: string | undefined): CardHeader {
   return reason === "turn_limit"
     ? { template: "orange", title: `⏸️ 到了 ${config.maxTurns} 步上限` }
-    : { template: "grey", title: `⚠️ 这次没答出来 · ${reason ?? "unanswered"}` };
+    : { template: "grey", title: "⚠️ 这轮没跑完" };
 }
 
 /**
@@ -267,12 +282,10 @@ export function detailPanel(details: Omit<TurnDetails, "at">): Record<string, un
   // The trail goes first: "why it took two minutes" is read before "what it ran".
   const decisionLines = (details.decisions ?? []).map(formatDecision);
   const body = decisionLines.length > 0 ? ["**决策**", ...decisionLines, ...lines] : lines;
-  // Steps and seconds only: the money used to be printed here as well as in the line under the
-  // answer, and the panel header is the wrong place for a ledger nobody opens it for. A `seconds`
-  // of 0 is the card copy of a turn that pings below it: the ping already ends with "· 68s".
-  const summary = `${details.steps.length} 步${details.seconds > 0 ? ` · ${details.seconds}s` : ""}${
-    decisionLines.length > 0 ? ` · ${decisionLines.length} 次决策` : ""
-  }`;
+  // Steps and decisions only. The duration lives in the ping under the card — the one place a
+  // reader can see it — and printing it here as well made the two messages stutter at each other.
+  // Money never belonged in a panel header nobody opens it for.
+  const summary = `${details.steps.length} 步${decisionLines.length > 0 ? ` · ${decisionLines.length} 次决策` : ""}`;
   return {
     tag: "collapsible_panel",
     expanded: false,
@@ -829,14 +842,6 @@ export function digestOf(text: string): string {
 }
 
 /** What a card needs to say more than "处理中": whose turn it is. */
-type CardTrace = { digest: string };
-
-/**
- * The running turn, as a card body: the user's line, then what has already been done, then what is
- * running now (with its age, the only signal a hanging round gives), then the answer as it streams.
- * The step trail is why a five-minute turn no longer reads `bash · 0s` and nothing else.
- */
-/** How much of a thought fits on a card before it stops being a card. */
 const THINKING_TAIL = 280;
 
 /**
@@ -876,16 +881,25 @@ function thinkingLine(thinking: string | undefined): string {
   return `_💭 ${thinkingTail(flat)}_`;
 }
 
-export function renderLive(live: LiveSnapshot, trace?: CardTrace, trail?: Trail, stages?: string[]): string {
+/**
+ * The live card's body: one line of the present, then the answer as it is being written.
+ *
+ * It used to carry five things at once — a quote of the message, up to five finished rounds, the
+ * activity note, the thought and the streaming answer — which on a phone filled the screen without
+ * saying what was happening *now*. The finished rounds are in the panel of the answer card; here
+ * only the round that is running earns its line, and the subtitle counts the rest.
+ */
+export function renderLive(live: LiveSnapshot, trail?: Trail, stages?: string[]): string {
   const body = live.text.trim();
-  const steps = trail === undefined ? "" : renderSteps(trail, Date.now());
+  const steps = trail === undefined ? "" : renderRunning(trail, Date.now());
   const thought = thinkingLine(live.thinking);
-  // Once there are tool rounds, the thought is what the model did *before* them: printing it above
-  // the steps spent a third of the card saying something the steps already answered.
+  // Once there is a round on screen, the thought and the activity note are what the model did
+  // *before* it: printing them above the round spends the card saying what the round already says.
   const showThought = thought.length > 0 && steps.length === 0;
-  const activity = live.activity !== undefined && live.activity.length > 0 ? `_${live.activity}_` : "";
+  const activity =
+    steps.length === 0 && live.activity !== undefined && live.activity.length > 0 ? `_${live.activity}_` : "";
   const parts: string[] = [];
-  // A pipeline's stage is the biggest thing happening, so it goes above the tool rounds.
+  // A pipeline's stage is the biggest thing happening, so it goes above the tool round.
   if (stages !== undefined && stages.length > 0) parts.push(stages.join("\n"));
   if (steps.length > 0) parts.push(steps);
   else if (body.length === 0 && thought.length === 0 && live.tools.length > 0) parts.push(withIcons(live.tools.join(" · ")));
@@ -894,8 +908,7 @@ export function renderLive(live: LiveSnapshot, trace?: CardTrace, trail?: Trail,
   if (showThought) parts.push(thought);
   if (body.length > 0) parts.push(clip(body));
   else if (thought.length === 0 && (steps.length > 0 || live.tools.length === 0)) parts.push("🤔 思考中…");
-  const inner = parts.join("\n\n");
-  return trace === undefined || trace.digest.length === 0 ? inner : `▸ ${trace.digest}\n\n${inner}`;
+  return parts.join("\n\n");
 }
 
 type PostElement = { tag?: string; text?: string; image_key?: string };
@@ -996,20 +1009,8 @@ export function parseModelCommand(raw: string): ModelCommand {
   return { kind: "set", modelId: arg };
 }
 
-/** 12.3k / 940: the card line has no room for six digits. */
-export function formatTokens(tokens: number): string {
-  if (!Number.isFinite(tokens) || tokens <= 0) return "0";
-  return tokens >= 1_000 ? `${(tokens / 1000).toFixed(1)}k` : String(Math.round(tokens));
-}
-
 /**
- * What a finished turn cost, in one line under the card: tools, tokens, money, model.
- *
- * No duration here: the "答完了" ping right below the card already says how long it took, and the
- * same number twice in two adjacent messages is noise. The start time went with it.
- */
-/**
- * What the finished card says about files: three names and a count under the cost line. On a phone
+ * What the finished card says about files: three names and a count. On a phone
  * this is the one fact the client would otherwise be opened for — "did it actually touch anything,
  * and what". A turn that only talked prints nothing at all.
  */
@@ -1018,31 +1019,6 @@ export function touchedLine(files: string[]): string {
   const shown = files.slice(0, 3).map((path) => `\`${path}\``).join(" · ");
   const rest = files.length - 3;
   return `📝 改了 ${files.length} 个文件：${shown}${rest > 0 ? ` …还有 ${rest} 个` : ""}`;
-}
-
-function withTouched(meta: string, files: string[]): string {
-  const line = touchedLine(files);
-  if (line === "") return meta;
-  return meta.trim() === "" ? line : `${meta}\n${line}`;
-}
-
-export function turnMeta(input: {
-  tools: number;
-  tokens: number;
-  costUsd: number;
-  model: string;
-  thinking: string;
-  /**
-   * A group card is read by whoever asked, not by the person paying. 十四步、886k tokens、
-   * $0.29、deepseek-flash 这些是账本，同事看到只会觉得「这 bot 在说什么」——所以群里那行
-   * 什么都不留。
-   */
-  quiet?: boolean;
-}): string {
-  // A line holding nothing but the tick was read as a stray emoji under the answer: the green
-  // header already says "✅ 答完了", and in a thread the ping right below says it again.
-  if (input.quiet === true) return "";
-  return input.tools > 0 ? `✅ · ${input.tools} 个工具` : "";
 }
 
 /** A quoted message, as the model needs it: who wrote it and what it said. */
@@ -1660,6 +1636,41 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     });
   }
 
+  /**
+   * The 👀 mark, added the moment a turn takes the message and removed (or replaced by ✅) when it
+   * settles. Best effort by design: a missing scope or a deleted message must not fail a turn that
+   * has nothing to do with emoji.
+   */
+  async function markWorking(messageId: string): Promise<string | undefined> {
+    try {
+      const response = await im.messageReaction.create({
+        path: { message_id: messageId },
+        data: { reaction_type: { emoji_type: REACTION_WORKING } },
+      });
+      return response?.data?.reaction_id as string | undefined;
+    } catch (error) {
+      logError("feishu", "could not stamp the message", error);
+      return undefined;
+    }
+  }
+
+  /**
+   * Settling: the tick replaces 👀 only when the turn answered. A failed turn keeps no mark at all —
+   * its card already says what went wrong, and a ✅ over a failure is the one lie nobody forgives.
+   */
+  async function settleMark(messageId: string, reactionId: string, answered: boolean): Promise<void> {
+    try {
+      await im.messageReaction.delete({ path: { message_id: messageId, reaction_id: reactionId } });
+      if (!answered) return;
+      await im.messageReaction.create({
+        path: { message_id: messageId },
+        data: { reaction_type: { emoji_type: REACTION_DONE } },
+      });
+    } catch (error) {
+      logError("feishu", "could not settle the mark", { messageId, answered, error });
+    }
+  }
+
   async function downloadResource(
     messageId: string,
     fileKey: string,
@@ -1836,10 +1847,6 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     try {
       // The key carries the scheduled instant, so a fire retried after a crash dedupes instead of
       // running the same routine twice.
-      const tokensBefore = await tokenTotals(conversation.id as unknown as number).catch(() => ({
-        total: 0,
-        byModel: new Map<string, number>(),
-      }));
       const turnAgent = await conversation.agent(context).catch(() => undefined);
       const workDir = turnAgent?.cwd ?? config.workspace;
       const treeMark = await markTree(workDir).catch(() => undefined);
@@ -1882,35 +1889,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
           .answerBlocks(conversation, settled.answer, settled.entry)
           .catch(() => [] as AnswerBlock[]);
         const text = blocks.length > 0 ? composeAnswer(blocks) : answer || "（模型没有返回文本）";
-        // What it cost, in the same words a normal turn uses: a routine that is quietly expensive
-        // should look expensive where the owner sees it.
-        const tokensAfter = await tokenTotals(conversation.id as unknown as number).catch(() => ({
-          total: tokensBefore.total,
-          byModel: new Map<string, number>(),
-        }));
-        const spentAfter = await runtime.budget(chatId).catch(() => undefined);
-        const cost = spentAfter === undefined ? 0 : Math.max(0, spentAfter.spentToday - budget.spentToday);
-        let modelUsed = "";
-        let biggest = 0;
-        for (const [name, tokens] of tokensAfter.byModel) {
-          const delta = tokens - (tokensBefore.byModel.get(name) ?? 0);
-          if (delta > biggest) {
-            biggest = delta;
-            modelUsed = name.split("/").pop() ?? name;
-          }
-        }
-        const agentPlan = await conversation.agent(context).catch(() => undefined);
         const touched = treeMark === undefined ? [] : await touchedSince(workDir, treeMark).catch(() => []);
-        const meta = withTouched(
-          turnMeta({
-            tools: card.tools.size,
-            tokens: Math.max(0, tokensAfter.total - tokensBefore.total),
-            costUsd: cost,
-            model: modelUsed,
-            thinking: String(agentPlan?.thinkingLevel ?? ""),
-          }),
-          touched,
-        );
+        // One line under the card, and only when there is something to say: what changed on disk.
+        // The tool count and the clock said nothing the reader could act on.
+        const meta = touchedLine(touched);
         await deliverAnswer(
           chatId,
           cardId,
@@ -1925,10 +1907,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       await deliverAnswer(
         chatId,
         cardId,
-        `这一轮没跑完：${settled.reason ?? settled.status}`,
+        `这轮没跑完：${stopReason(settled.reason)}`,
         "",
         undefined,
-        { template: "orange", title: "⚠️ 定时任务中断" },
+        { template: "orange", title: "⚠️ 定时任务没跑完" },
         decisions.length === 0 ? undefined : { steps: [], seconds, costUsd: 0, decisions },
       );
       return false;
@@ -2149,15 +2131,17 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         .map((agent) => stageLine(agent, now));
     };
     const body = (): string => {
-      if (last !== undefined) return renderLive(last, { digest }, trail, stages);
+      if (last !== undefined) return renderLive(last, trail, stages);
       return digest.length === 0 ? "🤔 思考中…" : `> ${digest}\n\n🤔 思考中…`;
     };
-    // How far the turn got, in the subtitle: "3 步完成 · 2m18s" beats a bare clock. The header
-    // already says 处理中, so the subtitle does not say it a second time.
+    // How far the turn got, in the subtitle: "第 3 步 · 2m18s" beats a bare clock, and it replaces
+    // the rows of finished steps the body used to stack. The header already says 处理中, so the
+    // subtitle does not say it a second time.
     const working = (): string => {
       const { done, running } = stepCount(trail);
+      if (running) return `▶️ 第 ${done + 1} 步 · ${age()}`;
       if (done === 0) return `▶️ ${age()}`;
-      return `▶️ ${done} 步完成${running ? " · 正在跑" : ""} · ${age()}`;
+      return `▶️ ${done} 步 · ${age()}`;
     };
     // Stopping used to mean finding the input box and typing /stop, on a phone, while the run kept
     // going. The card is where the progress lives, so the way to stop lives there too.
@@ -3098,7 +3082,6 @@ const continuing = new Set<string>();
     }
 
     const budget = await runtime.budget(chatId);
-    const tokensBefore = await tokenTotals(conversation.id as unknown as number).catch(() => ({ total: 0, byModel: new Map() }));
     if (!budget.allowed) {
       await sendText(
         chatId,
@@ -3199,7 +3182,13 @@ const continuing = new Set<string>();
       card.clearStatus();
     }
 
+    // The two marks on the message this turn answers: 👀 while it runs, ✅ once it lands. Declared
+    // outside the try so the finally can settle them on every exit, including a throw.
+    let answered = false;
+    let reactionId: string | undefined;
+
     try {
+      reactionId = await markWorking(message.message_id);
       const contents: UserContent[] = [];
       for (const entry of burst) {
         const entryOwner = owner.includes(entry.senderId);
@@ -3279,11 +3268,6 @@ const continuing = new Set<string>();
         if (!pings) return;
         await pingDone(chatId, message.message_id ?? "", text, { thread: replyOptions.thread === true });
       };
-      /** The ping under the card ends with "· 68s"; a folded panel saying 68s again read as a stutter,
-       *  so the copy that goes into the card drops its seconds. The saved copy keeps them: the client
-       *  and the old 「查看详情」 button have no ping beside them. */
-      const forCard = (panel: Omit<TurnDetails, "at"> | undefined): Omit<TurnDetails, "at"> | undefined =>
-        pings && panel !== undefined ? { ...panel, seconds: 0 } : panel;
       // One builder for all four exits. The failure paths used to hand over a card with a reason
       // and nothing to look at, exactly when "which step broke, and what did it print" is the
       // question the owner is about to ask.
@@ -3313,32 +3297,11 @@ const continuing = new Set<string>();
         log("feishu", "answer read", { chars: answer.length });
         const after = await runtime.budget(chatId).catch(() => undefined);
         const cost = after === undefined ? 0 : Math.max(0, after.spentToday - budget.spentToday);
-        const tokensAfter = await tokenTotals(conversation.id as unknown as number).catch(() => ({
-          total: tokensBefore.total,
-          byModel: new Map<string, number>(),
-        }));
-        let modelUsed = "";
-        let biggest = 0;
-        for (const [key, tokens] of tokensAfter.byModel) {
-          const delta = tokens - (tokensBefore.byModel.get(key) ?? 0);
-          if (delta > biggest) {
-            biggest = delta;
-            modelUsed = key.split("/").pop() ?? key;
-          }
-        }
-        const agentPlan = await conversation.agent(context).catch(() => undefined);
         const touched = treeMark === undefined ? [] : await touchedSince(workDir, treeMark).catch(() => []);
-        const meta = withTouched(
-          turnMeta({
-            tools: card.tools.size,
-            tokens: Math.max(0, tokensAfter.total - tokensBefore.total),
-            costUsd: cost,
-            model: modelUsed,
-            thinking: String(agentPlan?.thinkingLevel ?? ""),
-            quiet: message.chat_type !== "p2p",
-          }),
-          touched,
-        );
+        // One line under the card, and only when it has something to say: what changed on disk.
+        // "12 个工具" and "$0.31" were readable but not actionable, and the ping under the card
+        // already says how long the turn took.
+        const meta = touchedLine(touched);
         // The steps are always recorded (the client reads them) and now ride along in the answer
         // card as a folded panel, so a group sees the work too and nothing has to be pressed.
         const steps = await turnPanel(cost);
@@ -3358,8 +3321,8 @@ const continuing = new Set<string>();
           meta,
           undefined,
           claim === undefined ? { template: "green", title: "✅ 答完了" } : doneVerdict(claim),
-          forCard(steps),
-        );
+          steps,
+        );        answered = true;
         await ping(`✅ 答完了 · ${seconds}s`);
         // A conversation this long makes every step cost about a minute, and the tokens still fit the
         // window, so threshold compaction never fires. Compact on message count instead, after the
@@ -3387,21 +3350,18 @@ const continuing = new Set<string>();
           // `continue` places no entry of its own, but the run began at the owner's message: read the
           // range so the text written before the turn limit is part of the answer, not lost.
           const answer = await runtime.answerText(conversation, rest.answer, settled.entry);
-          const after = await runtime.budget(chatId).catch(() => undefined);
-          const cost = after === undefined ? 0 : Math.max(0, after.spentToday - budget.spentToday);
           const total = Math.round((Date.now() - startedAt) / 100) / 10;
-          // Same rule as turnMeta: the ping below carries the duration, so this line does not.
-          const meta = `✅${card.tools.size > 0 ? ` · ${card.tools.size} 个工具` : ""}${
-            cost > 0.00005 ? ` · $${cost.toFixed(4)}` : ""
-          } · 到 ${config.maxTurns} 步后续跑 1 次`;
+          // Nothing under the answer: the header says 续跑一次 and the ping says how long. The line
+          // that used to sit here repeated both in smaller type.
           await deliverAnswer(
             chatId,
             cardId,
             answer || "（模型没有返回文本）",
-            meta,
+            "",
             undefined,
             claim === undefined ? { template: "green", title: "✅ 答完了（续跑一次）" } : doneVerdict(claim),
           );
+          answered = true;
           await ping(`✅ 答完了（自动续跑一次） · ${total}s`);
           await note(conversation, context, `跑到 ${config.maxTurns} 步上限，自动续跑了一次`);
           return;
@@ -3410,11 +3370,11 @@ const continuing = new Set<string>();
         await deliverAnswer(
           chatId,
           cardId,
-          `这轮跑到 ${config.maxTurns} 步上限，续跑一次仍没收尾（活比较大，不是出错）。\n\n进度都在，点「继续」或回一句「继续」我接着做。`,
-          `⏸️ ${seconds}s · 步数上限`,
+          `续跑一次仍没收尾（活比较大，不是出错）。\n\n进度都在，点「继续」接着做。`,
+          "",
           continueButton(message.message_id),
           { template: "orange", title: `⏸️ 到了 ${config.maxTurns} 步上限` },
-          forCard(await turnPanel(spent === undefined ? 0 : Math.max(0, spent.spentToday - budget.spentToday))),
+          await turnPanel(spent === undefined ? 0 : Math.max(0, spent.spentToday - budget.spentToday)),
         );
         await ping(`⏸️ 这轮到了 ${config.maxTurns} 步上限，续跑后仍未收尾 · ${seconds}s`);
       } else if (settled.reason === "aborted") {
@@ -3424,37 +3384,38 @@ const continuing = new Set<string>();
         await deliverAnswer(
           chatId,
           cardId,
-          "已经停在这里了。进度都在，点「继续」可以接着做。",
-          `⏹️ ${seconds}s`,
+          "已经停在这里了。进度都在，点「继续」接着做。",
+          "",
           continueButton(message.message_id),
           { template: "grey", title: "⏹️ 已中断" },
-          forCard(await turnPanel(spent === undefined ? 0 : Math.max(0, spent.spentToday - budget.spentToday))),
+          await turnPanel(spent === undefined ? 0 : Math.max(0, spent.spentToday - budget.spentToday)),
         );
         await ping(`⏹️ 已中断 · ${seconds}s`);
       } else {
-        // The header already carries the status and the reason; repeating them in the body made the
-        // card say 这次没答出来 twice.
+        // The header says only that the run did not finish; the body says where it stopped, in
+        // words. The enum used to sit in the title (`⚠️ 这次没答出来 · turn_limit`), which read as
+        // a stack trace on a phone.
         const reason = settled.reason ?? "unanswered";
         const text = settled.detail === undefined ? "" : `${String(settled.detail)}\n\n`;
         const spent = await runtime.budget(chatId).catch(() => undefined);
         await deliverAnswer(
           chatId,
           cardId,
-          `${text}进度都在，点「继续」或回一句「继续」我接着做。`,
-          `⏹️ ${seconds}s`,
+          `${text}卡在：${stopReason(reason)}。进度都在，点「继续」接着做。`,
+          "",
           continueButton(message.message_id),
-          { template: "grey", title: `⚠️ 这次没答出来 · ${reason}` },
-          forCard(await turnPanel(spent === undefined ? 0 : Math.max(0, spent.spentToday - budget.spentToday))),
+          { template: "grey", title: "⚠️ 这轮没跑完" },
+          await turnPanel(spent === undefined ? 0 : Math.max(0, spent.spentToday - budget.spentToday)),
         );
-        await ping(`⚠️ 这条没答出来（${reason}）· ${seconds}s`);
+        await ping(`⚠️ 这轮没跑完（${stopReason(reason)}）· ${seconds}s`);
       }
     } catch (error) {
       logError("feishu", "turn failed", error);
       await deliverAnswer(
         chatId,
         cardId,
-        `原因：${(error as Error).message}\n\n进度都在，点「继续」可以接着做。`,
-        "⏹️ 失败",
+        `原因：${(error as Error).message}\n\n进度都在，点「继续」接着做。`,
+        "",
         continueButton(message.message_id),
         { template: "red", title: "❌ 出错了" },
       );
@@ -3462,6 +3423,7 @@ const continuing = new Set<string>();
       slot.done();
       await card.finish();
       await clearCardPending(runtime.harness, context, requestId).catch(() => {});
+      if (reactionId !== undefined) await settleMark(message.message_id, reactionId, answered);
     }
   }
 
@@ -3534,19 +3496,6 @@ async function backfillChatNames(): Promise<void> {
   );
   for (const chatId of missing) await rememberChatInfo(chatId);
   if (missing.length > 0) log("feishu", "chat names filled in", { chats: missing.length });
-}
-
-/** Per-model token totals of one conversation, so a turn's spend is a difference. */
-async function tokenTotals(conversationId: number): Promise<{ total: number; byModel: Map<string, number> }> {
-  const doc = await runtime.harness.snapshot(UsageDoc, conversationId as never, context).catch(() => undefined);
-  const byModel = new Map<string, number>();
-  let total = 0;
-  for (const [key, usage] of Object.entries(doc?.models ?? {})) {
-    const tokens = Number((usage as { totalTokens?: number }).totalTokens ?? 0);
-    byModel.set(key, tokens);
-    total += tokens;
-  }
-  return { total, byModel };
 }
 
   /** One quoted message by id; undefined when it cannot be read (deleted, no scope, gone). */
