@@ -384,6 +384,8 @@ ${c.bold("权限")}
                                改某个会话的访问级别（owner=只有你）
   durable audit [n]            最近 n 条权限决定（默认 30）
   durable trace [n]            最近 n 次运行的 span（默认 15，看哪一步慢）
+  durable trace --session <id> 某个会话的所有 trace
+  durable trace --id <traceId> 一轮的 span 树（哪个工具慢、错在哪）
 
 ${c.bold("审批")}
   durable approvals            看待审批
@@ -446,22 +448,89 @@ async function audit(limit = 30): Promise<void> {
   for (const event of data.events) console.log(formatEvent(event));
 }
 
-async function trace(limit: number): Promise<void> {
-  const { readTraces } = await import("../telemetry.ts");
-  const rows = await readTraces(join(HOME, ".data", "agent.sqlite"), limit).catch((error: unknown) => {
-    console.error(c.red(`读不到 trace：${(error as Error).message}`));
-    return [];
-  });
-  if (rows.length === 0) {
-    console.log(c.dim("还没有记录任何 trace（首批 span 在 agent 重启后产生）"));
-    return;
+interface TraceSpan {
+  id: string;
+  parentId?: string;
+  name: string;
+  startedMs: number;
+  endedMs: number;
+  attributes: Record<string, unknown>;
+  status: { status: string; error?: { message?: string } };
+}
+
+/** One line per span, indented by depth: what ran, in what order, and where the time went. */
+function printTrace(trace: { traceId: string; spans: readonly TraceSpan[] }): void {
+  const spans = [...trace.spans].sort((a, b) => a.startedMs - b.startedMs);
+  const children = new Map<string | undefined, TraceSpan[]>();
+  for (const span of spans) {
+    const siblings = children.get(span.parentId) ?? [];
+    siblings.push(span);
+    children.set(span.parentId, siblings);
   }
-  for (const row of rows) {
-    const when = new Date(row.startedMs).toLocaleTimeString("zh-CN", { hour12: false });
-    const badge = row.errors > 0 ? c.red("error") : c.dim("ok   ");
-    console.log(
-      `${when}  ${badge}  ${String(row.ms).padStart(7)}ms  ${String(row.spans).padStart(3)} spans  ${row.name}`,
-    );
+  const total = Math.round(Math.max(...spans.map((span) => span.endedMs)) - Math.min(...spans.map((span) => span.startedMs)));
+  console.log(c.dim(`${trace.traceId}  ${spans.length} spans  ${total}ms`));
+
+  const label = (span: TraceSpan): string => {
+    const a = span.attributes;
+    const who = a["tool.name"] ?? a["phase"] ?? a["model"] ?? a["task.name"];
+    const outcome = a["tool.result"] ?? a["outcome"];
+    return [who, outcome].filter((value) => value !== undefined).join(" ");
+  };
+
+  const walk = (parent: string | undefined, depth: number): void => {
+    for (const span of children.get(parent) ?? []) {
+      const ms = String(Math.round(span.endedMs - span.startedMs)).padStart(6);
+      const line = `${"  ".repeat(depth)}${span.name}  ${ms}ms  ${label(span)}`;
+      console.log(span.status.status === "error" ? c.red(line) : line);
+      walk(span.id, depth + 1);
+    }
+  };
+  walk(undefined, 0);
+}
+
+async function trace(args: string[]): Promise<void> {
+  const { readTraces, readTracesForSession, readTrace } = await import("../telemetry.ts");
+  const dbPath = join(HOME, ".data", "agent.sqlite");
+  const limitOf = (at: number): number => Math.max(1, Number(args[at]) || 15);
+  const sessionAt = args.indexOf("--session");
+  const idAt = args.indexOf("--id");
+
+  try {
+    if (idAt >= 0) {
+      const id = args[idAt + 1];
+      if (id === undefined) throw new Error("用法: durable trace --id <traceId>");
+      const found = await readTrace(dbPath, id);
+      if (found === undefined) {
+        console.log(c.dim(`没有这条 trace：${id}`));
+        return;
+      }
+      printTrace(found);
+      return;
+    }
+
+    const rows = sessionAt >= 0
+      ? await readTracesForSession(dbPath, Number(args[sessionAt + 1]) || 0, limitOf(sessionAt + 2))
+      : await readTraces(dbPath, limitOf(0));
+    if (rows.length === 0) {
+      console.log(
+        c.dim(
+          sessionAt >= 0
+            ? "这个会话还没有 trace（session.id 从下次重启后的请求开始记录）"
+            : "还没有记录任何 trace（首批 span 在 agent 重启后产生）",
+        ),
+      );
+      return;
+    }
+    for (const row of rows) {
+      const when = new Date(row.startedMs).toLocaleTimeString("zh-CN", { hour12: false });
+      const badge = row.errors > 0 ? c.red("error") : c.dim("ok   ");
+      console.log(
+        `${when}  ${badge}  ${String(Math.round(row.ms)).padStart(7)}ms  ${String(row.spans).padStart(3)} spans  ${row.name}  ${c.dim(row.traceId)}`,
+      );
+    }
+    console.log(c.dim("\n看某一轮：durable trace --id <traceId>"));
+  } catch (error) {
+    console.error(c.red(`读不到 trace：${(error as Error).message}`));
   }
 }
 
@@ -494,7 +563,7 @@ try {
       await audit(rest[0] === undefined ? 30 : Math.max(1, Number(rest[0]) || 30));
       break;
     case "trace":
-      await trace(rest[0] === undefined ? 15 : Math.max(1, Number(rest[0]) || 15));
+      await trace(rest);
       break;
     case "approvals":
       await approvals();

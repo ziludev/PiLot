@@ -15,6 +15,7 @@ import { ROLES, toolsFor, type RoleName } from "./roles.ts";
 import { notify, surfaceForConversation } from "./channel.ts";
 import { reportSurface, ChatPolicy, isIsolatedPolicy } from "./access.ts";import { getHarness } from "./runtime-ref.ts";
 import { log, logError } from "./log.ts";
+import { linkChildSession } from "./tracing.ts";
 import { AGENT_TASKS, AGENT_TOOLS, setAgentBoundary } from "./agents.ts";
 import { config } from "./config.ts";
 import {
@@ -101,6 +102,8 @@ async function ensureChild(
 
   // First write wins: a retry after a crash keeps the child that already exists.
   await api.memo(CHILD_MAP, { ...map, [key]: created }, context);
+  // So the child's spans can be traced back to the conversation that asked for it.
+  linkChildSession(created, api.conversationId as unknown as number);
   log("subagent", `spawned ${role}`, { key, conversationId: created });
   return created as unknown as ConversationId;
 }

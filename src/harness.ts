@@ -52,6 +52,7 @@ import { setRuntimeRef } from "./runtime-ref.ts";
 import { log, logError } from "./log.ts";
 import { acquireStorageLock } from "./storage-lock.ts";
 import { startToolbox, codingToolsFromToolbox } from "./toolbox/index.ts";
+import { instrumentRegistry, traceExtension } from "./tracing.ts";
 import type { Toolbox } from "./toolbox/client.ts";
 import { ensureRepo } from "./changes.ts";
 import { chatBranchOf, setChatBranch, workflowOf, setWorkflow, type ProjectWorkflow } from "./projects.ts";
@@ -263,7 +264,10 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   // boot rather than halving a turn between Go and Node.
   const toolbox = await startToolbox();
 
+  // Before the first install: every tool, including MCP's, becomes a span of the turn that called it.
   const registry = createRegistry();
+  instrumentRegistry(registry);
+  registry.install(traceExtension);
   registry.install(codingToolsFromToolbox(toolbox));
   registry.install(personalExtension);
   registry.install(larkExtension);
