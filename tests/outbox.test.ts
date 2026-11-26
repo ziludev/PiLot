@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Harness } from "@earendil-works/pi-durable";
-import { drain, releaseHeld, retryDelay, type OutboxEntry } from "../src/outbox.ts";
+import { dead as deadLetters, discard, drain, redrive, releaseHeld, retryDelay, type DeadEntry, type OutboxEntry } from "../src/outbox.ts";
 
 function entry(text: string, chatId: string, at = 0): OutboxEntry {
   return { id: text, chatId, text, plain: false, createdAt: at, attempts: 0, nextAt: 0 };
@@ -9,7 +9,7 @@ function entry(text: string, chatId: string, at = 0): OutboxEntry {
 
 /** The only part of the harness the outbox touches: one doc, read and written in a commit. */
 function fakeHarness(entries: OutboxEntry[]) {
-  const state = { entries };
+  const state: { entries: OutboxEntry[]; dead?: DeadEntry[] } = { entries, dead: [] };
   const harness = {
     commit: async (fn: (tx: unknown) => Promise<unknown>) => fn({ doc: async () => state }),
   } as unknown as Harness;
@@ -63,6 +63,72 @@ test("a message that keeps failing is handed back instead of retried forever", a
   assert.equal(state.entries.length, 0);
   assert.equal(report.gaveUp.length, 1);
   assert.equal(report.gaveUp[0]!.attempts, 8);
+});
+
+// A lost answer used to end at one log line; these four pin the record that replaces it.
+test("giving up keeps the message as a dead letter, with why", async () => {
+  const hopeless = { ...entry("a", "c1"), attempts: 7 };
+  const { harness, state } = fakeHarness([hopeless]);
+  await drain(harness, context, async () => {
+    throw new Error("401");
+  }, 1_000);
+
+  const dead = state.dead ?? [];
+  assert.equal(dead.length, 1);
+  assert.equal(dead[0]!.id, "a");
+  assert.equal(dead[0]!.attempts, 8);
+  assert.equal(dead[0]!.reason, "attempts");
+  assert.equal(dead[0]!.diedAt, 1_000);
+  assert.match(dead[0]!.lastError ?? "", /401/);
+  assert.equal(dead[0]!.text, "a", "the payload is kept, so a redrive needs nothing else");
+});
+
+test("a message older than a day dies on age even with attempts left", async () => {
+  const stale = { ...entry("old", "c1", 0), attempts: 1 };
+  const { harness, state } = fakeHarness([stale]);
+  await drain(harness, context, async () => {
+    throw new Error("timeout");
+  }, 25 * 3_600_000);
+  assert.equal(state.dead?.[0]?.reason, "age");
+});
+
+test("dead letters can be listed", async () => {
+  const { harness, state } = fakeHarness([]);
+  state.dead = [{ ...entry("a", "c1", 0), attempts: 8, diedAt: 5, reason: "attempts" }];
+  const listed = await deadLetters(harness, context);
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0]!.id, "a");
+  listed[0]!.text = "mutated";
+  assert.equal(state.dead[0]!.text, "a", "listing hands back copies");
+});
+
+test("redriving puts a dead letter back in line with a fresh clock", async () => {
+  const { harness, state } = fakeHarness([]);
+  state.dead = [{ ...entry("a", "c1", 0), attempts: 8, lastError: "401", diedAt: 5, reason: "attempts" }];
+
+  assert.equal(await redrive(harness, context, "a"), 1);
+  assert.equal(state.dead?.length, 0, "it is not in the dead letters any more");
+  const back = state.entries[0]!;
+  assert.equal(back.text, "a", "the payload survives the round trip");
+  assert.equal(back.attempts, 0);
+  assert.equal(back.nextAt, 0);
+  assert.ok(back.createdAt > 0, "the age window restarts, so it gets a full day again");
+  assert.equal((back as DeadEntry).diedAt, undefined);
+});
+
+test("redrive and discard leave other dead letters alone", async () => {
+  const { harness, state } = fakeHarness([]);
+  state.dead = ["a", "b", "c"].map((text) => ({
+    ...entry(text, "c1", 0),
+    attempts: 8,
+    diedAt: 5,
+    reason: "attempts" as const,
+  }));
+
+  assert.equal(await redrive(harness, context, "a"), 1);
+  assert.equal(await discard(harness, context, "b"), 1);
+  assert.deepEqual(state.dead?.map((item) => item.id), ["c"]);
+  assert.equal(await discard(harness, context, "nope"), 0, "an unknown id is a no-op, not an error");
 });
 
 test("nothing waiting is a no-op", async () => {

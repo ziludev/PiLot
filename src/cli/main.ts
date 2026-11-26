@@ -386,6 +386,10 @@ ${c.bold("权限")}
   durable trace [n]            最近 n 次运行的 span（默认 15，看哪一步慢）
   durable trace --session <id> 某个会话的所有 trace
   durable trace --id <traceId> 一轮的 span 树（哪个工具慢、错在哪）
+  durable outbox               待发消息 + 死信（超时/超次数发不出去的那几条）
+  durable outbox retry <id|all>
+                               把死信放回队列重发（下一轮 drain 会捡起来）
+  durable outbox drop <id|all> 丢掉死信，不可恢复
 
 ${c.bold("审批")}
   durable approvals            看待审批
@@ -534,6 +538,79 @@ async function trace(args: string[]): Promise<void> {
   }
 }
 
+// ---- outbox -----------------------------------------------------------------
+
+type OutboxRow = {
+  id: string;
+  chatId: string;
+  text: string;
+  attempts: number;
+  createdAt: number;
+  nextAt?: number;
+  lastError?: string;
+  diedAt?: number;
+  reason?: "attempts" | "age";
+};
+
+function ago(ms: number): string {
+  const minutes = Math.round((Date.now() - ms) / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 1440) return `${Math.round(minutes / 60)}h`;
+  return `${Math.round(minutes / 1440)}d`;
+}
+
+function oneLine(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > 70 ? `${flat.slice(0, 70)}…` : flat;
+}
+
+async function outbox(args: string[]): Promise<void> {
+  const verb = args[0];
+  if (verb === "retry" || verb === "drop") {
+    const target = args[1];
+    const body = target === undefined || target === "all" ? {} : { id: target };
+    try {
+      const result = await api<{ moved: number }>(`/api/outbox/${verb}`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      console.log(
+        verb === "retry"
+          ? c.green(`放回队列 ${result.moved} 条，下一轮 drain（≤15s）会发。`)
+          : c.yellow(`丢掉 ${result.moved} 条死信。`),
+      );
+    } catch (error) {
+      throw new Error(`${target === undefined ? "没有死信" : `没有这条死信：${target}`}（${(error as Error).message}）`);
+    }
+    return;
+  }
+  if (verb !== undefined && verb !== "list") throw new Error("用法: durable outbox [retry|drop] [id|all]");
+
+  const view = await api<{ pending: OutboxRow[]; dead: OutboxRow[] }>("/api/outbox");
+  if (view.pending.length === 0 && view.dead.length === 0) {
+    console.log(c.dim("队列是空的：没有待发消息，也没有死信。"));
+    return;
+  }
+  console.log(`${c.bold("待发")} ${view.pending.length} 条    ${c.bold("死信")} ${view.dead.length} 条`);
+  for (const entry of view.pending) {
+    const wait =
+      entry.nextAt === undefined || entry.nextAt <= Date.now()
+        ? "现在"
+        : `等${Math.max(1, Math.round((entry.nextAt - Date.now()) / 60_000))}m`;
+    console.log(
+      `  ${c.cyan(entry.id)}  ${c.dim(`chat=${entry.chatId}`)}  ${c.dim(`第${entry.attempts}次`)}  ${c.dim(wait)}  ${oneLine(entry.text)}`,
+    );
+  }
+  for (const entry of view.dead) {
+    const why = entry.reason === "age" ? "超过 24h" : `失败 ${entry.attempts} 次`;
+    console.log(
+      `  ${c.red(entry.id)}  ${c.dim(`chat=${entry.chatId}`)}  ${c.dim(`${why}，${ago(entry.diedAt ?? entry.createdAt)}前`)}  ${oneLine(entry.text)}`,
+    );
+    if (entry.lastError !== undefined) console.log(`  ${c.dim(`  ↳ ${entry.lastError}`)}`);
+  }
+  if (view.dead.length > 0) console.log(c.dim("\n重发：durable outbox retry <id|all>    丢掉：durable outbox drop <id|all>"));
+}
+
 // ---- entry ------------------------------------------------------------------
 
 const [command, ...rest] = process.argv.slice(2);
@@ -564,6 +641,9 @@ try {
       break;
     case "trace":
       await trace(rest);
+      break;
+    case "outbox":
+      await outbox(rest);
       break;
     case "approvals":
       await approvals();

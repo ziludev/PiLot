@@ -27,9 +27,12 @@ import { recordVerdict } from "./verdicts.ts";
 import { note } from "./notes.ts";
 import { lastRequestMessages, lastRequestTokens } from "./context-guard.ts";
 import {
+  dead as deadLetters,
+  discard as discardDead,
   drain as drainOutbox,
   hold as holdForRetry,
   pending as pendingOutbox,
+  redrive,
   releaseHeld,
   type OutboxEntry,
 } from "./outbox.ts";
@@ -1965,10 +1968,13 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       .then((report) => {
         if (report.sent > 0) log("feishu", "outbox drained", { sent: report.sent, left: report.left });
         for (const entry of report.gaveUp) {
+          // Kept in the dead letters, so this is a pointer, not the only record of the loss.
           logError(
             "feishu",
             "outbox gave up on a message",
-            new Error(`${entry.chatId} after ${entry.attempts} attempt(s): ${entry.lastError ?? "unknown"}`),
+            new Error(
+              `${entry.chatId} after ${entry.attempts} attempt(s): ${entry.lastError ?? "unknown"} — kept as ${entry.id} (durable outbox retry ${entry.id})`,
+            ),
           );
         }
       })
@@ -2654,8 +2660,10 @@ const continuing = new Set<string>();
       );
       return;
     }
-    if (isOwner && (text.trim() === "/outbox" || text.trim() === "/outbox flush")) {
-      if (text.trim() === "/outbox flush") {
+    const outboxText = text.trim();
+    if (isOwner && (outboxText === "/outbox" || outboxText.startsWith("/outbox "))) {
+      const [, verb, target] = outboxText.split(/\s+/);
+      if (verb === "flush") {
         const released = await releaseHeld(runtime.harness, context);
         await drainOutbox(runtime.harness, context, sendHeld).catch((error) =>
           logError("feishu", "outbox flush failed", error),
@@ -2663,10 +2671,36 @@ const continuing = new Set<string>();
         await sendText(message.chat_id, released === 0 ? "没有攒着的消息。" : `放出了 ${released} 条，正在发。`);
         return;
       }
+      if (verb === "retry" || verb === "drop") {
+        const id = target === undefined || target === "all" ? undefined : target;
+        if (verb === "retry" && id === undefined && target === undefined) {
+          await sendText(message.chat_id, "用法：/outbox retry <id|all>");
+          return;
+        }
+        const moved =
+          verb === "retry"
+            ? await redrive(runtime.harness, context, id)
+            : await discardDead(runtime.harness, context, id);
+        await sendText(
+          message.chat_id,
+          moved === 0
+            ? `没有这条死信：${target}`
+            : verb === "retry"
+              ? `放回队列 ${moved} 条，15 秒内会重发。`
+              : `丢掉 ${moved} 条死信。`,
+        );
+        return;
+      }
+      if (verb !== undefined) {
+        await sendText(message.chat_id, "用法：/outbox [flush|retry <id|all>|drop <id|all>]");
+        return;
+      }
       const waiting = await pendingOutbox(runtime.harness, context);
+      const dead = await deadLetters(runtime.harness, context);
       const mine = waiting.filter((entry) => entry.chatId === message.chat_id);
+      const mineDead = dead.filter((entry) => entry.chatId === message.chat_id);
       const others = waiting.length - mine.length;
-      if (mine.length === 0) {
+      if (mine.length === 0 && mineDead.length === 0) {
         await sendText(
           message.chat_id,
           others === 0 ? "outbox 是空的：没有等着的消息。" : `本会话没有，别的会话还有 ${others} 条。`,
@@ -2678,12 +2712,25 @@ const continuing = new Set<string>();
         const state = entry.paused === true ? "攒着" : `重试 ${entry.attempts} 次`;
         return `· ${when}（${state}）${entry.text.replace(/\s+/g, " ").slice(0, 60)}`;
       });
+      const deadLines = mineDead.slice(0, 3).map((entry) => {
+        const why = entry.reason === "age" ? "超过 24h" : `失败 ${entry.attempts} 次`;
+        return `· 死信 ${entry.id}（${why}）${entry.text.replace(/\s+/g, " ").slice(0, 40)}`;
+      });
       await sendText(
         message.chat_id,
         [
           `outbox 有 ${mine.length} 条${others > 0 ? `（别的会话还有 ${others} 条）` : ""}：`,
           ...lines,
           ...(mine.length > 5 ? [`…还有 ${mine.length - 5} 条`] : []),
+          ...(mineDead.length > 0
+            ? [
+                "",
+                `发不出去的 ${mineDead.length} 条（死信）：`,
+                ...deadLines,
+                ...(mineDead.length > 3 ? [`…还有 ${mineDead.length - 3} 条`] : []),
+                "重发 /outbox retry <id|all>，丢掉 /outbox drop <id|all>。",
+              ]
+            : []),
           ...(mine.some((entry) => entry.paused === true) ? ["", "攒着的用 /outbox flush 发出去。"] : []),
         ].join("\n"),
       );

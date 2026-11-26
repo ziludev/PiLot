@@ -12,6 +12,7 @@ import { lastStops } from "./turn-status.ts";
 import { collectChanges, commitChanges, ensureRepo } from "./changes.ts";
 import { mergeWorktree } from "./worktree.ts";
 import { listApprovals, resolveApproval } from "./approvals.ts";
+import { dead as deadLetters, discard as discardDead, pending as pendingOutbox, redrive } from "./outbox.ts";
 import { BLANKET } from "./grants.ts";
 import { surfaceMeta, updateSurfaceMeta } from "./surface-meta.ts";
 import { chatAccess, ownerChatId, setChatLevel, type ChatLevel } from "./access.ts";
@@ -378,6 +379,28 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
 
       if (req.method === "GET" && path === "/api/projects") {
         return send(res, 200, { projects: await runtime.projects() });
+      }
+
+      // Delivery failure used to end at a log line. These three let a lost message be found,
+      // replayed, or dropped on purpose — from `durable outbox` or the desktop app.
+      if (req.method === "GET" && path === "/api/outbox") {
+        const [waiting, dead] = await Promise.all([
+          pendingOutbox(runtime.harness, context).catch(() => []),
+          deadLetters(runtime.harness, context).catch(() => []),
+        ]);
+        return send(res, 200, { pending: waiting, dead });
+      }
+
+      if (req.method === "POST" && (path === "/api/outbox/retry" || path === "/api/outbox/drop")) {
+        const body = await readJson(req);
+        const raw = typeof body["id"] === "string" ? (body["id"] as string).trim() : "";
+        // An empty id means every dead letter: the CLI spells that as `all`.
+        const id = raw.length === 0 || raw === "all" ? undefined : raw;
+        const moved =
+          path === "/api/outbox/retry"
+            ? await redrive(runtime.harness, context, id)
+            : await discardDead(runtime.harness, context, id);
+        return send(res, moved === 0 ? 404 : 200, { moved });
       }
 
       if (req.method === "POST" && path === "/api/projects") {
