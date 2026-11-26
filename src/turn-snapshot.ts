@@ -15,7 +15,7 @@
  * agent's own database) and secrets (`.ssh`, `.env*`, `.npmrc`) that should never be duplicated
  * into another directory. Anything over `MAX_BYTES` is skipped and counted.
  */
-import { copyFile, mkdir, readdir, rm, stat } from "node:fs/promises";
+import { constants, copyFile, mkdir, readdir, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { defineExtension, GenerationTask, hook } from "@earendil-works/pi-durable";
 import { config } from "./config.ts";
@@ -107,7 +107,9 @@ async function walk(source: string, target: string, state: { files: number; byte
       state.skipped += 1;
       continue;
     }
-    await copyFile(from, to);
+    // COPYFILE_FICLONE uses APFS copy-on-write clones on macOS (fast, near-zero extra space,
+    // and still isolated from in-place writes), falling back to a full copy elsewhere.
+    await copyFile(from, to, constants.COPYFILE_FICLONE);
     state.files += 1;
     state.bytes += info.size;
   }
@@ -160,23 +162,25 @@ export async function pruneSnapshots(
 }
 
 /**
- * Once per turn, not once per request: the snapshot is taken before the first provider request and
- * the flag is re-armed by `afterRun`. Fire-and-forget, because a turn should never wait on disk
- * before it can think.
+ * Once per turn per conversation, not once per request: tracked by `conversationId` so
+ * concurrent turns across chats never suppress each other's snapshot. Fire-and-forget,
+ * because a turn should never wait on disk before it can think.
  */
-const turn = { taken: false };
+const activeTurns = new Set<number>();
 
 export const snapshotExtension = defineExtension({
   name: "turn-snapshot",
   hooks: [
     hook(GenerationTask, {
-      beforeRequest: () => {
-        if (turn.taken) return undefined;
-        turn.taken = true;
+      beforeRequest: (_request, api) => {
+        const conversationId = api.conversationId as unknown as number;
+        if (activeTurns.has(conversationId)) return undefined;
+        activeTurns.add(conversationId);
         void snapshotTree()
           .then(async (snapshot) => {
             if (snapshot === undefined) return;
             log("snapshot", "turn snapshot", {
+              conversationId,
               dir: snapshot.dir,
               files: snapshot.files,
               mb: Math.round(snapshot.bytes / 1024 / 1024),
@@ -188,8 +192,8 @@ export const snapshotExtension = defineExtension({
           .catch((error: unknown) => logError("snapshot", "snapshot task failed", { error: String(error) }));
         return undefined;
       },
-      afterRun: () => {
-        turn.taken = false;
+      afterRun: (_run, api) => {
+        activeTurns.delete(api.conversationId as unknown as number);
         return undefined;
       },
     }),

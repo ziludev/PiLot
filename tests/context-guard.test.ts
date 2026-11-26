@@ -5,6 +5,11 @@ import {
   ELIDE_MIN_TOKENS,
   KEEP_RECENT,
   elideOldToolOutputs,
+  forgetContextStats,
+  lastRequestMessages,
+  lastRequestTokens,
+  noteSystemDigest,
+  recordRequestStats,
   systemDigest,
   trimMiddle,
 } from "../src/context-guard.ts";
@@ -81,4 +86,22 @@ test("the system prompt is found whether it is a field or a leading message", ()
   assert.equal(viaField, viaInstructions);
   assert.notEqual(viaField, systemDigest({ system: "you are a different bot" }));
   assert.notEqual(systemDigest({ system: "a".repeat(9) }), systemDigest({ system: "a".repeat(10) }), "length is part of it");
+});
+
+test("request counts, tokens, and system prompt digests stay isolated per conversation", () => {
+  forgetContextStats();
+  recordRequestStats(101, 420, 35_000);
+  recordRequestStats(202, 12, 800);
+
+  assert.equal(lastRequestMessages(101), 420);
+  assert.equal(lastRequestTokens(101), 35_000);
+  assert.equal(lastRequestMessages(202), 12);
+  assert.equal(lastRequestTokens(202), 800);
+  // Zero-arg fallback keeps returning the latest conversation's values.
+  assert.equal(lastRequestMessages(), 12);
+
+  assert.equal(noteSystemDigest(101, "aaaa1111"), false, "first digest for conv 101");
+  assert.equal(noteSystemDigest(202, "bbbb2222"), false, "first digest for conv 202 must not see 101's digest");
+  assert.equal(noteSystemDigest(101, "aaaa1111"), false, "unchanged digest for conv 101");
+  assert.equal(noteSystemDigest(101, "cccc3333"), true, "changed digest for conv 101");
 });

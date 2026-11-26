@@ -45,14 +45,32 @@ export const REFERENCE_TOOLS = new Set([
 ]);
 
 /**
- * How many messages the last request carried. A conversation with 1900 of them costs about a minute
- * per step even with the output elided, and nothing else notices: the tokens still fit the window, so
- * automatic compaction never fires. `turn.ts` reads this to compact on message count as well.
+ * How many messages and tokens the last request carried, tracked per conversation so concurrent
+ * turns (and subagents) never overwrite each other's compaction triggers.
  */
-let lastCount = 0;
-let lastTokens = 0;
-export function lastRequestMessages(): number {
-  return lastCount;
+const MAX_TRACKED_CONVS = 500;
+const statsByConv = new Map<number, { messages: number; tokens: number }>();
+const digestByConv = new Map<number, string>();
+let latestConvId: number | undefined;
+
+function setBounded<K, V>(map: Map<K, V>, key: K, value: V): void {
+  if (map.has(key)) map.delete(key);
+  map.set(key, value);
+  if (map.size > MAX_TRACKED_CONVS) {
+    const oldest = map.keys().next().value;
+    if (oldest !== undefined) map.delete(oldest);
+  }
+}
+
+export function recordRequestStats(conversationId: number, messages: number, tokens: number): void {
+  latestConvId = conversationId;
+  setBounded(statsByConv, conversationId, { messages, tokens });
+}
+
+export function lastRequestMessages(conversationId?: number): number {
+  const id = conversationId ?? latestConvId;
+  if (id === undefined) return 0;
+  return statsByConv.get(id)?.messages ?? 0;
 }
 
 /**
@@ -61,8 +79,30 @@ export function lastRequestMessages(): number {
  * Message count says nothing about cost on its own — the same 400 messages are 7k tokens in a chat of
  * short replies and 94k in one full of tool output — so the compaction trigger reads this too.
  */
-export function lastRequestTokens(): number {
-  return lastTokens;
+export function lastRequestTokens(conversationId?: number): number {
+  const id = conversationId ?? latestConvId;
+  if (id === undefined) return 0;
+  return statsByConv.get(id)?.tokens ?? 0;
+}
+
+/** Tracks per-conversation system prompt digests; returns true only when an existing prefix changed. */
+export function noteSystemDigest(conversationId: number, digest: string): boolean {
+  const previous = digestByConv.get(conversationId);
+  setBounded(digestByConv, conversationId, digest);
+  return previous !== undefined && previous !== digest;
+}
+
+/** Test hook to reset in-memory request tracking. */
+export function forgetContextStats(conversationId?: number): void {
+  if (conversationId === undefined) {
+    statsByConv.clear();
+    digestByConv.clear();
+    latestConvId = undefined;
+    return;
+  }
+  statsByConv.delete(conversationId);
+  digestByConv.delete(conversationId);
+  if (latestConvId === conversationId) latestConvId = undefined;
 }
 
 /**
@@ -141,9 +181,6 @@ export function elideOldToolOutputs(
   return { messages: next, elided };
 }
 
-/** Fingerprint of the system prompt sent last, so a prefix that moves every request shows up in the log. */
-let lastSystemDigest = "";
-
 /**
  * Cheap hash of the head and tail of the system prompt: any edit inside it changes one of the two.
  *
@@ -166,32 +203,32 @@ export const contextGuardExtension = defineExtension({
   name: "context-guard",
   hooks: [
     hook(GenerationTask, {
-      beforeRequest: (request) => {
-        lastCount = request.messages.length;
+      beforeRequest: (request, api) => {
+        const conversationId = api.conversationId as unknown as number;
         const { messages, elided } = elideOldToolOutputs(request.messages);
-        lastTokens = messages.reduce((sum, message) => sum + messageTokens(message), 0);
+        const tokens = messages.reduce((sum, message) => sum + messageTokens(message), 0);
+        recordRequestStats(conversationId, request.messages.length, tokens);
         requests += 1;
         if (requests % LOG_EVERY === 0) {
-          log("context", "request size", { messages: messages.length, tokens: lastTokens });
+          log("context", "request size", { conversationId, messages: messages.length, tokens });
         }
         if (elided === 0) return undefined;
-        log("context", "elided old tool output", { elided, messages: messages.length });
+        log("context", "elided old tool output", { conversationId, elided, messages: messages.length });
         return { messages };
       },
       // The messages are only part of what a round costs: the tools and the system prompt are sent
       // with every request too, and they are the part a compaction can never touch. Measure the
       // built body instead of guessing which half to trim.
-      beforeProviderRequest: (request) => {
+      beforeProviderRequest: (request, api) => {
+        const conversationId = api.conversationId as unknown as number;
         providerRequests += 1;
         const body = request.payload as { messages?: unknown; input?: unknown; tools?: unknown; system?: unknown };
         // A prompt cache is only worth anything if the prefix is byte-identical between requests.
         // Log every change to the system prompt: if this fires on consecutive requests, something
         // per-turn has moved into it and the whole history is being paid for again.
         const digest = systemDigest(body);
-        if (digest !== lastSystemDigest) {
-          const first = lastSystemDigest === "";
-          lastSystemDigest = digest;
-          if (!first) log("context", "system prompt changed", { digest });
+        if (noteSystemDigest(conversationId, digest)) {
+          log("context", "system prompt changed", { conversationId, digest });
         }
         if (providerRequests % LOG_EVERY !== 0) return undefined;
         const chars = (value: unknown): number => (value === undefined ? 0 : JSON.stringify(value).length);
