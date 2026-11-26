@@ -23,3 +23,6 @@ toolbox-go/bin/
 
 # gateway build output (go build ./... in feishu-gw)
 /feishu-gw/feishu-gw
+
+# agentctl build output (go build in agentctl)
+/agentctl/agentctl
