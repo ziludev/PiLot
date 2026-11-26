@@ -115,6 +115,21 @@ export type StageReport = {
   stages: Stage[];
 };
 
+/** Whether a maintainer has merged `branch` into `target`. */
+async function mergedIntoRequest(projectPath: string, branch: string, target: string): Promise<boolean> {
+  const result = await glab(projectPath, [
+    "api",
+    `projects/:id/merge_requests?state=merged&source_branch=${encodeURIComponent(branch)}&per_page=100`,
+  ]);
+  if (classify(result) !== undefined) return false;
+  try {
+    const rows = JSON.parse(result.stdout) as Array<{ target_branch?: string }>;
+    return rows.some((row) => row.target_branch === target);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Derives the four stages of this team's pipeline: develop, hand to test, ask for
  * release, ship. Every fact comes from git or GitLab; nothing is remembered, so a
@@ -167,54 +182,42 @@ export async function deriveStages(
 
   // Release is where the cap lives: a merge request that has used its rounds cannot
   // merge again, and the strip says so before the button is pressed.
+  //
+  // The merge into the release target is a maintainer's, not this chat's: what a
+  // person does at this step is ask — an MR from the branch they own, plus an
+  // 上线申请 — so the step is named for the ask, not for the merge it hopes for.
   const releaseMr = await openRequest(projectPath, branch, target).catch(() => undefined);
   let rounds = 0;
   let reviewers: string[] = [];
-  if (inBase) {
-    const merged = await glab(projectPath, [
-      "api",
-      `projects/:id/merge_requests?state=merged&source_branch=${encodeURIComponent(branch)}&per_page=1`,
-    ]);
-    const anyMerged = classify(merged) === undefined && merged.stdout.includes('"iid"');
-    stages.push({
-      key: "release",
-      label: `发布到 ${target}`,
-      state: anyMerged ? "done" : "todo",
-      nextAction: anyMerged ? undefined : `从 ${base} 建 MR 到 ${target}`,
-    });
-    stages.push({
-      key: "ship",
-      label: "上线",
-      state: anyMerged ? "active" : "todo",
-      nextAction: anyMerged ? "等发布" : undefined,
-    });
-  } else {
-    if (releaseMr !== undefined) {
-      const counted = await reviewRounds(projectPath, releaseMr).catch(() => ({ rounds: 0, reviewers: [] as string[] }));
-      rounds = counted.rounds;
-      reviewers = counted.reviewers;
-    }
-    const blocked = releaseMr !== undefined && rounds >= limit;
-    stages.push({
-      key: "release",
-      label: `发布到 ${target}`,
-      state: blocked ? "blocked" : releaseMr !== undefined ? "active" : "todo",
-      detail: releaseMr !== undefined ? `!${releaseMr} · 第 ${Math.min(rounds + 1, limit)}/${limit} 轮` : undefined,
-      blockedBy: blocked ? `机器评审已评 ${rounds} 轮（上限 ${limit}）` : undefined,
-      nextAction:
-        releaseMr === undefined
-          ? `等提测通过后从 ${base} 建 MR 到 ${target}`
-          : blocked
-            ? "人工 review 或改需求"
-            : "看评审意见并推修复",
-    });
-    stages.push({
-      key: "ship",
-      label: "上线",
-      state: "todo",
-      nextAction: `等 ${target} 合入后发布`,
-    });
+  if (releaseMr !== undefined) {
+    const counted = await reviewRounds(projectPath, releaseMr).catch(() => ({ rounds: 0, reviewers: [] as string[] }));
+    rounds = counted.rounds;
+    reviewers = counted.reviewers;
   }
+  const shipped = branch !== "" && (await mergedIntoRequest(projectPath, branch, target));
+  const blocked = releaseMr !== undefined && rounds >= limit;
+  stages.push({
+    key: "release",
+    label: "发上线申请",
+    state: shipped ? "done" : blocked ? "blocked" : releaseMr !== undefined ? "active" : "todo",
+    detail: releaseMr !== undefined ? `!${releaseMr} · 第 ${Math.min(rounds + 1, limit)}/${limit} 轮` : undefined,
+    blockedBy: blocked ? `机器评审已评 ${rounds} 轮（上限 ${limit}）` : undefined,
+    nextAction: shipped
+      ? undefined
+      : releaseMr !== undefined
+        ? blocked
+          ? "人工 review 或改需求"
+          : "看评审意见并推修复"
+        : inBase
+          ? `从 ${branch} 提 MR 到 ${target}，并发上线申请`
+          : `等提测通过后从 ${branch} 提 MR 到 ${target}，并发上线申请`,
+  });
+  stages.push({
+    key: "ship",
+    label: "上线",
+    state: shipped ? "active" : "todo",
+    nextAction: shipped ? "提发布单" : undefined,
+  });
 
   log("stages", "derived", { branch, origin, base, target, rounds, limit });
   return { branch, origin, base, target, rounds, roundLimit: limit, reviewers, stages };

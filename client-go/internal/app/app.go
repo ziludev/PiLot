@@ -187,6 +187,9 @@ type App struct {
 	// stageStrip is the pipeline strip for the open chat: derived by the bridge
 	// from git and GitLab, drawn here and never decided here.
 	stageStrip *protocol.Stages
+	// stageOpen unfolds the whole pipeline. Folded is the default: the strip
+	// answers "what now", and three of its four steps are not that.
+	stageOpen bool
 }
 
 type viewModel struct {

@@ -64,7 +64,7 @@ export type ProjectWorkflow = {
   origin: string;
   /** Where 提测 goes. */
   testBase: string;
-  /** Where the release request goes. */
+  /** The branch a maintainer merges into when the release is approved. */
   releaseTarget: string;
   /** How many rounds of machine review a merge request gets. */
   roundLimit: number;
@@ -73,7 +73,7 @@ export type ProjectWorkflow = {
 export const DEFAULT_WORKFLOW: ProjectWorkflow = {
   origin: "",
   testBase: "release/test",
-  releaseTarget: "feature/server",
+  releaseTarget: "release/online",
   roundLimit: 3,
 };
 

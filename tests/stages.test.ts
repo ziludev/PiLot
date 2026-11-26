@@ -37,7 +37,7 @@ function stub(rounds: number): string {
     path,
     `#!/bin/sh
 case "$2" in
-  *merge_requests\\?state=opened*) echo '[{"iid":3165,"source_branch":"feat/work","target_branch":"feature/server"}]' ;;
+  *merge_requests\\?state=opened*) echo '[{"iid":3165,"source_branch":"feat/work","target_branch":"release/online"}]' ;;
   *discussions*) echo '${JSON.stringify(discussions)}' ;;
   *state=merged*) echo '[]' ;;
   *) echo '[]' ;;
@@ -54,7 +54,7 @@ test("a merge request that used its rounds is blocked, not merely active", async
   const report = await deriveStages(dir, dir, {
     base: "release/test",
     branch: "feat/work",
-    target: "feature/server",
+    target: "release/online",
     roundLimit: 3,
   });
   const release = report.stages.find((s) => s.key === "release");
@@ -71,7 +71,7 @@ test("the same request with rounds left offers the next round", async () => {
   const report = await deriveStages(dir, dir, {
     base: "release/test",
     branch: "feat/work",
-    target: "feature/server",
+    target: "release/online",
     roundLimit: 3,
   });
   const release = report.stages.find((s) => s.key === "release");
@@ -81,7 +81,7 @@ test("the same request with rounds left offers the next round", async () => {
   assert.equal(release?.blockedBy, undefined);
 });
 
-test("a branch that is already in the base skips straight to release", async () => {
+test("a branch that is already in the base skips straight to the release ask", async () => {
   const dir = repo();
   execFileSync("git", ["checkout", "-q", "release/test"], { cwd: dir });
   execFileSync("git", ["merge", "-q", "--ff-only", "feat/work"], { cwd: dir });
@@ -90,12 +90,32 @@ test("a branch that is already in the base skips straight to release", async () 
   const report = await deriveStages(dir, dir, {
     base: "release/test",
     branch: "feat/work",
-    target: "feature/server",
+    target: "release/online",
     roundLimit: 3,
   });
   assert.equal(report.stages.find((s) => s.key === "test")?.state, "done");
-  assert.equal(report.stages.find((s) => s.key === "release")?.state, "todo");
+  // The ask has been made: an MR to the release target is open, and its review is
+  // what is moving now. Nobody in this chat merges it — a maintainer does.
+  const release = report.stages.find((s) => s.key === "release");
+  assert.equal(release?.label, "发上线申请");
+  assert.equal(release?.state, "active");
+  assert.match(release?.detail ?? "", /!3165/);
   assert.equal(report.stages.find((s) => s.key === "ship")?.state, "todo");
+});
+
+test("no merge request means the next step is an ask, not a merge", async () => {
+  const dir = repo();
+  process.env["PILOT_GLAB"] = "/nonexistent/glab";
+  const report = await deriveStages(dir, dir, {
+    base: "release/test",
+    branch: "feat/work",
+    target: "release/online",
+    roundLimit: 3,
+  });
+  const release = report.stages.find((s) => s.key === "release");
+  assert.equal(release?.state, "todo");
+  assert.match(release?.nextAction ?? "", /release\/online/);
+  assert.match(release?.nextAction ?? "", /上线申请/);
 });
 
 test("without a usable glab the strip still reports what git knows", async () => {
@@ -104,7 +124,7 @@ test("without a usable glab the strip still reports what git knows", async () =>
   const report = await deriveStages(dir, dir, {
     base: "release/test",
     branch: "feat/work",
-    target: "feature/server",
+    target: "release/online",
     roundLimit: 3,
   });
   assert.equal(report.stages.length, 4);

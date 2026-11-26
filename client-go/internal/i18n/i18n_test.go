@@ -51,7 +51,7 @@ import (
 // task dialog's verbs and its prose: stop, close, dismiss, the failing notice,
 // the row menu, and the four words that turn a task's input from a wall of JSON
 // into what it was asked and what it watches.
-const maxKeys = 407
+const maxKeys = 409
 
 func TestDictionariesMatch(t *testing.T) {
 	keys := Keys()

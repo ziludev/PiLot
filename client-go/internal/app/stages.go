@@ -2,9 +2,12 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"pilot/internal/icons"
 
 	"pilot/internal/i18n"
 	"pilot/internal/protocol"
@@ -62,46 +65,45 @@ func stageStateTone(t theme.Tokens, state string) (ui.Color, ui.Color, int) {
 	}
 }
 
-// stageStrip draws the steps in one row, plus the sentence that explains the step
-// that is blocking or moving.
+// stageBar draws where the work stands, folded to the one step that is moving or
+// stuck. The chain of four is a map, and a map is not what a reader needs four
+// times an hour; unfolding it (the chevron) shows the whole path again.
+//
+// Two rows, not one: the steps are the strip, and the sentence that says what to
+// do about them is a second thought. On one row a narrow pane squeezed the labels
+// into one character per line — 提测到 release/test became a column of hanzi —
+// because a row shrinks whatever does not fit. The strip's height is spelled out:
+// a Column that only knows its children laid out at zero height and let the
+// transcript draw over it.
 func (a *App) stageBar(c *ui.Context, t theme.Tokens) {
 	if a.stageStrip == nil || len(a.stageStrip.Stages) == 0 {
 		return
 	}
-	// Two rows, not one: the steps are the strip, and the sentence that says what
-	// to do about them is a second thought. On one row a narrow pane squeezed the
-	// labels into one character per line — 提测到 release/test became a column of
-	// hanzi — because a row shrinks whatever does not fit.
-	// The strip's height is spelled out: a Column that only knows its children
-	// laid out at zero height and let the transcript draw over it.
 	note := stageNote(a.stageStrip)
-	stage, askable := stageAttention(a.stageStrip)
-	askable = askable && stage.State == "active"
+	stage, attention := stageAttention(a.stageStrip)
+	askable := attention && stage.State == "active"
 	second := note != "" || a.stageStrip.Rounds > 0 || askable
 	height := float32(30)
 	if second {
 		height += 22
 	}
-	ui.Column(c).FillWidth().Height(height+1).Background(t.Surface).Children(func() {
+	ui.Column(c).FillWidth().Height(height + 1).Background(t.Surface).Children(func() {
 		ui.Row(c).FillWidth().Height(30).Padding(0, 14).Gap(10).AlignItems(ui.Center).
 			Children(func() {
-				for index, stage := range a.stageStrip.Stages {
-					if index > 0 {
-						ui.Text(c, "›").FontSize(theme.TextMicro).TextColor(t.Ink3)
+				if a.stageOpen || !attention {
+					for index, step := range a.stageStrip.Stages {
+						if index > 0 {
+							ui.Text(c, "›").FontSize(theme.TextMicro).TextColor(t.Ink3)
+						}
+						a.stageStep(c, t, step)
 					}
-					dot, label, weight := stageStateTone(t, stage.State)
-					if stage.State == "active" {
-						ui.Spinner(c).Size(9, 9).TextColor(dot)
-					} else {
-						ui.Box(c).Width(6).Height(6).Radius(3).Background(dot)
-					}
-					ui.Text(c, stage.Label).FontSize(theme.TextRow).FontWeight(weight).
-						TextColor(label).MaxLines(1)
-					if stage.Detail != "" {
-						ui.Text(c, stage.Detail).FontSize(theme.TextMicro).TextColor(t.Ink3).
-							MaxLines(1)
-					}
+				} else {
+					a.stageStep(c, t, stage)
+					ui.Text(c, stagePlace(a.stageStrip, stage)).
+						FontSize(theme.TextMicro).TextColor(t.Ink3).MaxLines(1)
 				}
+				ui.Spacer(c)
+				a.stageFold(c, t)
 			})
 		if !second {
 			ui.Box(c).FillWidth().Height(1).Background(t.Line)
@@ -109,37 +111,89 @@ func (a *App) stageBar(c *ui.Context, t theme.Tokens) {
 		}
 		ui.Row(c).FillWidth().Height(22).Padding(0, 14, 4, 14).Gap(8).
 			AlignItems(ui.Center).Children(func() {
-				if note != "" {
-					ui.Text(c, note).FontSize(theme.TextMicro).TextColor(t.Ink3).
-						MaxLines(1).Grow(1)
-				} else {
-					ui.Spacer(c)
+			if note != "" {
+				ui.Text(c, note).FontSize(theme.TextMicro).TextColor(t.Ink3).
+					MaxLines(1).Grow(1)
+			} else {
+				ui.Spacer(c)
+			}
+			if a.stageStrip.Rounds > 0 {
+				label := i18n.TF("stageRounds", map[string]any{"n": a.stageStrip.Rounds, "max": a.stageStrip.RoundLimit})
+				colour := t.Ink3
+				if a.stageStrip.Rounds >= a.stageStrip.RoundLimit {
+					colour = t.Red
 				}
-				if a.stageStrip.Rounds > 0 {
-					label := i18n.TF("stageRounds", map[string]any{"n": a.stageStrip.Rounds, "max": a.stageStrip.RoundLimit})
-					colour := t.Ink3
-					if a.stageStrip.Rounds >= a.stageStrip.RoundLimit {
-						colour = t.Red
-					}
-					ui.Text(c, label).FontSize(theme.TextMicro).FontWeight(600).
-						TextColor(colour).MaxLines(1)
+				ui.Text(c, label).FontSize(theme.TextMicro).FontWeight(600).
+					TextColor(colour).MaxLines(1)
+			}
+			if askable {
+				ask := ui.ButtonBase(c).Height(20).Padding(0, 8).Radius(theme.RadiusChip).
+					Justify(ui.Center).AlignItems(ui.Center).
+					Cursor(ui.CursorPointer).Tooltip(i18n.T("stageAskTip"))
+				if ask.Hovered() {
+					ask = ask.Background(t.Field)
 				}
-				if askable {
-					ask := ui.ButtonBase(c).Height(20).Padding(0, 8).Radius(theme.RadiusChip).
-						Justify(ui.Center).AlignItems(ui.Center).
-						Cursor(ui.CursorPointer).Tooltip(i18n.T("stageAskTip"))
-					if ask.Hovered() {
-						ask = ask.Background(t.Field)
-					}
-					ask.Children(func() {
-						ui.Text(c, i18n.T("stageAsk")).FontSize(theme.TextMicro).FontWeight(500).
-							TextColor(t.Brand).MaxLines(1)
-					})
-					ask.OnClick(a.stageAsk)
-				}
-			})
+				ask.Children(func() {
+					ui.Text(c, i18n.T("stageAsk")).FontSize(theme.TextMicro).FontWeight(500).
+						TextColor(t.Brand).MaxLines(1)
+				})
+				ask.OnClick(a.stageAsk)
+			}
+		})
 		ui.Box(c).FillWidth().Height(1).Background(t.Line)
 	})
+}
+
+// stageStep is one dot, its label, and the number that belongs to it.
+func (a *App) stageStep(c *ui.Context, t theme.Tokens, stage protocol.Stage) {
+	dot, label, weight := stageStateTone(t, stage.State)
+	if stage.State == "active" {
+		ui.Spinner(c).Size(9, 9).TextColor(dot)
+	} else {
+		ui.Box(c).Width(6).Height(6).Radius(3).Background(dot)
+	}
+	ui.Text(c, stage.Label).FontSize(theme.TextRow).FontWeight(weight).
+		TextColor(label).MaxLines(1)
+	if stage.Detail != "" {
+		ui.Text(c, stage.Detail).FontSize(theme.TextMicro).TextColor(t.Ink3).
+			MaxLines(1)
+	}
+}
+
+// stageFold folds the chain away, or brings it back.
+func (a *App) stageFold(c *ui.Context, t theme.Tokens) {
+	// The caret shows the state it is in, the way the folded JSON does: closed
+	// points at what is folded away, open points down at what is showing.
+	caret := icons.ChevronRight
+	tip := i18n.T("stageUnfold")
+	if a.stageOpen {
+		caret = icons.ChevronDown
+		tip = i18n.T("stageFold")
+	}
+	button := ui.ButtonBase(c).Width(18).Height(18).Radius(theme.RadiusChip).
+		Justify(ui.Center).AlignItems(ui.Center).Cursor(ui.CursorPointer).
+		Tooltip(tip).Label(tip)
+	if button.Hovered() {
+		button = button.Background(t.Field)
+	}
+	button.Children(func() {
+		ui.Icon(c, caret).Size(10, 10).TextColor(t.Ink3)
+	})
+	button.OnClick(func() {
+		a.stageOpen = !a.stageOpen
+		a.invalidate()
+	})
+}
+
+// stagePlace says which step of how many the folded strip is showing, so one step
+// on screen does not read as the only one.
+func stagePlace(got *protocol.Stages, stage protocol.Stage) string {
+	for index, step := range got.Stages {
+		if step.Key == stage.Key {
+			return fmt.Sprintf("%d/%d", index+1, len(got.Stages))
+		}
+	}
+	return ""
 }
 
 // stageAttention is the step the strip is about: the one blocked, or else the
