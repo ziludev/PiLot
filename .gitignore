@@ -20,3 +20,6 @@ toolbox-go/bin/
 .pi/
 /bin
 .playwright-mcp/
+
+# gateway build output (go build ./... in feishu-gw)
+/feishu-gw/feishu-gw
