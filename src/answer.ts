@@ -14,6 +14,19 @@ import { AssistantEntry, type ConversationId, type Cursor, type EntryId, type Tx
 /** An entry as stored by pi-durable: the messages a step appended, if it appended any. */
 export type AnswerEntry = { readonly model?: unknown };
 
+/**
+ * Strip an XML envelope a model wrapped its whole answer in (`<result>…</result>`).
+ *
+ * deepseek-flash occasionally answers that way, and the card printed the tags as literal text.
+ * Only an envelope around the entire text is removed: an answer that merely quotes the tags keeps
+ * them, and an empty envelope leaves the original alone rather than delivering nothing.
+ */
+export function unwrapResult(text: string): string {
+  const hit = /^<result>\s*([\s\S]*?)\s*<\/result>$/.exec(text.trim());
+  const inner = (hit?.[1] ?? "").trim();
+  return inner.length > 0 ? inner : text;
+}
+
 /** The text blocks of one entry, in order. Tool results and user text are not answer text. */
 export function textPartsOf(entry: AnswerEntry | undefined): string {
   const messages = (entry?.model ?? []) as unknown as Array<Record<string, unknown>>;
@@ -26,7 +39,7 @@ export function textPartsOf(entry: AnswerEntry | undefined): string {
       if (part["type"] === "text" && typeof part["text"] === "string") parts.push(part["text"]);
     }
   }
-  return parts.join("").trim();
+  return unwrapResult(parts.join("").trim());
 }
 
 /** Tool calls one entry asked for, in order. A block followed by calls is narration, not prose. */

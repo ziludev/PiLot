@@ -40,6 +40,17 @@ test("text parts inside one entry stay in one block", () => {
   assert.equal(textPartsOf(assistant(text("前半"), text("后半"))), "前半后半");
 });
 
+test("a model's <result> envelope is unwrapped, and only when it wraps everything", () => {
+  // deepseek-flash answered one turn as "<result>…</result>" and the card printed both tags.
+  assert.equal(
+    textPartsOf(assistant(text("<result>\n已做完，等你的两个决定。\n</result>"))),
+    "已做完，等你的两个决定。",
+  );
+  const quoted = "解释一下 <result> 标签的用法";
+  assert.equal(textPartsOf(assistant(text(quoted))), quoted);
+  assert.equal(textPartsOf(assistant(text("<result></result>"))), "<result></result>");
+});
+
 test("empty and malformed entries are skipped", () => {
   assert.equal(answerTextOf([{}, { model: [] }, { model: [{ role: "assistant" }] }]), "");
 });
