@@ -4,6 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import * as Lark from "@larksuiteoapi/node-sdk";
 
+import type { JsonObject } from "@earendil-works/pi-durable";
 import { config, requireFeishuCredentials, requireFeishuOwner } from "./config.ts";
 import { markTree, touchedSince } from "./changes.ts";
 import { gatewayClient, gatewayEndpoint, type FeishuIm, type ImResponse } from "./feishu-gw.ts";
@@ -52,6 +53,7 @@ import { agentName } from "./identity.ts";
 import { SurfaceMetaDoc, updateSurfaceMeta } from "./surface-meta.ts";
 import { transcribeAudio } from "./asr.ts";
 import {
+  attachReaction,
   attachSubmission,
   clearCardPending,
   type CardPhase,
@@ -151,6 +153,13 @@ export function gatewayWatchStep(
   return { state: { misses, alertedAt: now }, act: "alert" };
 }
 
+function isWithdrawnError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | undefined)?.code;
+  if (code === 230011) return true;
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /\b230011\b|withdrawn/i.test(message);
+}
+
 /**
  * Patches to one message run one at a time, in the order they were asked for.
  *
@@ -192,7 +201,7 @@ const HELP = [
   "直接说话就行：能查文件、跑命令、定时提醒、记长期记忆。",
 ].join("\n");
 
-type CardButton = { label: string; value: Record<string, unknown>; type?: "primary" | "danger" | "default" };
+type CardButton = { label: string; value: JsonObject; type?: "primary" | "danger" | "default" };
 
 /**
  * A failed turn leaves the card with nothing to press, so the only way on was typing "继续"
@@ -289,6 +298,13 @@ export function detailPanel(details: Omit<TurnDetails, "at">): Record<string, un
   // reader can see it — and printing it here as well made the two messages stutter at each other.
   // Money never belonged in a panel header nobody opens it for.
   const summary = `${details.steps.length} 步${decisionLines.length > 0 ? ` · ${decisionLines.length} 次决策` : ""}`;
+  const elements = bodyElements(body.join("\n\n"));
+  if (details.seconds > 0 || details.costUsd > 0.00005) {
+    const metaParts: string[] = [];
+    if (details.seconds > 0) metaParts.push(`耗时 ${spanText(details.seconds * 1000)}`);
+    if (details.costUsd > 0.00005) metaParts.push(`花费 $${details.costUsd.toFixed(4)}`);
+    elements.push({ tag: "markdown", content: metaParts.join(" · "), text_size: "notation" });
+  }
   return {
     tag: "collapsible_panel",
     expanded: false,
@@ -302,7 +318,7 @@ export function detailPanel(details: Omit<TurnDetails, "at">): Record<string, un
     border: { color: "grey", corner_radius: "5px" },
     vertical_spacing: "8px",
     padding: "8px 8px 8px 8px",
-    elements: bodyElements(body.join("\n\n")),
+    elements,
   };
 }
 
@@ -456,14 +472,28 @@ export function chunkMarkdown(content: string, max = MAX_MARKDOWN_CHARS): string
   return pieces.length > 0 ? pieces : [content];
 }
 
-/** The body of a card: prose as markdown, tables as tables, rules as rules. */
+/** Feishu 2.0 cards reject too many native table components; excess tables fall back to code blocks. */
+export const MAX_CARD_TABLES = 5;
+
+function tableAsCode(block: TableBlock): Record<string, unknown> {
+  const header = `| ${block.columns.join(" | ")} |`;
+  const sep = `| ${block.columns.map(() => "---").join(" | ")} |`;
+  const body = block.rows.map((row) => `| ${row.join(" | ")} |`);
+  return { tag: "markdown", content: ["```", header, sep, ...body, "```"].join("\n") };
+}
+
+/** The body of a card: prose as markdown, tables as tables (capped at MAX_CARD_TABLES), rules as rules. */
 export function bodyElements(markdown: string): Array<Record<string, unknown>> {
   const elements: Array<Record<string, unknown>> = [];
+  let tables = 0;
   for (const part of splitTables(markdown)) {
     if (typeof part === "string") {
       elements.push(...textBlockElements(part));
-    } else {
+    } else if (tables < MAX_CARD_TABLES) {
+      tables += 1;
       elements.push(tableElement(part));
+    } else {
+      elements.push(tableAsCode(part));
     }
   }
   return elements.length > 0 ? elements : [{ tag: "markdown", content: markdown }];
@@ -561,6 +591,62 @@ export function card(
   return draft;
 }
 
+/**
+ * Splits an oversized answer into multiple card bodies so nothing is silently truncated at the end.
+ * Keeps `card()` itself responsible for single-card budget safety.
+ */
+export function splitAnswerForCards(markdown: string, maxChunkBytes = 18_000): string[] {
+  const byteLength = Buffer.byteLength(markdown, "utf8");
+  if (byteLength <= maxChunkBytes || markdown.length === 0) return [markdown];
+  const avgBytes = byteLength / markdown.length;
+  const charBudget = Math.max(1_500, Math.floor(maxChunkBytes / Math.max(1, avgBytes)));
+  const raw = chunkMarkdown(markdown, charBudget);
+  if (raw.length <= 1) return raw;
+  return raw.map((piece, index) =>
+    index === 0 ? `${piece}\n\n_（1/${raw.length}，下文续）_` : `**（续 ${index + 1}/${raw.length}）**\n\n${piece}`,
+  );
+}
+
+/** True when `now` falls inside a `HH:MM-HH:MM` window in Asia/Shanghai; `"off"` or empty returns false. */
+export function inQuietHours(spec: string, now = new Date()): boolean {
+  const trimmed = spec.trim();
+  if (trimmed === "" || trimmed.toLowerCase() === "off") return false;
+  const match = /^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$/.exec(trimmed);
+  if (match === null) return false;
+  const start = Number(match[1]) * 60 + Number(match[2]);
+  const end = Number(match[3]) * 60 + Number(match[4]);
+  if (Number(match[1]) > 23 || Number(match[2]) > 59 || Number(match[3]) > 23 || Number(match[4]) > 59) return false;
+  if (start === end) return false;
+  const clockText = now.toLocaleTimeString("en-GB", {
+    timeZone: "Asia/Shanghai",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const [hh, mm] = clockText.split(":").map(Number);
+  const current = (hh ?? 0) * 60 + (mm ?? 0);
+  return start < end ? current >= start && current < end : current >= start || current < end;
+}
+
+/**
+ * A done-ping is news only when the run was long enough to have been waited on. `0` disables the
+ * pings entirely — the recovery path used to compare against 0 and so pinged on every restart.
+ */
+export function shouldPingDone(donePingSeconds: number, elapsedMs: number): boolean {
+  if (donePingSeconds <= 0) return false;
+  return elapsedMs >= donePingSeconds * 1000;
+}
+
+/** Maps a notice's leading severity icon to a matching Feishu card header colour. */
+export function noticeHeader(head: string): CardHeader {
+  const clean = head.replace(/[*`#]/g, "").trim().slice(0, 80);
+  const title = clean || "通知";
+  if (/^[🔴❌]/.test(clean)) return { title, template: "red" };
+  if (/^[⚠️⏸️⏳]/.test(clean)) return { title, template: "orange" };
+  if (/^✅/.test(clean)) return { title, template: "green" };
+  return { title, template: "blue" };
+}
+
 /** Feishu answers 230099 for a card whose JSON passes 30KB, and the envelope and escaping eat
  *  into that. A 9000-character CJK answer is 27KB before the step panel is added. */
 export const CARD_BUDGET_BYTES = 28_000;
@@ -597,14 +683,33 @@ function renderDetails(details: TurnDetails): string {
   return `${header}\n\n${lines.join("\n\n")}`;
 }
 
-export function approvalCard(request: ApprovalRequest): Record<string, unknown> {
-  const buttons: Array<Record<string, unknown>> = [
-    {
-      tag: "button",
-      text: { tag: "plain_text", content: "允许" },
-      type: "primary",
-      value: { approval: request.callId, ok: true },
-    },
+/**
+ * How a pending approval ended. A settled card keeps the request it was asking about and freezes
+ * the answers instead of being replaced by one line: 「✅ 已允许」 alone tells a reader a week later
+ * nothing about what they allowed, and in a chat history the line loses the call it referred to.
+ * AskHuman's Feishu/DingTalk cards settle the same way — buttons disabled, the used one still
+ * highlighted — and we had been doing the Telegram shape (whole card overwritten by a sentence).
+ */
+export type ApprovalOutcome = {
+  ok: boolean;
+  /** Which surface answered; `timeout` and `shutdown` mean nobody did. */
+  by: "feishu" | "client" | "timeout" | "shutdown";
+  /** How long the request waited before it was answered. */
+  waitedMs?: number;
+  /** Which answer was used: allow / session / all / deny. */
+  pick?: string;
+};
+
+type ApprovalAnswer = {
+  pick: "allow" | "session" | "all" | "deny";
+  label: string;
+  type: "primary" | "default" | "danger";
+  value: Record<string, unknown>;
+};
+
+function approvalAnswers(request: ApprovalRequest): ApprovalAnswer[] {
+  return [
+    { pick: "allow", label: "允许", type: "primary", value: { approval: request.callId, ok: true } },
     // One chat deliberately writing outside the workspace should not raise this
     // card per file. Two answers: this class of call, or everything but the
     // classes that destroy data.
@@ -612,39 +717,89 @@ export function approvalCard(request: ApprovalRequest): Record<string, unknown> 
       ? []
       : [
           {
-            tag: "button",
-            text: { tag: "plain_text", content: "本会话允许这类" },
-            type: "default",
+            pick: "session" as const,
+            label: "本会话允许这类",
+            type: "default" as const,
             value: { approval: request.callId, ok: true, session: true, key: request.grantKey },
           },
           {
-            tag: "button",
-            text: { tag: "plain_text", content: "本会话全部允许" },
-            type: "default",
+            pick: "all" as const,
+            label: "本会话全部允许",
+            type: "default" as const,
             value: { approval: request.callId, ok: true, session: true, all: true, key: request.grantKey },
           },
         ]),
-    {
-      tag: "button",
-      text: { tag: "plain_text", content: "拒绝" },
-      type: "danger",
-      value: { approval: request.callId, ok: false },
-    },
+    { pick: "deny", label: "拒绝", type: "danger", value: { approval: request.callId, ok: false } },
   ];
+}
+
+/** The verdict a settled card carries in place of the 「Xs 内不选则视为拒绝」 countdown. */
+export function approvalVerdict(
+  request: ApprovalRequest,
+  outcome: ApprovalOutcome,
+): { template: string; title: string; line: string } {
+  if (outcome.by === "shutdown") {
+    return { template: "grey", title: "⏹️ 未确认就已结束", line: "> 等待确认时服务重启了，这次调用没有执行" };
+  }
+  if (outcome.by === "timeout") {
+    return {
+      template: "grey",
+      title: "⏹️ 超时未确认，已按拒绝处理",
+      line: `> ${Math.round(request.timeoutMs / 1000)}s 内没人回答，${request.tool} 没有执行`,
+    };
+  }
+  const answers = approvalAnswers(request);
+  // A caller that only knows yes/no still gets the right label: the grant buttons say 「允许」 too,
+  // and claiming 「本会话允许这类」 for a plain allow would overstate what is now permitted.
+  const answer =
+    answers.find((item) => item.pick === outcome.pick) ??
+    answers.find((item) => item.pick === (outcome.ok ? "allow" : "deny"))!;
+  const who = outcome.by === "client" ? "桌面客户端" : "飞书";
+  const waited = outcome.waitedMs !== undefined && outcome.waitedMs > 0 ? `，等了 ${spanText(outcome.waitedMs)}` : "";
+  return outcome.ok
+    ? { template: "green", title: `✅ 已允许 · ${answer.label}`, line: `> ${who}选了「${answer.label}」${waited}` }
+    : { template: "red", title: "🛑 已拒绝", line: `> ${who}选了「拒绝」${waited}` };
+}
+
+export function approvalCard(request: ApprovalRequest, outcome?: ApprovalOutcome): Record<string, unknown> {
+  const settled = outcome !== undefined;
+  const verdict = outcome === undefined ? undefined : approvalVerdict(request, outcome);
+  // Nobody picked anything when it timed out or died: every button flattens, none of them is
+  // shown as the answer that was used.
+  const nobodyAnswered = settled && (outcome.by === "timeout" || outcome.by === "shutdown");
+  const picked = settled && !nobodyAnswered ? (outcome.pick ?? (outcome.ok ? "allow" : "deny")) : undefined;
+  const buttons = approvalAnswers(request).map((answer) => ({
+    tag: "button",
+    text: { tag: "plain_text", content: answer.label },
+    // Every button is frozen once answered; the one that was used keeps its colour, so the settled
+    // card still reads as 「this is what I picked」 instead of four identical grey rectangles.
+    type: settled ? (answer.pick === picked ? answer.type : "default") : answer.type,
+    ...(settled ? { disabled: true } : {}),
+    value: answer.value,
+  }));
+  const sourceText =
+    request.chatTitle !== undefined && request.chatTitle.trim().length > 0
+      ? request.chatTitle.trim()
+      : request.surfaceId.length > 0
+        ? request.surfaceId
+        : undefined;
   return {
     schema: "2.0",
     config: { update_multi: true, width_mode: "fill" },
     header: {
-      template: "orange",
-      title: { tag: "plain_text", content: "⚠️ 需要你确认" },
+      template: verdict?.template ?? "orange",
+      title: { tag: "plain_text", content: verdict?.title ?? "⚠️ 需要你确认" },
     },
     body: {
       elements: [
         { tag: "markdown", content: `${toolIcon(request.tool)} **${request.tool}** — ${request.reason}` },
         { tag: "markdown", content: "```\n" + request.summary.slice(0, 1200) + "\n```" },
+        ...(sourceText === undefined
+          ? []
+          : [{ tag: "markdown", content: `来源：${sourceText}`, text_size: "notation" }]),
         {
           tag: "markdown",
-          content: `${Math.round(request.timeoutMs / 1000)}s 内不选则视为拒绝`,
+          content: verdict?.line ?? `${Math.round(request.timeoutMs / 1000)}s 内不选则视为拒绝`,
           text_size: "notation",
         },
         {
@@ -1010,6 +1165,75 @@ export function parseModelCommand(raw: string): ModelCommand {
   if (head === "default" && tail.length > 0) return { kind: "default", modelId: tail };
   if (head === "thinking" && tail.length > 0) return { kind: "thinking", level: tail };
   return { kind: "set", modelId: arg };
+}
+
+export type ModelCatalogEntry = {
+  provider: string;
+  id: string;
+  thinkingLevels: string[];
+};
+
+/**
+ * Resolves a model query against the full multi-provider catalog.
+ * Accepts either `provider/modelId` (when `provider` matches a real catalog provider, since
+ * magpie model ids themselves contain slashes like `auto/glm-5.3`) or a bare `modelId`,
+ * preferring `currentProvider` when multiple providers expose the same id.
+ */
+export function resolveModelPick<T extends ModelCatalogEntry>(
+  catalog: readonly T[],
+  query: string,
+  currentProvider?: string,
+): T | undefined {
+  const trimmed = query.trim();
+  if (trimmed.length === 0) return undefined;
+  const slash = trimmed.indexOf("/");
+  if (slash > 0) {
+    const maybeProvider = trimmed.slice(0, slash);
+    const maybeId = trimmed.slice(slash + 1);
+    const exact = catalog.find((entry) => entry.provider === maybeProvider && entry.id === maybeId);
+    if (exact !== undefined) return exact;
+  }
+  const byId = catalog.filter((entry) => entry.id === trimmed);
+  if (byId.length === 0) return undefined;
+  if (currentProvider !== undefined) {
+    const sameProvider = byId.find((entry) => entry.provider === currentProvider);
+    if (sameProvider !== undefined) return sameProvider;
+  }
+  return byId[0];
+}
+
+/** Picks up to 5 card button choices for `/model`, preferring the conversation's provider. */
+export function pickModelChoices<T extends ModelCatalogEntry>(
+  catalog: readonly T[],
+  currentProvider: string,
+  currentModelId: string,
+  defaultModelId?: string,
+): T[] {
+  const scoped = catalog.filter((entry) => entry.provider === currentProvider);
+  const pool = scoped.length > 0 ? scoped : catalog;
+  const filtered = pool.filter(
+    (entry) => entry.provider !== "magpie" || (!entry.id.startsWith("auto/") && !entry.id.startsWith("group/")),
+  );
+  const byId = new Map<string, T>();
+  for (const entry of pool) {
+    if (!byId.has(entry.id)) byId.set(entry.id, entry);
+  }
+  const picks: T[] = [];
+  const seen = new Set<string>();
+  const push = (entry: T | undefined): void => {
+    if (entry === undefined) return;
+    const key = `${entry.provider}/${entry.id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    picks.push(entry);
+  };
+  push(byId.get(currentModelId));
+  if (defaultModelId !== undefined && defaultModelId.length > 0) push(byId.get(defaultModelId));
+  for (const entry of filtered) {
+    if (picks.length >= 5) break;
+    push(entry);
+  }
+  return picks.slice(0, 5);
 }
 
 /**
@@ -1459,13 +1683,15 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     markdown: string,
     meta?: string,
     header?: CardHeader,
+    buttons?: CardButton[],
+    details?: Omit<TurnDetails, "at">,
   ): Promise<string | undefined> {
     const response = await im.message.create({
       params: { receive_id_type: "chat_id" },
       data: {
         receive_id: chatId,
         msg_type: "interactive",
-        content: JSON.stringify(card(markdown, meta, undefined, header)),
+        content: JSON.stringify(card(markdown, meta, buttons, header, details)),
       },
     });
     const messageId = (response as { data?: { message_id?: unknown } } | undefined)?.data?.message_id;
@@ -1487,21 +1713,35 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     markdown: string,
     meta?: string,
     header?: CardHeader,
+    buttons?: CardButton[],
+    details?: Omit<TurnDetails, "at">,
   ): Promise<void> {
     if (messageId === undefined) {
-      await sendMarkdown(chatId, markdown, meta, header);
+      await sendMarkdown(chatId, markdown, meta, header, buttons, details);
       return;
     }
     const response = await im.message.reply({
       path: { message_id: messageId },
       data: {
         msg_type: "interactive",
-        content: JSON.stringify(card(markdown, meta, undefined, header)),
+        content: JSON.stringify(card(markdown, meta, buttons, header, details)),
         ...(thread === true ? { reply_in_thread: true } : {}),
       },
     });
     const sentId = (response as { data?: { message_id?: unknown } } | undefined)?.data?.message_id;
     if (typeof sentId === "string") void rememberCardText(runtime.harness, context, sentId, markdown);
+  }
+
+  /** Patch a card to content the caller built itself (a settled approval card keeps its request
+   *  body; rebuilding it from markdown would lose the tool block and the frozen buttons). */
+  async function patchCardContent(messageId: string, content: string, text: string): Promise<void> {
+    if (text.length > 0) void rememberCardText(runtime.harness, context, messageId, text);
+    const response = await serializePatch(messageId, () =>
+      im.message.patch({ path: { message_id: messageId }, data: { content } }),
+    );
+    if (response?.code !== 0) {
+      throw new Error(`patch failed: ${response?.code} ${response?.msg ?? ""}`);
+    }
   }
 
   async function patchCard(
@@ -1514,15 +1754,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     keepText = true,
   ): Promise<void> {
     const content = JSON.stringify(card(markdown, meta, buttons, header, details));
-    // The card now says this. Streaming frames pass `keepText: false`: they are shown for seconds
-    // and a doc write per frame is not worth it — the final patch is the one a quote would hit.
-    if (keepText) void rememberCardText(runtime.harness, context, messageId, markdown);
-    const response = await serializePatch(messageId, () =>
-      im.message.patch({ path: { message_id: messageId }, data: { content } }),
-    );
-    if (response?.code !== 0) {
-      throw new Error(`patch failed: ${response?.code} ${response?.msg ?? ""}`);
-    }
+    // Streaming frames pass `keepText: false`: they are shown for seconds and a doc write per
+    // frame is not worth it — the final patch is the one a quote would hit.
+    await patchCardContent(messageId, content, keepText ? markdown : "");
   }
 
   /**
@@ -1538,8 +1772,15 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     chatId: string,
     messageId: string,
     markdown: string,
-    options: { thread?: boolean },
+    options: { thread?: boolean; urgent?: boolean },
   ): Promise<void> {
+    // A "finished" note can wait until morning; "the routine failed" cannot, or the owner learns
+    // at breakfast that last night's job died. Severity decides unless the caller is explicit.
+    const urgent = options.urgent ?? /^[🔴❌⚠️⏸️⏳]/.test(markdown.trim());
+    if (!urgent && inQuietHours(config.feishu.quietHours)) {
+      log("feishu", "done ping suppressed during quiet hours", { chatId });
+      return;
+    }
     try {
       await im.message.reply({
         path: { message_id: messageId },
@@ -1551,6 +1792,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       });
       log("feishu", "done ping sent", { chatId, chars: markdown.length });
     } catch (error) {
+      if (isWithdrawnError(error)) {
+        log("feishu", "done ping skipped on withdrawn message", { chatId, messageId });
+        return;
+      }
       logError("feishu", "could not send done ping", error);
     }
   }
@@ -1563,12 +1808,20 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     buttons?: CardButton[],
     header?: CardHeader,
     details?: Omit<TurnDetails, "at">,
+    replyContext?: { replyTo?: string; thread?: boolean },
   ): Promise<void> {
+    const chunks = splitAnswerForCards(markdown);
+    const primary = chunks[0] ?? markdown;
+    const primaryButtons = chunks.length === 1 ? buttons : undefined;
+    const primaryDetails = chunks.length === 1 ? details : undefined;
+    const primaryMeta = chunks.length === 1 ? meta : "";
+    let patched = false;
     for (let attempt = 0; ; attempt += 1) {
       try {
-        await patchCard(cardId, markdown, meta, buttons, header, details);
-        log("feishu", "final card patched", { chatId, cardId, chars: markdown.length, attempts: attempt + 1 });
-        return;
+        await patchCard(cardId, primary, primaryMeta, primaryButtons, header, primaryDetails);
+        log("feishu", "final card patched", { chatId, cardId, chars: markdown.length, chunks: chunks.length, attempts: attempt + 1 });
+        patched = true;
+        break;
       } catch (error) {
         const delay = patchRetryDelay(attempt, error);
         if (delay === undefined) {
@@ -1583,8 +1836,34 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
+    if (patched) {
+      for (let index = 1; index < chunks.length; index += 1) {
+        const isLast = index === chunks.length - 1;
+        await replyOrSend(
+          chatId,
+          replyContext?.replyTo ?? cardId,
+          replyContext?.thread,
+          chunks[index]!,
+          isLast ? meta : undefined,
+          header,
+          isLast ? buttons : undefined,
+          isLast ? details : undefined,
+        ).catch((error) => logError("feishu", "continuation card failed", error));
+      }
+      return;
+    }
     try {
-      await sendMarkdown(chatId, markdown, meta, header);
+      for (let index = 0; index < chunks.length; index += 1) {
+        const isLast = index === chunks.length - 1;
+        await sendMarkdown(
+          chatId,
+          chunks[index]!,
+          isLast ? meta : undefined,
+          header,
+          isLast ? buttons : undefined,
+          isLast ? details : undefined,
+        );
+      }
       log("feishu", "answer sent as its own card after a failed patch");
     } catch (error) {
       logError("feishu", "card fallback failed, sending text", error);
@@ -1594,7 +1873,14 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         logError("feishu", "plain text fallback failed, sending direct", inner);
         await sendTextDirect(chatId, stripInlineCode(markdown)).catch(async (last: unknown) => {
           logError("feishu", "direct send failed too, holding the answer for retry", last);
-          await holdForRetry(runtime.harness, context, { chatId, text: markdown, plain: false, meta, header }).catch(
+          await holdForRetry(runtime.harness, context, {
+            chatId,
+            text: markdown,
+            plain: false,
+            meta,
+            header,
+            ...(buttons === undefined ? {} : { buttons }),
+          }).catch(
             (inner) => logError("feishu", "could not hold the answer either", inner),
           );
         });
@@ -1652,6 +1938,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       });
       return response?.data?.reaction_id as string | undefined;
     } catch (error) {
+      if (isWithdrawnError(error)) {
+        log("feishu", "could not stamp withdrawn message", { messageId });
+        return undefined;
+      }
       logError("feishu", "could not stamp the message", error);
       return undefined;
     }
@@ -1670,6 +1960,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         data: { reaction_type: { emoji_type: REACTION_DONE } },
       });
     } catch (error) {
+      if (isWithdrawnError(error)) {
+        log("feishu", "could not settle mark on withdrawn message", { messageId });
+        return;
+      }
       logError("feishu", "could not settle the mark", { messageId, answered, error });
     }
   }
@@ -1762,9 +2056,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
   }
 
   async function sendNoticeNow(chatId: string, text: string): Promise<void> {
-    const [head, ...rest] = text.split("\n");
+    const [head = "", ...rest] = text.split("\n");
     const body = rest.join("\n").trim();
-    if (body.length === 0 || !noticeIsRich(body)) {
+    const urgent = /^[🔴⚠️❌]/.test(head.trim());
+    if ((body.length === 0 && !urgent) || (!noticeIsRich(body) && !urgent)) {
       await sendText(chatId, text);
       return;
     }
@@ -1775,10 +2070,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         msg_type: "interactive",
         content: JSON.stringify(
           card(
-            body,
+            body.length > 0 ? body : head,
             undefined,
             undefined,
-            { title: (head ?? "").replace(/[*`#]/g, "").trim().slice(0, 80) || "通知", template: "blue" },
+            noticeHeader(head),
           ),
         ),
       },
@@ -1905,6 +2200,15 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
           claim === undefined ? { template: "green", title: "✅ 定时任务跑完了" } : doneVerdict(claim),
           decisions.length === 0 ? undefined : { steps: [], seconds, costUsd: 0, decisions },
         );
+        if (claim?.met === false) {
+          await pingDone(chatId, cardId, `⚠️ 定时任务目标未达成 · ${seconds}s`, {
+            thread: topicChats.get(chatId) === true,
+          });
+        } else if (shouldPingDone(config.feishu.donePingSeconds, seconds * 1000)) {
+          await pingDone(chatId, cardId, `✅ 定时任务跑完了 · ${seconds}s`, {
+            thread: topicChats.get(chatId) === true,
+          });
+        }
         return true;
       }
       await deliverAnswer(
@@ -1916,6 +2220,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         { template: "orange", title: "⚠️ 定时任务没跑完" },
         decisions.length === 0 ? undefined : { steps: [], seconds, costUsd: 0, decisions },
       );
+      await pingDone(chatId, cardId, `⚠️ 定时任务没跑完（${stopReason(settled.reason)}） · ${seconds}s`, {
+        thread: topicChats.get(chatId) === true,
+      });
       return false;
     } catch (error) {
       logError("feishu", "routine turn failed", error);
@@ -1927,6 +2234,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         undefined,
         { template: "red", title: "❌ 定时任务失败" },
       ).catch(() => undefined);
+      await pingDone(chatId, cardId, `❌ 定时任务失败：${(error as Error)?.message ?? String(error)}`.slice(0, 140), {
+        thread: topicChats.get(chatId) === true,
+      });
       return false;
     } finally {
       slot.done();
@@ -1938,9 +2248,14 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
    * tables and bold arrive as characters.
    */
   async function sendHeld(entry: OutboxEntry): Promise<void> {
+    if (entry.patchCardId !== undefined) {
+      await patchCardContent(entry.patchCardId, entry.text, entry.meta ?? "");
+      log("feishu", "held card patch delivered", { chatId: entry.chatId, cardId: entry.patchCardId, attempts: entry.attempts });
+      return;
+    }
     const content = entry.plain
       ? JSON.stringify({ text: entry.text })
-      : JSON.stringify(card(entry.text, entry.meta, undefined, entry.header));
+      : JSON.stringify(card(entry.text, entry.meta, entry.buttons, entry.header));
     const msgType = entry.plain ? "text" : "interactive";
     const response =
       entry.replyTo === undefined
@@ -1995,12 +2310,30 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     }
     await sendNotice(surfaceId, text);
   });
+  /** Active live cards keyed by conversationId so approvals can show waiting status on the main card. */
+  const activeLiveCards = new Map<number, { setStatus(text: string): void; clearStatus(): void }>();
+
   // A routine knocks on the same door a message does; it just has no message behind it.
   setTurnStarter(runRoutineTurn);
   setApprovalDecider(async (request) => {
+    // Include the source chat/group title on the DM card so parallel chats are easy to tell apart.
+    const surfaceInfo =
+      request.chatTitle ??
+      (request.surfaceId.length > 0
+        ? (
+            await runtime.harness
+              .snapshot(SurfaceMetaDoc, context)
+              .catch((error) => {
+                logError("feishu", "could not read surface meta for approval", error);
+                return undefined;
+              })
+          )?.surfaces[request.surfaceId]?.title
+        : undefined);
+    const enriched: ApprovalRequest = surfaceInfo === undefined ? request : { ...request, chatTitle: surfaceInfo };
     // The owner answers in their own DM. A card in the group would show everyone what is about
     // to be deleted, and a group member could not answer it anyway.
-    const ownerChat = await ownerChatId(runtime.harness, context).catch(() => undefined);    const target = ownerChat ?? request.surfaceId;
+    const ownerChat = await ownerChatId(runtime.harness, context).catch(() => undefined);
+    const target = ownerChat ?? request.surfaceId;
     const sent = target.startsWith("oc_")
       ? await im.message
           .create({
@@ -2008,7 +2341,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
             data: {
               receive_id: target,
               msg_type: "interactive",
-              content: JSON.stringify(approvalCard(request)),
+              content: JSON.stringify(approvalCard(enriched)),
             },
           })
           // A surface that is not a Feishu chat (cli, client) gets no card: the
@@ -2023,11 +2356,21 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       // the call came from, and the owner needs to know how to fix that.
       await sendText(
         request.surfaceId,
-        `⚠️ 需要 alex 确认才能继续（${request.tool}）。我还没记住 alex 的私聊会话：请 alex 在私聊里给我发一句任何话。`,
+        `⚠️ 需要 ${config.feishu.ownerName} 确认才能继续（${request.tool}）。我还没记住 ${config.feishu.ownerName} 的私聊会话：请 ${config.feishu.ownerName} 在私聊里给我发一句任何话。`,
       ).catch(() => {});
     }
     const cardId = sent?.data?.message_id;
+    if (target.startsWith("oc_") && cardId === undefined) {
+      // A card that never arrived is silence: the call sits here until the timeout denies it and
+      // nobody ever knew there was a question. Say it in plain text instead — AskHuman falls back
+      // the same way when Feishu answers Internal Error.
+      await sendText(
+        target,
+        `⚠️ 需要你确认（确认卡片没发出去）：${request.tool} — ${request.reason}\n${Math.round(request.timeoutMs / 1000)}s 内没处理就按拒绝。可以在桌面客户端回答。`,
+      ).catch((error) => logError("feishu", "could not send the approval fallback either", error));
+    }
     log("feishu", "approval card sent", { cardId, callId: request.callId.slice(-12), tool: request.tool });
+    activeLiveCards.get(request.conversationId)?.setStatus(`⏸️ 等待 ${config.feishu.ownerName} 确认（${request.tool}）…`);
     // The turn's card should say it stopped to ask, not just lose two minutes with no explanation.
     const askedAt = Date.now();
     const trailKey = String(request.conversationId);
@@ -2045,7 +2388,8 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         reason: request.reason,
         surfaceId: request.surfaceId,
         timeoutMs: request.timeoutMs,
-        onSettled: ({ approved, by }) => {
+        onSettled: ({ approved, by, pick }) => {
+          activeLiveCards.get(request.conversationId)?.clearStatus();
           noteDecision(trailKey, {
             kind: "approval",
             text:
@@ -2054,15 +2398,31 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
                 : `你${approved ? "允许" : "拒绝"}了 ${request.tool}（${by === "client" ? "客户端" : "飞书"}）· 等了 ${elapsed(Date.now() - askedAt)}`,
           });
           if (cardId === undefined) return;
-          const text =
-            by === "timeout"
-              ? `⏹️ 超时未确认，已拒绝：${request.tool}`
-              : approved
-                ? `✅ 已允许（${by === "client" ? "客户端" : "飞书"}确认），继续执行`
-                : `🛑 已拒绝（${by === "client" ? "客户端" : "飞书"}）`;
-          void patchCard(cardId, text, by === "timeout" ? undefined : `${by === "client" ? "桌面客户端" : "飞书"}确认`).catch(
-            (error) => logError("feishu", "could not patch approval card", error),
-          );
+          const who: ApprovalOutcome["by"] =
+            by === "client" ? "client" : by === "timeout" ? "timeout" : by === "shutdown" ? "shutdown" : "feishu";
+          const outcome: ApprovalOutcome = {
+            ok: approved,
+            by: who,
+            pick,
+            waitedMs: who === "timeout" || who === "shutdown" ? request.timeoutMs : Date.now() - askedAt,
+          };
+          const verdict = approvalVerdict(enriched, outcome);
+          // The card is frozen, not rewritten: the request it asked about, the answer that was
+          // used, and four disabled buttons. A reader scrolling back still sees what was allowed.
+          const frozenPayload = JSON.stringify(approvalCard(enriched, outcome));
+          const frozenText = `${verdict.title}\n\n${request.tool} — ${request.reason}\n\n${verdict.line}`;
+          void patchCardContent(cardId, frozenPayload, frozenText).catch((error) => {
+            logError("feishu", "could not patch approval card, queuing outbox retry", error);
+            if (target.startsWith("oc_")) {
+              void holdForRetry(runtime.harness, context, {
+                chatId: target,
+                patchCardId: cardId,
+                text: frozenPayload,
+                meta: frozenText,
+                plain: false,
+              }).catch((inner) => logError("feishu", "could not queue approval patch retry", inner));
+            }
+          });
         },
         resolve: (approved) => resolve(approved),
       });
@@ -2193,9 +2553,22 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       }
     };
 
+    const controls = {
+      setStatus(text: string): void {
+        status = text;
+        paint();
+      },
+      clearStatus(): void {
+        status = "";
+        paint();
+      },
+    };
+    const conversationIdNum = conversation.id as unknown as number;
+
     return {
       /** Open the tap: steps land as they happen, and the clock ticks even when nothing does. */
       async start(): Promise<void> {
+        activeLiveCards.set(conversationIdNum, controls);
         watcher = await watchLive(conversation, (live) => {
           if (phase !== "live") return;
           last = live;
@@ -2208,14 +2581,8 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         timer = setInterval(paint, 20_000);
       },
       /** Say something instead of the working line — queued, stalled — until it is cleared. */
-      setStatus(text: string): void {
-        status = text;
-        paint();
-      },
-      clearStatus(): void {
-        status = "";
-        paint();
-      },
+      setStatus: controls.setStatus,
+      clearStatus: controls.clearStatus,
       /** Warn once if the run looks stuck, without cutting it. */
       stall(afterMs: number): void {
         watchdog = setTimeout(() => {
@@ -2229,6 +2596,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         if (finished) return;
         finished = true;
         phase = "delivering";
+        if (activeLiveCards.get(conversationIdNum) === controls) activeLiveCards.delete(conversationIdNum);
         if (timer !== undefined) clearInterval(timer);
         if (watchdog !== undefined) clearTimeout(watchdog);
         if (pendingFrame !== undefined) clearTimeout(pendingFrame);
@@ -2245,6 +2613,17 @@ const continuing = new Set<string>();
    * replays the same context, and the answer lands in the card that asked for it: the turn reads as
    * one answer instead of a second card after the first.
    */
+  /** Renders the answer via structured blocks when available so tool steps stay folded consistently. */
+  async function renderAnswerBody(
+    conversation: Awaited<ReturnType<AgentRuntime["conversationFor"]>>,
+    answerId: Parameters<AgentRuntime["answerBlocks"]>[1],
+    fromId?: Parameters<AgentRuntime["answerBlocks"]>[2],
+  ): Promise<string> {
+    const blocks = await runtime.answerBlocks(conversation, answerId, fromId).catch(() => [] as AnswerBlock[]);
+    if (blocks.length > 0) return composeAnswer(blocks);
+    return (await runtime.answerText(conversation, answerId, fromId)) || "（模型没有返回文本）";
+  }
+
   async function continueFromCard(chatId: string, cardId: string, messageId: string): Promise<void> {
     if (continuing.has(cardId)) return;
     continuing.add(cardId);
@@ -2270,12 +2649,23 @@ const continuing = new Set<string>();
       await card.finish();
       const seconds = Math.round((Date.now() - startedAt) / 100) / 10;
       log("feishu", "card continue settled", { status: settled.status, seconds });
+      const threads = await runtime.threads().catch(() => ({} as Record<string, { key?: string }>));
+      const inThread = topicChats.get(chatId) === true || threads[String(conversation.id)] !== undefined;
       if (settled.status === "done" && settled.answer !== undefined) {
-        const answer = await runtime.answerText(conversation, settled.answer);
-        await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", `✅ 接着答完了 · ${seconds}s`, undefined, {
-          template: "green",
-          title: "✅ 答完了",
-        });
+        const answer = await renderAnswerBody(conversation, settled.answer, settled.entry);
+        await deliverAnswer(
+          chatId,
+          cardId,
+          answer,
+          `✅ 接着答完了 · ${seconds}s`,
+          undefined,
+          { template: "green", title: "✅ 答完了" },
+          undefined,
+          { replyTo: messageId || cardId, thread: inThread },
+        );
+        if (shouldPingDone(config.feishu.donePingSeconds, seconds * 1000)) {
+          await pingDone(chatId, messageId || cardId, `✅ 接着答完了 · ${seconds}s`, { thread: inThread });
+        }
       } else {
         await deliverAnswer(
           chatId,
@@ -2284,12 +2674,12 @@ const continuing = new Set<string>();
           `⏸️ ${seconds}s`,
           continueButton(messageId),
           { template: "orange", title: "⏸️ 还是没收尾" },
+          undefined,
+          { replyTo: messageId || cardId, thread: inThread },
         );
-      }
-      if (seconds >= config.feishu.donePingSeconds) {
-        await pingDone(chatId, cardId, `✅ 接着答完了 · ${seconds}s`, {
-          thread: topicChats.get(chatId) === true,
-        });
+        if (shouldPingDone(config.feishu.donePingSeconds, seconds * 1000)) {
+          await pingDone(chatId, messageId || cardId, `⏸️ 还是没收尾 · ${seconds}s`, { thread: inThread });
+        }
       }
     } catch (error) {
       logError("feishu", "card continue failed", error);
@@ -2313,11 +2703,12 @@ const continuing = new Set<string>();
     const receivedAt = Date.now();
     const value = payload.action?.value ?? {};
 
+    const ownerName = config.feishu.ownerName;
     if (value["kind"] === "set-model") {
       const operator = payload.operator?.open_id ?? "";
-      if (!isOwnerOperator(operator)) return { toast: { type: "warning", content: "只有 alex 能换模型" } };
+      if (!isOwnerOperator(operator)) return { toast: { type: "warning", content: `只有 ${ownerName} 能换模型` } };
       const target = Number(value["conversationId"]);
-      const provider = typeof value["provider"] === "string" ? value["provider"] : "magpie";
+      const provider = typeof value["provider"] === "string" ? value["provider"] : config.model.provider;
       const modelId = typeof value["modelId"] === "string" ? value["modelId"] : "";
       if (!Number.isFinite(target) || modelId.length === 0) return { toast: { type: "error", content: "缺少模型或会话" } };
       const conversation = await runtime.harness
@@ -2325,14 +2716,14 @@ const continuing = new Set<string>();
         .catch(() => undefined);
       if (conversation === undefined) return { toast: { type: "error", content: "会话不在了" } };
       await runtime.setModel(conversation, { provider, modelId });
-      log("feishu", "model switched from a card", { conversationId: target, modelId });
+      log("feishu", "model switched from a card", { conversationId: target, provider, modelId });
       return { toast: { type: "success", content: `已切到 ${modelId}（下一轮生效）` } };
     }
 
     if (value["kind"] === "open-chat") {
       const operator = payload.operator?.open_id ?? "";
       if (!isOwnerOperator(operator)) {
-        return { toast: { type: "warning", content: "只有 alex 可以授权" } };
+        return { toast: { type: "warning", content: `只有 ${ownerName} 可以授权` } };
       }
       const chatId = typeof value["chatId"] === "string" ? value["chatId"] : "";
       if (chatId.length === 0) return { toast: { type: "error", content: "缺少会话 id" } };
@@ -2346,10 +2737,10 @@ const continuing = new Set<string>();
       await conversation
         .configure({ compaction: { reserveTokens: 8_192 } }, context)
         .catch((error: unknown) => logError("feishu", "could not set group compaction", error));
-      void sendText(chatId, "已开通：可以问我了。查代码、查库、查日志都能做；改文件、写库、看密钥只有 alex 能做，会被直接拒。").catch(() => {});
+      void sendText(chatId, `已开通：可以问我了。查代码、查库、查日志都能做；改文件、写库、看密钥只有 ${ownerName} 能做，会被直接拒。`).catch(() => {});
       const messageId = payload.context?.open_message_id;
       if (messageId !== undefined) {
-        void patchCard(messageId, `✅ 已开放 ${chatId.slice(-6)}`, "所有人都能用：查代码 / 库 / 日志；写操作只有 alex 能做").catch(
+        void patchCard(messageId, `✅ 已开放 ${chatId.slice(-6)}`, `所有人都能用：查代码 / 库 / 日志；写操作只有 ${ownerName} 能做`).catch(
           () => {},
         );
       }
@@ -2358,7 +2749,7 @@ const continuing = new Set<string>();
 
     if (value["kind"] === "stop") {
       const operator = payload.operator?.open_id ?? "";
-      if (!isOwnerOperator(operator)) return { toast: { type: "warning", content: "只有 alex 能停" } };
+      if (!isOwnerOperator(operator)) return { toast: { type: "warning", content: `只有 ${ownerName} 能停` } };
       const target = Number(value["conversationId"]);
       if (!Number.isFinite(target)) return { toast: { type: "error", content: "缺少会话" } };
       const stopped = await runtime.harness.conversation(target as never, context).catch(() => undefined);
@@ -2429,7 +2820,7 @@ const continuing = new Set<string>();
     });
     if (entry === undefined) return { toast: { type: "info", content: "已处理" } };
 
-    if (!isOwnerOperator(operator)) return { toast: { type: "warning", content: "只有 alex 可以确认" } };
+    if (!isOwnerOperator(operator)) return { toast: { type: "warning", content: `只有 ${ownerName} 可以确认` } };
 
     const approved = value["ok"] === true;
     // `all` is the blanket answer: one grant that covers every risk class in this
@@ -2443,7 +2834,7 @@ const continuing = new Set<string>();
     }
     // The registry decides and tells every surface — this card included, through onSettled. A false
     // therefore means another surface answered in between: this click was simply late.
-    if (!resolveApproval(callId, approved, `feishu:${operator.slice(-6)}`)) {
+    if (!resolveApproval(callId, approved, `feishu:${operator.slice(-6)}`, approved ? (blanket ? "all" : value["session"] === true ? "session" : "allow") : "deny")) {
       return { toast: { type: "info", content: "已经处理过了" } };
     }
     log("feishu", "approval answered", { approved, callId: callId.slice(-12), ms: Date.now() - receivedAt });
@@ -2478,8 +2869,8 @@ const continuing = new Set<string>();
       `- 会话：\`${message.chat_id}\`\n` +
       `- 发送者：\`${senderId}\`\n` +
       `- 内容：${body.length > 0 ? body : "（非文字消息）"}\n`;
-    const buttons = [
-      { label: "开放此会话", value: { kind: "open-chat", chatId: message.chat_id }, type: "primary" as const },
+    const buttons: CardButton[] = [
+      { label: "开放此会话", value: { kind: "open-chat", chatId: message.chat_id ?? "" }, type: "primary" },
     ];
     try {
       await im.message.create({
@@ -2588,9 +2979,10 @@ const continuing = new Set<string>();
     if (level === "closed" && !isOwner) {
       await notifyOwnerOfStranger(event, message, text);
     }
+    const ownerName = config.feishu.ownerName;
     // A chat pinned to the owner: say so once, instead of carding every message.
     if (reason === "owner-only") {
-      await sendText(message.chat_id, "这个会话只对 alex 开放。发一句 /allow 可以让这里所有人都能用。").catch(
+      await sendText(message.chat_id, `这个会话只对 ${ownerName} 开放。发一句 /allow 可以让这里所有人都能用。`).catch(
         () => {},
       );
     }
@@ -2608,13 +3000,13 @@ const continuing = new Set<string>();
       await openGroup(message.chat_id, groupInstructions());
       await sendText(
         message.chat_id,
-        "已把本群开放：群里所有人都能用，查代码、查 test/prod 的库和日志都能做；改文件、写库、看密钥只有 alex 能做，会被直接拒。",
+        `已把本群开放：群里所有人都能用，查代码、查 test/prod 的库和日志都能做；改文件、写库、看密钥只有 ${ownerName} 能做，会被直接拒。`,
       );
       return;
     }
     if (text.trim() === "/allow") {
       // Only the owner authorizes a chat; a closed group is told why, an open one stays quiet.
-      if (reason !== undefined) await sendText(message.chat_id, "只有 alex 能授权本群。").catch(() => {});
+      if (reason !== undefined) await sendText(message.chat_id, `只有 ${ownerName} 能授权本群。`).catch(() => {});
       return;
     }
     if (text.trim() === "/close" && isOwner) {
@@ -2623,12 +3015,16 @@ const continuing = new Set<string>();
       await sendText(message.chat_id, "已关闭本群的访问：之后这里 @我 不会有回应。再发 /allow 可以重新开放。");
       return;
     }
-    if (text.trim() === "/open" && isOwner) {
-      const topic = "只回答与本群主题相关的问题（Android 客户端）。";
+    const openMatch = /^\/open(?:\s+([\s\S]+))?$/i.exec(text.trim());
+    if (openMatch !== null && isOwner) {
+      const topic = (openMatch[1] ?? "").trim();
       const conversation = await runtime.conversationFor(message.chat_id);
-      await setChatTopic(runtime.harness, context, conversation.id as unknown as number, topic);
-      await openGroup(message.chat_id, groupInstructions(topic));
-      await sendText(message.chat_id, "已把本群开放给所有成员：查代码、查 test/prod 的库和日志都能做；改文件、写库、看密钥只有 alex 能做，会被直接拒。");
+      await setChatTopic(runtime.harness, context, conversation.id as unknown as number, topic.length > 0 ? topic : undefined);
+      await openGroup(message.chat_id, groupInstructions(topic.length > 0 ? topic : undefined));
+      await sendText(
+        message.chat_id,
+        `已把本群开放给所有成员${topic.length > 0 ? `（主题：${topic}）` : ""}：查代码、查 test/prod 的库和日志都能做；改文件、写库、看密钥只有 ${ownerName} 能做，会被直接拒。`,
+      );
       return;
     }
     if (isOwner && text.trim().startsWith("/proactive")) {
@@ -2854,7 +3250,7 @@ const continuing = new Set<string>();
     // Owner only, because the approval lines name the owner's own tool calls.
     if (/^\/(ketchup|进度|怎么样了)$/i.test(command)) {
       if (!isOwner) {
-        await say("只有 alex 能看这个。").catch(() => {});
+        await say(`只有 ${ownerName} 能看这个。`).catch(() => {});
         return;
       }
       const digest = await collectKetchup(runtime.harness, context);
@@ -2866,7 +3262,7 @@ const continuing = new Set<string>();
     }
     if (/^\/(digest|早报|昨晚)$/i.test(command)) {
       if (!isOwner) {
-        await say("只有 alex 能看这个。").catch(() => {});
+        await say(`只有 ${ownerName} 能看这个。`).catch(() => {});
         return;
       }
       const body = await collectDigest(runtime.harness, context);
@@ -2888,23 +3284,21 @@ const continuing = new Set<string>();
     const modelAsk = /^\/(?:model|模型)(?:\s+([\s\S]*))?$/i.exec(command);
     if (modelAsk !== null) {
       if (!isOwner) {
-        await say("只有 alex 能换模型。").catch(() => {});
+        await say(`只有 ${ownerName} 能换模型。`).catch(() => {});
         return;
       }
       const agent = await conversation.agent(context).catch(() => undefined);
       const provider = agent?.model?.provider ?? config.model.provider;
       const modelId = agent?.model?.modelId ?? config.model.modelId;
       const thinking = agent?.thinkingLevel ?? config.thinkingLevel;
-      const catalog = runtime.models().filter((entry) => entry.provider === "magpie");
-      const known = new Map(catalog.map((entry) => [entry.id, entry]));
+      const catalog = runtime.models();
       const ask = parseModelCommand(modelAsk[1] ?? "");
 
       if (ask.kind === "list") {
-        const defaultId = (await runtime.defaultModel().catch(() => undefined))?.modelId;
+        const defaultModel = await runtime.defaultModel().catch(() => undefined);
+        const defaultId = defaultModel?.modelId;
         // Five buttons fit a card; the rest is `/model <id>`.
-        const picks = [modelId, defaultId ?? "", ...catalog.filter((entry) => !entry.id.startsWith("auto/") && !entry.id.startsWith("group/")).map((entry) => entry.id)]
-          .filter((id, index, all) => id.length > 0 && all.indexOf(id) === index)
-          .slice(0, 5);
+        const picks = pickModelChoices(catalog, provider, modelId, defaultId);
         const lines = [
           `当前：\`${provider}/${modelId}\` · thinking **${thinking}**`,
           defaultId === undefined || defaultId.length === 0 ? "" : `默认：\`${defaultId}\`（新会话用它）`,
@@ -2918,12 +3312,12 @@ const continuing = new Set<string>();
           {
             thread: threadFor(message),
             mention: mentionFor(event, message),
-            buttons: picks.map((id) => ({
+            buttons: picks.map((entry) => ({
               // The gateway routes by prefix (auto/, sitin-deepseek/, sitin-glm/) and the same model
               // name exists under several of them, so the whole id goes on the button.
-              label: id,
-              value: { kind: "set-model", conversationId: conversation.id as unknown as number, provider: "magpie", modelId: id },
-              type: id === modelId ? ("primary" as const) : ("default" as const),
+              label: entry.provider === provider ? entry.id : `${entry.provider}/${entry.id}`,
+              value: { kind: "set-model", conversationId: conversation.id as unknown as number, provider: entry.provider, modelId: entry.id },
+              type: entry.provider === provider && entry.id === modelId ? ("primary" as const) : ("default" as const),
             })),
           },
         );
@@ -2931,39 +3325,46 @@ const continuing = new Set<string>();
       }
 
       if (ask.kind === "default") {
-        const entry = known.get(ask.modelId);
+        const entry = resolveModelPick(catalog, ask.modelId, provider);
         if (entry === undefined) {
           await say(`没有这个模型：${ask.modelId}\n可用的有：${catalog.slice(0, 6).map((item) => item.id).join("、")}`).catch(() => {});
           return;
         }
-        await runtime.setDefaultModel({ provider: "magpie", modelId: ask.modelId });
-        await say(`默认模型已改为 ${ask.modelId}（新会话生效，当前会话不变）`);
+        await runtime.setDefaultModel({ provider: entry.provider, modelId: entry.id });
+        await say(`默认模型已改为 ${entry.provider}/${entry.id}（新会话生效，当前会话不变）`);
         return;
       }
 
       if (ask.kind === "thinking") {
-        const levels = known.get(modelId)?.thinkingLevels ?? [];
+        const currentEntry = resolveModelPick(catalog, `${provider}/${modelId}`, provider) ?? resolveModelPick(catalog, modelId, provider);
+        const levels = currentEntry?.thinkingLevels ?? [];
         if (levels.length > 0 && !levels.includes(ask.level)) {
           await say(`思考档位只能是：${levels.join(" / ")}`).catch(() => {});
           return;
         }
         await runtime.setModel(conversation, { provider, modelId, thinkingLevel: ask.level });
-        await say(`本会话 thinking 改为 **${ask.level}**（下一轮生效）`.replace(/\*\*/g, ""));
+        await say(`本会话 thinking 改为 ${ask.level}（下一轮生效）`);
         return;
       }
 
-      const entry = known.get(ask.modelId);
+      const entry = resolveModelPick(catalog, ask.modelId, provider);
       if (entry === undefined) {
         await say(`没有这个模型：${ask.modelId}\n可用的有：${catalog.slice(0, 6).map((item) => item.id).join("、")}`).catch(() => {});
         return;
       }
-      await runtime.setModel(conversation, { provider: "magpie", modelId: ask.modelId, thinkingLevel: thinking });
-      await say(`本会话已切到 ${ask.modelId}（下一轮生效）`);
+      await runtime.setModel(conversation, { provider: entry.provider, modelId: entry.id, thinkingLevel: thinking });
+      await say(`本会话已切到 ${entry.provider}/${entry.id}（下一轮生效）`);
       return;
     }
 
     if (/^\/(cost|花费|额度)$/i.test(command)) {
-      // Steering bends a run that is already going, which is why it is a command and not what a
+      const budget = await runtime.budget(chatId);
+      const limit = budget.limit <= 0 ? "未设上限" : `$${budget.limit.toFixed(2)}`;
+      await say(`今日花费 $${budget.spentToday.toFixed(4)} / ${limit}`);
+      return;
+    }
+
+    // Steering bends a run that is already going, which is why it is a command and not what a
     // message does by default: a stray "对了…" sent mid-run should wait its turn, not redirect work
     // in flight. Queued messages are the normal path and they cost nothing to correct.
     const steerText = parseSteer(command);
@@ -2995,12 +3396,6 @@ const continuing = new Set<string>();
         return;
       }
       parsed.text = steerText;
-    }
-
-    const budget = await runtime.budget(chatId);
-      const limit = budget.limit <= 0 ? "未设上限" : `$${budget.limit.toFixed(2)}`;
-      await say(`今日花费 $${budget.spentToday.toFixed(4)} / ${limit}`);
-      return;
     }
     if (/^\/(memory|记忆)$/i.test(command)) {
       const memory = await runtime.memories(conversation);
@@ -3187,6 +3582,7 @@ const continuing = new Set<string>();
       conversationId: conversation.id as unknown as number,
       messageId: message.message_id,
       thread: threadFor(message),
+      chatType: message.chat_type,
     }).catch((error) =>
       logError("feishu", "could not record pending card", error),
     );
@@ -3236,6 +3632,13 @@ const continuing = new Set<string>();
 
     try {
       reactionId = await markWorking(message.message_id);
+      // Written down before the turn can die: the mark has to come off the message even when this
+      // process never reaches its own finally. Recovery reads it from the same card record.
+      if (reactionId !== undefined) {
+        await attachReaction(runtime.harness, context, requestId, reactionId).catch((error) =>
+          logError("feishu", "could not record the mark", error),
+        );
+      }
       const contents: UserContent[] = [];
       for (const entry of burst) {
         const entryOwner = owner.includes(entry.senderId);
@@ -3309,7 +3712,7 @@ const continuing = new Set<string>();
       // "我这边的情况如下：" was all it ever said. A group's root message is a broadcast, not
       // somebody waiting, so it stays silent; a topic thread pings even inside a group.
       const pings =
-        seconds >= config.feishu.donePingSeconds &&
+        shouldPingDone(config.feishu.donePingSeconds, seconds * 1000) &&
         (replyOptions.thread === true || message.chat_type !== "group");
       const ping = async (text: string): Promise<void> => {
         if (!pings) return;
@@ -3361,6 +3764,7 @@ const continuing = new Set<string>();
           .answerBlocks(conversation, settled.answer, settled.entry)
           .catch(() => [] as AnswerBlock[]);
         const text = blocks.length > 0 ? composeAnswer(blocks) : answer || "（模型没有返回文本）";
+        const replyCtx = { replyTo: message.message_id, thread: replyOptions.thread === true };
         await deliverAnswer(
           chatId,
           cardId,
@@ -3369,13 +3773,16 @@ const continuing = new Set<string>();
           undefined,
           claim === undefined ? { template: "green", title: "✅ 答完了" } : doneVerdict(claim),
           steps,
-        );        answered = true;
+          replyCtx,
+        );
+        answered = true;
         await ping(`✅ 答完了 · ${seconds}s`);
         // A conversation this long makes every step cost about a minute, and the tokens still fit the
         // window, so threshold compaction never fires. Compact on message count instead, after the
         // answer is out, so the user is not left waiting for the next turn to be slow.
-        const carried = lastRequestMessages();
-        const carriedTokens = lastRequestTokens();
+        const convId = conversation.id as unknown as number;
+        const carried = lastRequestMessages(convId);
+        const carriedTokens = lastRequestTokens(convId);
         if (carriedTokens > COMPACT_ABOVE_TOKENS || carried > COMPACT_AFTER_MESSAGES) {
           log("feishu", "conversation too long, compacting", { chatId, messages: carried, tokens: carriedTokens });
           await conversation.compact(undefined, context).catch((error: unknown) =>
@@ -3396,17 +3803,19 @@ const continuing = new Set<string>();
         if (rest?.status === "done" && rest.answer !== undefined) {
           // `continue` places no entry of its own, but the run began at the owner's message: read the
           // range so the text written before the turn limit is part of the answer, not lost.
-          const answer = await runtime.answerText(conversation, rest.answer, settled.entry);
+          const answer = await renderAnswerBody(conversation, rest.answer, settled.entry);
           const total = Math.round((Date.now() - startedAt) / 100) / 10;
           // Nothing under the answer: the header says 续跑一次 and the ping says how long. The line
           // that used to sit here repeated both in smaller type.
           await deliverAnswer(
             chatId,
             cardId,
-            answer || "（模型没有返回文本）",
+            answer,
             "",
             undefined,
             claim === undefined ? { template: "green", title: "✅ 答完了（续跑一次）" } : doneVerdict(claim),
+            undefined,
+            { replyTo: message.message_id, thread: replyOptions.thread === true },
           );
           answered = true;
           await ping(`✅ 答完了（自动续跑一次） · ${total}s`);
@@ -3682,7 +4091,7 @@ async function backfillChatNames(): Promise<void> {
     }
     // Anchor the model on the picture: without this it tends to keep talking about
     // whatever the previous turns were about and treat the image as decoration.
-    const who = speaker === undefined ? "alex" : speaker;
+    const who = speaker === undefined ? config.feishu.ownerName : speaker;
     const hint = `${who} 发来 ${images.length} 张图片，先依据图片内容回答，图片是这条消息的主体`;
     const caption = parsed.text.length > 0 ? `${hint}\n${parsed.text}` : `${hint}\n看看这张图，告诉我重点。`;
     return [{ type: "text" as const, text: withQuote(caption) }, ...images];
@@ -3694,7 +4103,13 @@ async function backfillChatNames(): Promise<void> {
       // and a turn takes minutes — every event that waited for one was redelivered by Feishu, so
       // nearly every message arrived twice and the second copy was dropped by the in-memory set.
       // Never let a bad event take down the long connection either.
-      void handle(data).catch((error) => console.error("[feishu] handler failed", error));
+      void handle(data).catch((error) => {
+        if (isWithdrawnError(error)) {
+          log("feishu", "message withdrawn before reply", { messageId: data.message?.message_id });
+          return;
+        }
+        console.error("[feishu] handler failed", error);
+      });
     },
     "card.action.trigger": async (data: CardAction) => {
       try {
@@ -3842,12 +4257,29 @@ async function backfillChatNames(): Promise<void> {
       log("feishu", "unfinished card from previous process", { cardId: card.cardId, submissionId: card.submissionId });
       const startedAt = clock(card.at);
       const elapsed = duration(Date.now() - card.at);
+      // A card patch raises no Feishu notification: the live path pings for exactly that reason and
+      // this one used to stay silent, so an answer recovered after a restart sat in a card nobody
+      // was told about. Same rule as the live turn — a topic thread pings, a group's root message
+      // stays quiet, and a run too short to be news stays quiet too.
+      const ping = async (text: string): Promise<void> => {
+        if (card.messageId === undefined) return;
+        if (card.chatType === "group" && card.thread !== true) return;
+        if (!shouldPingDone(config.feishu.donePingSeconds, Date.now() - card.at)) return;
+        await pingDone(card.chatId, card.messageId, text, { thread: card.thread === true });
+      };
+      // The 👀 the dead process stamped stays on the message otherwise: the chat would keep showing
+      // work in progress for a turn that finished hours ago. Same lie the answered flag prevents.
+      const settle = async (answered: boolean): Promise<void> => {
+        if (card.messageId === undefined || card.reactionId === undefined) return;
+        await settleMark(card.messageId, card.reactionId, answered);
+      };
       if (card.submissionId === undefined) {
         await patchCard(
           card.cardId,
           `🔁 进程重启过，这条消息没来得及提交（${startedAt} 发出）。麻烦再发一次。`,
           `🔁 未提交 · ${elapsed} 前`,
         ).catch(() => {});
+        await settle(false);
         await clearCardPending(runtime.harness, context, card.requestId).catch(() => {});
         continue;
       }
@@ -3902,6 +4334,8 @@ async function backfillChatNames(): Promise<void> {
               { template: "green", title: "✅ 答完了（重启后补发）" },
             );
             log("feishu", "recovered answer delivered", { chatId: card.chatId, chars: answer.length, total });
+            await ping(`✅ 答完了（重启后补发） · ${total}`);
+            await settle(true);
             await note(
               conversation,
               context,
@@ -3918,6 +4352,8 @@ async function backfillChatNames(): Promise<void> {
               undefined,
               standaloneHeader(settled.reason),
             );
+            await ping(`❌ 没答完（重启后补发） · ${total}`);
+            await settle(false);
           }
         } catch (error) {
           logError("feishu", "could not recover answer", error);
@@ -3929,6 +4365,7 @@ async function backfillChatNames(): Promise<void> {
             undefined,
             { template: "red", title: "❌ 恢复失败" },
           ).catch(() => {});
+          await settle(false);
         } finally {
           await clearCardPending(runtime.harness, context, card.requestId).catch(() => {});
         }

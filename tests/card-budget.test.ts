@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { card, CARD_BUDGET_BYTES, CARD_PANEL_STEPS, chunkMarkdown, MAX_MARKDOWN_CHARS } from "../src/feishu.ts";
+import {
+  card,
+  CARD_BUDGET_BYTES,
+  CARD_PANEL_STEPS,
+  chunkMarkdown,
+  inQuietHours,
+  MAX_MARKDOWN_CHARS,
+  noticeHeader,
+  splitAnswerForCards,
+} from "../src/feishu.ts";
 import type { TurnDetails } from "../src/feishu.ts";
 
 const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value), "utf8");
@@ -85,4 +94,38 @@ test("the chat list shows the header, or the first line of the answer", () => {
   assert.deepEqual((withHeader.config as Record<string, unknown>).summary, { content: "✅ 目标达成" });
   const bare = card("## 先说结论\n\n然后是细节。");
   assert.deepEqual((bare.config as Record<string, unknown>).summary, { content: "先说结论" });
+});
+
+test("splitAnswerForCards splits oversized CJK answers into continuation cards without losing text", () => {
+  const short = "普通回答。".repeat(20);
+  assert.deepEqual(splitAnswerForCards(short), [short]);
+
+  const long = Array.from({ length: 400 }, (_, i) => `第 ${i} 行：详细分析结果。`).join("\n");
+  const chunks = splitAnswerForCards(long, 6_000);
+  assert.ok(chunks.length >= 2);
+  assert.match(chunks[0]!, /1\/\d+，下文续/);
+  assert.match(chunks[1]!, /续 2\/\d+/);
+  for (const piece of chunks) {
+    assert.ok(bytes(card(piece)) <= CARD_BUDGET_BYTES);
+  }
+});
+
+test("inQuietHours handles overnight and same-day windows in Asia/Shanghai", () => {
+  const lateNight = new Date("2026-11-25T23:30:00+08:00");
+  const morning = new Date("2026-11-25T09:00:00+08:00");
+  const early = new Date("2026-11-25T07:59:00+08:00");
+
+  assert.equal(inQuietHours("22:00-08:00", lateNight), true);
+  assert.equal(inQuietHours("22:00-08:00", early), true);
+  assert.equal(inQuietHours("22:00-08:00", morning), false);
+  assert.equal(inQuietHours("off", lateNight), false);
+  assert.equal(inQuietHours("12:00-14:00", new Date("2026-11-25T12:30:00+08:00")), true);
+  assert.equal(inQuietHours("12:00-14:00", morning), false);
+});
+
+test("noticeHeader maps severity icons to card templates", () => {
+  assert.equal(noticeHeader("🔴 storage_failed").template, "red");
+  assert.equal(noticeHeader("⚠️ 飞书网关异常").template, "orange");
+  assert.equal(noticeHeader("✅ 恢复正常").template, "green");
+  assert.equal(noticeHeader("普通进度更新").template, "blue");
 });

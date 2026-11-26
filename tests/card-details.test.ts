@@ -78,9 +78,10 @@ test("an earlier step under budget still says it printed nothing", () => {
   assert.match(body, /（无输出）/);
 });
 
-test("the panel never prints a duration, ping or no ping", () => {
-  // The ping right under the card ends with "· 68s"; the panel saying it again read as a stutter.
-  const card = panel({ steps: [{ name: "bash", ok: true, preview: "ok" }], seconds: 68, costUsd: 0 });
+test("the panel never prints a duration in its header, and appends duration/cost in its body", () => {
+  // The ping right under the card ends with "· 68s"; the panel header must not repeat it.
+  const card = panel({ steps: [{ name: "bash", ok: true, preview: "ok" }], seconds: 68, costUsd: 0.0123 });
   assert.match(card.header.title.content, /^\*\*本轮执行详情\*\* · 1 步$/);
   assert.doesNotMatch(card.header.title.content, /68s|s\b/);
+  assert.match(text(card), /耗时 1m 8s · 花费 \$0\.0123/);
 });

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 // `/steer` is the only way a message skips the queue and bends a run that is already going, so the
@@ -25,4 +26,14 @@ test("ordinary messages are not steers", async () => {
   assert.equal(parseSteer("/steering 要不要加按钮"), undefined);
   assert.equal(parseSteer("/steerx"), undefined);
   assert.equal(parseSteer("用 /steer 挺好"), undefined);
+});
+
+test("/steer handler runs independently of /cost in src/feishu.ts", () => {
+  const source = readFileSync(new URL("../src/feishu.ts", import.meta.url), "utf8");
+  const costIndex = source.indexOf("if (/^\\/(cost|花费|额度)$/i.test(command))");
+  const steerIndex = source.indexOf("const steerText = parseSteer(command);");
+  assert.ok(costIndex > 0, "expected /cost branch");
+  assert.ok(steerIndex > costIndex, "expected /steer branch after /cost");
+  const between = source.slice(costIndex, steerIndex);
+  assert.match(between, /return;\s*\}/, "/cost branch must return and close before parseSteer");
 });

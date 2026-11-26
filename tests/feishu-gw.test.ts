@@ -143,6 +143,35 @@ test("a download comes back as one readable stream, so the caller's copy path is
   }
 });
 
+test("a reaction is placed with the emoji name and comes back under the SDK's key", async () => {
+  const gateway = await fakeGateway(() => ({ status: 200, body: { reactionId: "rk_1" } }));
+  try {
+    const response = await gateway.im.messageReaction.create({
+      path: { message_id: "om_7" },
+      data: { reaction_type: { emoji_type: "OnIt" } },
+    });
+    // The turn loop removes the mark by id, so the id must survive the trip back.
+    assert.equal(response.data?.reaction_id, "rk_1");
+    assert.equal(gateway.calls[0]?.method, "POST");
+    assert.equal(gateway.calls[0]?.path, "/v1/message/om_7/reaction");
+    assert.deepEqual(JSON.parse(gateway.calls[0]?.body ?? "{}"), { emoji: "OnIt" });
+  } finally {
+    await close(gateway.server);
+  }
+});
+
+test("removing a reaction puts the id in the path, where Feishu wants it", async () => {
+  const gateway = await fakeGateway(() => ({ status: 200, body: { ok: true } }));
+  try {
+    const response = await gateway.im.messageReaction.delete({ path: { message_id: "om_7", reaction_id: "rk_1" } });
+    assert.equal(response.code, 0);
+    assert.equal(gateway.calls[0]?.method, "DELETE");
+    assert.equal(gateway.calls[0]?.path, "/v1/message/om_7/reaction/rk_1");
+  } finally {
+    await close(gateway.server);
+  }
+});
+
 test("bot identity comes from the gateway, since it holds the credentials", async () => {
   const gateway = await fakeGateway(() => ({ status: 200, body: { openId: "ou_bot", name: "PiLot" } }));
   try {

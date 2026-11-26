@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { bodyElements, clip, MAX_CARD_CHARS, splitTables, stripInlineCode } from "../src/feishu.ts";
+import { bodyElements, clip, MAX_CARD_CHARS, MAX_CARD_TABLES, splitTables, stripInlineCode } from "../src/feishu.ts";
 
 const TABLE = `近 7 天共 3479 次。
 
@@ -75,4 +75,13 @@ test("truncating a clipped answer closes the code fence it cut open", () => {
   const cut = clip(body);
   const fences = cut.split("\n").filter((line) => line.trim() === "```").length;
   assert.equal(fences % 2, 0);
+});
+
+test("tables past MAX_CARD_TABLES fall back to fenced code blocks instead of overflowing the card", () => {
+  const many = Array.from({ length: MAX_CARD_TABLES + 2 }, (_, i) => `| 表${i} | 值 |\n|---|---|\n| a | ${i} |`).join("\n\n");
+  const elements = bodyElements(many);
+  const tableElements = elements.filter((el) => el["tag"] === "table");
+  const fallbackBlocks = elements.filter((el) => el["tag"] === "markdown" && String(el["content"] ?? "").includes("```"));
+  assert.equal(tableElements.length, MAX_CARD_TABLES);
+  assert.equal(fallbackBlocks.length, 2);
 });

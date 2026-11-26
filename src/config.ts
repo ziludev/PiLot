@@ -69,7 +69,9 @@ export const config = {
     allowedChatIds: list("FEISHU_ALLOWED_CHAT_IDS"),
     allowedSenderIds: list("FEISHU_ALLOWED_SENDER_IDS"),
     /** The name the prompt calls the owner; behaviour never depends on it. */
-    ownerName: process.env.AGENT_OWNER_NAME ?? "主人",
+    // `.env.example` ships the key with an empty value, so `??` would keep the empty string and the
+    // cards would read " 拒绝了这次操作".
+    ownerName: (process.env.AGENT_OWNER_NAME ?? "").trim() || "主人",
     mentionsOnly: bool("FEISHU_MENTIONS_ONLY", true),
     /**
      * Threading: "auto" answers in a topic when the asker @s the bot or the message
@@ -85,6 +87,8 @@ export const config = {
      * seconds, send one short message so Feishu raises a real notification. 0 disables.
      */
     donePingSeconds: Number(process.env.FEISHU_DONE_PING_SECONDS ?? "45"),
+    /** Quiet hours (`HH:MM-HH:MM` in Asia/Shanghai, or `off`) during which done-pings stay silent. */
+    quietHours: process.env.FEISHU_QUIET_HOURS ?? "22:00-08:00",
     /** Mention the asker in the reply, so it is clear who is being answered. */
     mentionSender: bool("FEISHU_MENTION_SENDER", true),
   },
