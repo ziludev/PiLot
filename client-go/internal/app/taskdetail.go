@@ -20,6 +20,7 @@ import (
 
 	"pilot/internal/api"
 	"pilot/internal/i18n"
+	"pilot/internal/icons"
 	"pilot/internal/theme"
 )
 
@@ -61,6 +62,10 @@ type taskDetailPanel struct {
 	// scroll is the body's offset, kept across frames so the dialog stays where
 	// the reader left it while the task's log streams in.
 	scroll ui.ScrollState
+	// rawInput opens the JSON the bridge kept. The words a person wrote are read
+	// as words; the record is one press away for the fields the dialog does not
+	// know how to say.
+	rawInput bool
 }
 
 // openTaskDetail shows the dialog for id and asks the bridge about it.
@@ -371,8 +376,9 @@ func (a *App) taskDetailDialog(c *ui.Context, t theme.Tokens) {
 						// How far along it is comes before what it was asked: the input can be
 						// four hundred lines of JSON, and the stages pushed under it were only
 						// reachable by scrolling past the one thing nobody opens this for.
+						a.taskAsked(c, t, task)
 						a.taskStages(c, t, task)
-						a.taskInput(c, t, task)
+						a.taskRawInput(c, t, task)
 						a.taskOutcome(c, t, task)
 					}
 				})
@@ -412,11 +418,11 @@ func (a *App) taskDetailDialog(c *ui.Context, t theme.Tokens) {
 					ui.Text(c, a.detail.saveErr).FontSize(theme.TextMicro).TextColor(t.Destructive).MaxLines(3)
 				}
 			} else {
-				justify := ui.End
-				if a.canStop() || a.canClose() || a.canReschedule() {
-					justify = ui.SpaceBetween
-				}
-				ui.Row(c).FillWidth().Justify(justify).Gap(8).Children(func() {
+				// Right-aligned like every other dialog: the verbs a person came for
+				// sit together, and the dismiss keeps the near corner. Stopping used to
+				// float in the middle of the row, which read as a third option rather
+				// than an action on the task.
+				ui.Row(c).FillWidth().Justify(ui.End).Gap(8).Children(func() {
 					if a.canReschedule() {
 						a.dialogButton(c, t, i18n.T("taskReschedule"), false, func() {
 							a.startReschedule()
@@ -542,21 +548,107 @@ func (a *App) fact(c *ui.Context, t theme.Tokens, label, value string) {
 	})
 }
 
-// taskInput is what the task was asked, as the bridge kept it. It is JSON
-// because a kind decides its own input shape, and a dialog that guessed at
-// fields would show nothing for the kinds it guessed wrong about.
-func (a *App) taskInput(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
+// taskBrief is the words a task carried, pulled out of its input: the sentence
+// a person wrote, and the command a watch runs. A routine's input is config —
+// schedule, surface, anchor, notifier — and the two fields worth reading were
+// buried in the middle of a screen of JSON.
+func taskBrief(input json.RawMessage) (asked, watch string) {
+	var raw struct {
+		Text   json.RawMessage `json:"text"`
+		Prompt json.RawMessage `json:"prompt"`
+		Watch  *struct {
+			Cmd string `json:"cmd"`
+		} `json:"watch"`
+	}
+	if len(input) == 0 || json.Unmarshal(input, &raw) != nil {
+		return "", ""
+	}
+	asked = jsonWords(raw.Text)
+	if asked == "" {
+		asked = jsonWords(raw.Prompt)
+	}
+	if raw.Watch != nil {
+		watch = strings.TrimSpace(raw.Watch.Cmd)
+	}
+	return asked, watch
+}
+
+// jsonWords is a field read as prose: the string itself when the kind kept one,
+// and nothing when it kept a structure this dialog would have to guess at.
+func jsonWords(field json.RawMessage) string {
+	var text string
+	if len(field) == 0 || json.Unmarshal(field, &text) != nil {
+		return ""
+	}
+	return strings.TrimSpace(text)
+}
+
+// taskAsked is what the task was asked, in the words it was asked in.
+func (a *App) taskAsked(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
+	asked, watch := taskBrief(task.Input)
+	if asked == "" && watch == "" {
+		return
+	}
+	ui.Column(c).FillWidth().Gap(8).Children(func() {
+		if asked != "" {
+			ui.Column(c).FillWidth().Gap(3).Children(func() {
+				ui.Text(c, i18n.T("taskAsked")).FontSize(theme.TextMicro).TextColor(t.Ink3)
+				ui.Text(c, asked).FontSize(theme.TextSmall).TextColor(t.Ink).MaxLines(16)
+			})
+		}
+		if watch != "" {
+			ui.Column(c).FillWidth().Gap(3).Children(func() {
+				ui.Text(c, i18n.T("taskWatch")).FontSize(theme.TextMicro).TextColor(t.Ink3)
+				ui.Text(c, watch).Font(monoFont).FontSize(theme.TextMicro).TextColor(t.Ink2).
+					MaxLines(6).Padding(8).Radius(theme.RadiusControl).Background(t.Field)
+			})
+		}
+	})
+}
+
+// taskRawInput is the input as the bridge kept it, folded: it is JSON because a
+// kind decides its own shape, and a dialog that guessed at fields would show
+// nothing for the kinds it guessed wrong about — but the record is a reference,
+// not the thing most tasks are read for.
+func (a *App) taskRawInput(c *ui.Context, t theme.Tokens, task *api.TaskDetail) {
 	text := rawText(task.Input)
 	if text == "" {
 		return
 	}
+	if !a.detail.rawInput {
+		a.foldLink(c, t, icons.ChevronRight, i18n.T("taskRawInput"), func() {
+			a.detail.rawInput = true
+		})
+		return
+	}
 	ui.Column(c).FillWidth().Gap(3).Children(func() {
-		ui.Text(c, i18n.T("taskInput")).FontSize(theme.TextMicro).TextColor(t.Ink3)
+		a.foldLink(c, t, icons.ChevronDown, i18n.T("taskRawHide"), func() {
+			a.detail.rawInput = false
+		})
 		// 400 lines is a guard against a pasted file, not a summary: the dialog
 		// scrolls, so the whole input is one flick away.
 		ui.Text(c, clipLines(text, 400)).Font(monoFont).FontSize(theme.TextMicro).
 			TextColor(t.Ink).MaxLines(400).Padding(8).Radius(theme.RadiusControl).
 			Background(t.Field)
+	})
+}
+
+// foldLink is a quiet way in and out of a block: a caret and a word, sized to
+// the word, so it reads as a link rather than as a third button in the row.
+func (a *App) foldLink(c *ui.Context, t theme.Tokens, caret *ui.SVG, label string, onToggle func()) {
+	link := ui.ButtonBase(c).Height(20).Padding(0, 4).Radius(theme.RadiusChip).
+		Justify(ui.Start).AlignItems(ui.Center).Gap(3).Cursor(ui.CursorPointer)
+	if link.Hovered() {
+		link = link.Background(t.Field)
+	}
+	link.Children(func() {
+		ui.Icon(c, caret).Size(10, 10).TextColor(t.Ink3)
+		ui.Text(c, label).FontSize(theme.TextSmall).FontWeight(500).
+			TextColor(t.Ink2).MaxLines(1)
+	})
+	link.OnClick(func() {
+		onToggle()
+		a.invalidate()
 	})
 }
 

@@ -57,7 +57,10 @@ func (b *surfaceBridge) take(t *testing.T) map[string]any {
 func railApp(t *testing.T, baseURL string) *App {
 	t.Helper()
 	a := newApp(Config{BaseURL: baseURL})
-	a.now = time.Date(2026, 11, 19, 15, 0, 0, 0, time.Local)
+	// The clock is the wall's, not a pinned date: View() reads time.Now() every
+	// frame, so a fixture dated in the past goes a week stale the moment it is
+	// drawn — and the rail files a week-old chat away by itself.
+	a.now = time.Now()
 	a.setSurfaces([]protocol.Surface{
 		{ConversationID: 12, Kind: "feishu", Title: "sky"},
 		{ConversationID: 11, Kind: "client", Title: "why is the sky blue"},

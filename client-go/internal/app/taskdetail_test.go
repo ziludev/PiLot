@@ -68,7 +68,8 @@ func TestTaskRowOpensItsDetail(t *testing.T) {
 	a.applyTaskDetail(id, a.detail.seq, &task, nil)
 	tt.Frame()
 
-	for _, want := range []string{"Follow up on the review thread", "运行中", "输入", "步骤", "扫日志", "停止任务", "收起"} {
+	// The prompt reads as the sentence it was, not as the JSON that carried it.
+	for _, want := range []string{"Follow up on the review thread", "运行中", "要求", "read the week", "原始输入", "步骤", "扫日志", "停止任务", "收起"} {
 		if !tt.HasText(want) {
 			t.Errorf("the dialog does not say %q; drew %v", want, tt.Texts())
 		}
@@ -400,6 +401,11 @@ func TestLongTaskInputIsAllThere(t *testing.T) {
 		ID: 9, Kind: "pi.generation", ConversationID: 11, Status: "dormant",
 		Title: "Recap the day", Input: raw,
 	}, nil)
+	tt.Frame()
+	// The record is folded behind 原始输入 until someone asks for it.
+	if err := tt.Click("原始输入"); err != nil {
+		t.Fatalf("the raw input has no way in: %v", err)
+	}
 	tt.Frame()
 
 	// The last field is the proof the whole block was laid out, not the first
@@ -740,5 +746,46 @@ func TestTheRowMenuClosesASleepingTask(t *testing.T) {
 			t.Fatalf("the menu's close never reached the bridge")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestATaskOpensOnItsWordsNotItsJSON: a routine's input is config, and the two
+// fields worth reading — what it was asked and what it watches — used to sit in
+// the middle of a screen of escaped JSON. They are prose now, and the record is
+// behind a fold for the fields the dialog cannot say.
+func TestATaskOpensOnItsWordsNotItsJSON(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	a := fixtureApp(t, false)
+	input := json.RawMessage(`{"schedule":{"kind":"every","everyMs":1800000},"text":"盯 dev 上 DH 语音代回的两类日志，命中就告警","watch":{"cmd":"aliyun sls get-logs --project dev","baseline":"ok\\n"}}`)
+	tt := ui.NewTester(a.View, 1180, 820)
+	detailWithLog(t, a, tt, api.TaskDetail{
+		ID: 7, Kind: "app.routine", ConversationID: 11, Status: "sleeping",
+		Until: time.Now().Add(6 * time.Hour).UnixMilli(), Title: "盯 dev 上 DH 语音代回的日志", Input: input,
+	}, nil)
+	tt.Frame()
+
+	if !tt.HasText("盯 dev 上 DH 语音代回的两类日志，命中就告警") {
+		t.Fatalf("the routine's own words did not draw; drew %v", tt.Texts())
+	}
+	if !tt.HasText("aliyun sls get-logs --project dev") {
+		t.Fatal("the watch command did not draw")
+	}
+	// Folded: the record is reachable but not in the way.
+	if tt.HasText(`"everyMs"`) {
+		t.Fatal("the raw input was open before anyone asked for it")
+	}
+	if err := tt.Click("原始输入"); err != nil {
+		t.Fatalf("the raw input has no way in: %v", err)
+	}
+	tt.Frame()
+	if !tt.HasText(`"everyMs"`) {
+		t.Fatalf("the raw input did not open; drew %v", tt.Texts())
+	}
+	if err := tt.Click("收起原始输入"); err != nil {
+		t.Fatalf("the raw input has no way out: %v", err)
+	}
+	tt.Frame()
+	if tt.HasText(`"everyMs"`) {
+		t.Fatal("the raw input did not fold back")
 	}
 }

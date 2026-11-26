@@ -47,8 +47,11 @@ import (
 // stage meter's own name, which only assistive technology reads. The timeline
 // drawer's six lines are the last addition: a heading, an empty state, and one
 // verb per kind of event. The find key and the rail's collapse are the last two:
-// the sheet now lists a key for every place the window can go.
-const maxKeys = 403
+// the sheet now lists a key for every place the window can go; and nine for the
+// task dialog's verbs and its prose: stop, close, dismiss, the failing notice,
+// the row menu, and the four words that turn a task's input from a wall of JSON
+// into what it was asked and what it watches.
+const maxKeys = 407
 
 func TestDictionariesMatch(t *testing.T) {
 	keys := Keys()
