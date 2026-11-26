@@ -120,10 +120,10 @@ func (a *App) applyTaskLog(id, seq int, stages []api.TaskLogStage, err error) {
 	a.invalidate()
 }
 
-// stopTask asks the bridge to stop a running task, then re-reads it: the bridge
-// aborts asynchronously, and a dialog that claimed "stopped" without asking
-// again would be guessing.
-func (a *App) stopTask(id int) {
+// stopTask asks the bridge to abort a task — a running one stops, an asleep one
+// closes — then re-reads it: the bridge aborts asynchronously, and a dialog that
+// claimed "stopped" without asking again would be guessing.
+func (a *App) stopTask(id int, closing bool) {
 	if a.detail.stopping {
 		return
 	}
@@ -133,14 +133,14 @@ func (a *App) stopTask(id int) {
 		ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
 		defer cancel()
 		err := a.api.CancelTask(ctx, id)
-		a.post(event{kind: evTaskStop, taskID: id, seq: seq, err: err})
+		a.post(event{kind: evTaskStop, taskID: id, seq: seq, closing: closing, err: err})
 	}()
 	a.invalidate()
 }
 
 // applyTaskStop is the bridge's answer to a stop: either the dialog says it was
 // requested, or it says why not.
-func (a *App) applyTaskStop(id, seq int, err error) {
+func (a *App) applyTaskStop(id, seq int, closing bool, err error) {
 	if a.detail.id != id || a.detail.seq != seq {
 		return
 	}
@@ -155,7 +155,11 @@ func (a *App) applyTaskStop(id, seq int, err error) {
 	}
 	// A stop is worth saying out loud: nothing on screen changes for a moment
 	// after the click, because the bridge aborts asynchronously.
-	a.post(event{kind: evNotice, notice: i18n.T("taskStopRequested")})
+	notice := i18n.T("taskStopRequested")
+	if closing {
+		notice = i18n.T("taskCloseRequested")
+	}
+	a.post(event{kind: evNotice, notice: notice})
 	a.loadTaskDetail(id)
 	a.invalidate()
 }
@@ -409,7 +413,7 @@ func (a *App) taskDetailDialog(c *ui.Context, t theme.Tokens) {
 				}
 			} else {
 				justify := ui.End
-				if a.canStop() || a.canReschedule() {
+				if a.canStop() || a.canClose() || a.canReschedule() {
 					justify = ui.SpaceBetween
 				}
 				ui.Row(c).FillWidth().Justify(justify).Gap(8).Children(func() {
@@ -420,10 +424,16 @@ func (a *App) taskDetailDialog(c *ui.Context, t theme.Tokens) {
 					}
 					if a.canStop() {
 						a.dialogButton(c, t, i18n.T("taskStop"), false, func() {
-							a.stopTask(a.detail.id)
+							a.stopTask(a.detail.id, false)
 						})
 					}
-					a.dialogButton(c, t, i18n.T("close"), true, func() {
+					if a.canClose() {
+						a.dialogButton(c, t, i18n.T("taskClose"), false, func() {
+							a.stopTask(a.detail.id, true)
+						})
+					}
+					// Dismiss, not close: 关闭任务 now means what it says.
+					a.dialogButton(c, t, i18n.T("taskDismiss"), true, func() {
 						a.detail.open = false
 					})
 				})
@@ -455,11 +465,32 @@ func (a *App) canStop() bool {
 	if task == nil || task.AbortRequested || a.detail.stopping {
 		return false
 	}
-	switch task.Status {
-	case "running", "waiting", "working", "queued":
-		return true
+	return taskStoppable(task.Status)
+}
+
+// canClose is whether closing would do anything: an asleep task or one waiting
+// at a gate has no work in flight to abort, only a place in the list to give up.
+func (a *App) canClose() bool {
+	task := a.detail.task
+	if task == nil || task.AbortRequested || a.detail.stopping {
+		return false
 	}
-	return false
+	return taskClosable(task.Status)
+}
+
+// cancelTaskOffRail is a stop or a close asked for from a rail row. There is no
+// dialog to fill, so the answer becomes a notice; the row itself leaves on the
+// next snapshot, when the bridge has marked the task terminal.
+func (a *App) cancelTaskOffRail(id int) {
+	go func() {
+		ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
+		defer cancel()
+		if err := a.api.CancelTask(ctx, id); err != nil {
+			a.post(event{kind: evNotice, notice: i18n.T("taskCloseFailed") + ": " + err.Error()})
+			return
+		}
+		a.post(event{kind: evNotice, notice: i18n.T("taskCloseRequested")})
+	}()
 }
 
 // taskStateBadge is the task's liveness in one word, colored like the rail's

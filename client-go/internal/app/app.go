@@ -363,10 +363,12 @@ const (
 	// The branch tab: the ref list, and one write's outcome.
 	evBranches
 	evBranchWrite
-	// A task's detail, its stop, and the usage calendar's daily samples.
+	// A task's detail, its stop, its close from a rail row, and the usage
+	// calendar's daily samples.
 	evTaskDetail
 	evTaskLog
 	evTaskStop
+	evTaskCancel
 	evTaskReschedule
 	evUsage
 	// A file's text, for the preview beside a patch.
@@ -417,6 +419,9 @@ type event struct {
 	// the hits, the query they answer, and the generation it belongs to.
 	archived bool
 	seq      int
+	// closing marks a task stop that closes rather than interrupts: the task was
+	// asleep or waiting, and the dialog names the notice for what it did.
+	closing  bool
 	hits     []protocol.SearchHit
 	undo     *surfaceUndo
 	models   *protocol.Models
@@ -824,7 +829,9 @@ func (a *App) apply(ev event) {
 	case evTaskLog:
 		a.applyTaskLog(ev.taskID, ev.seq, ev.stages, ev.err)
 	case evTaskStop:
-		a.applyTaskStop(ev.taskID, ev.seq, ev.err)
+		a.applyTaskStop(ev.taskID, ev.seq, ev.closing, ev.err)
+	case evTaskCancel:
+		a.cancelTaskOffRail(ev.taskID)
 	case evTaskReschedule:
 		a.applyTaskReschedule(ev.taskID, ev.seq, ev.newID, ev.err)
 	case evUsage:

@@ -126,6 +126,55 @@ func taskKindLabel(kind string) string {
 	return kind
 }
 
+// taskStoppable is a state a stop has something to end in: work in flight.
+func taskStoppable(state string) bool {
+	switch state {
+	case "working", "running", "queued":
+		return true
+	}
+	return false
+}
+
+// taskClosable is a state with nothing in flight: an asleep routine or a task
+// held at a gate. It keeps its place in the list until someone closes it, and
+// closing is the same abort — but it is the end of a routine that would come
+// back tomorrow, so the row names the verb for what it does.
+func taskClosable(state string) bool {
+	switch state {
+	case "sleeping", "waiting", "pending":
+		return true
+	}
+	return false
+}
+
+// taskCancelLabel is the one verb a task has, named for its state.
+func taskCancelLabel(state string) string {
+	if taskStoppable(state) {
+		return i18n.T("taskStop")
+	}
+	return i18n.T("taskClose")
+}
+
+// railTaskMenu is the task row's ⋯: a task at work is stopped, one asleep or
+// waiting is closed. Both are the same abort on the bridge; only the promise
+// differs, and the label is where that difference has to live.
+func (a *App) railTaskMenu(c *ui.Context, t theme.Tokens, task protocol.Task) {
+	button := ui.ButtonBase(c).Size(14, 14).Radius(3).Justify(ui.Center).
+		AlignItems(ui.Center).Cursor(ui.CursorPointer).Tooltip(i18n.T("taskMenu"))
+	button.Children(func() {
+		ui.Text(c, "⋯").FontSize(theme.TextSmall).FontWeight(600).TextColor(t.Ink3)
+	})
+	label := taskCancelLabel(task.State)
+	id := task.ID
+	button.Menu(func(m *ui.Menu) {
+		if m.Item(label).Chosen() {
+			// A menu build must not write: the click queues, the frame after it
+			// is where the bridge hears about it.
+			a.post(event{kind: evTaskCancel, taskID: id})
+		}
+	})
+}
+
 func (a *App) railTaskRow(c *ui.Context, t theme.Tokens, row railRow) {
 	// Beautiful UI's TaskRows: 44 tall, a 24px badge, the name at 13 medium,
 	// the amount right-aligned in tabular figures, and one pill for the state.
@@ -135,6 +184,11 @@ func (a *App) railTaskRow(c *ui.Context, t theme.Tokens, row railRow) {
 	if item.Hovered() {
 		item = item.Background(t.Hover)
 	}
+	// The ⋯ belongs to the row under the pointer and to the task at work — the
+	// one a reader is looking for a stop on. Its space is kept either way, so a
+	// pill never jumps as the pointer crosses.
+	menuShown := item.Hovered() || row.task.State == "working" || row.task.State == "running"
+	cancellable := taskStoppable(row.task.State) || taskClosable(row.task.State)
 	name := a.taskTitle(row.task)
 	tone := taskTone(t, row.task.State)
 	// The rail is 232 wide: a name, a pill and a time column do not fit, so the
@@ -166,7 +220,16 @@ func (a *App) railTaskRow(c *ui.Context, t theme.Tokens, row railRow) {
 				ui.Text(c, sub).FontSize(theme.TextMicro).TextColor(t.Ink3).MaxLines(1)
 			}
 		})
-		taskStatePill(c, t, row.task.State)
+		// The pill and the ⋯ share the right edge: the state stays readable, and
+		// the action costs 12 points of the name rather than 24.
+		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
+			taskStatePill(c, t, row.task.State)
+			ui.Box(c).Size(12, 12).Children(func() {
+				if menuShown && cancellable {
+					a.railTaskMenu(c, t, row.task)
+				}
+			})
+		})
 	})
 }
 

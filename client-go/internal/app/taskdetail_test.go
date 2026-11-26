@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 
 	"pilot/internal/api"
 	"pilot/internal/i18n"
+	"pilot/internal/protocol"
 )
 
 // TestTaskRowOpensItsDetail: a task row that cannot be opened is a row the user
@@ -66,7 +68,7 @@ func TestTaskRowOpensItsDetail(t *testing.T) {
 	a.applyTaskDetail(id, a.detail.seq, &task, nil)
 	tt.Frame()
 
-	for _, want := range []string{"Follow up on the review thread", "运行中", "输入", "步骤", "扫日志", "停止任务", "关闭"} {
+	for _, want := range []string{"Follow up on the review thread", "运行中", "输入", "步骤", "扫日志", "停止任务", "收起"} {
 		if !tt.HasText(want) {
 			t.Errorf("the dialog does not say %q; drew %v", want, tt.Texts())
 		}
@@ -138,9 +140,9 @@ func TestStopTaskAsksTheBridge(t *testing.T) {
 	if !a.canStop() {
 		t.Fatal("a running task offered no stop")
 	}
-	a.stopTask(9)
+	a.stopTask(9, false)
 	time.Sleep(100 * time.Millisecond)
-	a.applyTaskStop(9, a.detail.seq, nil)
+	a.applyTaskStop(9, a.detail.seq, false, nil)
 
 	var stopped bool
 	mu.Lock()
@@ -591,5 +593,152 @@ func TestThePickerIsClickedNotTyped(t *testing.T) {
 	tt.Frame()
 	if a.detail.freq != 3 || a.scheduleLine() != "every 6h" {
 		t.Fatalf("every gave freq=%d line=%q", a.detail.freq, a.scheduleLine())
+	}
+}
+
+// TestASleepingTaskCanBeClosed: the rail listed seven routines asleep and gave
+// no way to end one — the only verb a sleeping task has is to change its clock.
+// Closing is the same abort the bridge already takes, so the dialog offers it,
+// and the dismiss button stops calling itself 关闭 now that 关闭任务 exists.
+func TestASleepingTaskCanBeClosed(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	var mu sync.Mutex
+	var cancelled []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		if r.URL.Path == "/api/task/cancel" {
+			cancelled = append(cancelled, r.Method+" "+string(body))
+		}
+		// The bridge marks the task a moment after taking the cancel, and the
+		// dialog re-reads it: the stub has to answer the second read like the
+		// bridge would, or the dialog would overwrite what it just learned.
+		abortRequested := len(cancelled) > 0
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/task" {
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"id":9,"kind":"app.routine","status":"sleeping","title":"记忆整理","abortRequested":%t}`, abortRequested)))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	a := fixtureApp(t, false)
+	a.api = api.New(server.URL, "")
+	tt := ui.NewTester(a.View, 1180, 820)
+	a.openTaskDetail(9)
+	a.applyTaskDetail(9, a.detail.seq, &api.TaskDetail{ID: 9, Kind: "app.routine", Status: "sleeping", Title: "记忆整理"}, nil)
+	tt.Frame()
+
+	if !tt.HasText("关闭任务") {
+		t.Fatalf("a sleeping task offered no close; drew %v", tt.Texts())
+	}
+	if tt.HasText("停止任务") {
+		t.Fatal("an asleep task offered a stop: there is nothing in flight to abort")
+	}
+	if !tt.HasText("收起") {
+		t.Fatal("the dismiss button still reads as if it closed the task")
+	}
+
+	if err := tt.Click("关闭任务"); err != nil {
+		t.Fatalf("the close button was not clickable: %v", err)
+	}
+	tt.Frame()
+	tt.Frame()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		mu.Lock()
+		got := append([]string(nil), cancelled...)
+		mu.Unlock()
+		if len(got) > 0 {
+			if got[0] != `POST {"id":9}` {
+				t.Fatalf("close reached the bridge as %q", got[0])
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("close never reached the bridge")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// The answer and the re-read land on later frames; pump until they do.
+	for i := 0; i < 100 && !(a.detail.task != nil && a.detail.task.AbortRequested); i++ {
+		tt.Frame()
+		time.Sleep(5 * time.Millisecond)
+	}
+	if a.detail.task == nil || !a.detail.task.AbortRequested || a.canClose() {
+		t.Fatalf("the dialog still offers a close after one: %+v", a.detail.task)
+	}
+	if !tt.HasText("收起") {
+		t.Fatalf("the dialog lost its dismiss button; drew %v", tt.Texts())
+	}
+}
+
+// TestTheRowMenuClosesASleepingTask: the verb has to be reachable from the list,
+// not only from the dialog — the list is where a reader notices a routine that
+// should not come back tomorrow.
+func TestTheRowMenuClosesASleepingTask(t *testing.T) {
+	i18n.Set(i18n.ZH)
+	var mu sync.Mutex
+	var cancelled []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if r.URL.Path == "/api/task/cancel" {
+			mu.Lock()
+			cancelled = append(cancelled, r.Method+" "+string(body))
+			mu.Unlock()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	a := railApp(t, server.URL)
+	a.rail = railTasks
+	a.tasks = []protocol.Task{{ID: 12, Title: "记忆整理", State: "sleeping", Kind: "app.routine"}}
+	a.invalidate()
+
+	tt := ui.NewTester(a.View, 1180, 820)
+	tt.Frame()
+	title, ok := tt.Find("记忆整理")
+	if !ok {
+		t.Fatalf("the task row did not draw; %v", tt.Texts())
+	}
+	// The ⋯ belongs to the row under the pointer, so the pointer has to get there.
+	tt.Move(title.X+title.W/2, title.Y+title.H/2)
+	tt.Frame()
+	if err := tt.Click("⋯"); err != nil {
+		t.Fatalf("the task row has no menu: %v", err)
+	}
+	tt.Frame()
+	if got := tt.Menu(); len(got) != 1 || got[0] != "关闭任务" {
+		t.Fatalf("menu = %v, want 关闭任务", got)
+	}
+	if err := tt.ChooseMenuItem("关闭任务"); err != nil {
+		t.Fatalf("choose close: %v", err)
+	}
+	tt.Frame()
+	tt.Frame()
+	if a.detail.open {
+		t.Fatal("the row's ⋯ opened the dialog: the menu is not the row")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		mu.Lock()
+		got := append([]string(nil), cancelled...)
+		mu.Unlock()
+		if len(got) > 0 {
+			if got[0] != `POST {"id":12}` {
+				t.Fatalf("close reached the bridge as %q", got[0])
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the menu's close never reached the bridge")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
