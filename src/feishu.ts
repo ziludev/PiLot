@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { readdir, readFile, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import * as Lark from "@larksuiteoapi/node-sdk";
 
 import type { JsonObject } from "@earendil-works/pi-durable";
@@ -212,17 +212,93 @@ function continueButton(messageId: string): CardButton[] {
   return [{ label: "继续", value: { kind: "continue", messageId }, type: "primary" }];
 }
 
-/**
- * The colour bar is the whole point: a green "答完了", an orange "到了步数上限" and a red
- * "出错了" sit in the same list, and the outcome has to be readable without opening it.
- */
-type CardHeader = { template: "green" | "orange" | "grey" | "red" | "blue"; title: string };
+export type CardColor =
+  | "neutral"
+  | "blue"
+  | "turquoise"
+  | "lime"
+  | "orange"
+  | "violet"
+  | "indigo"
+  | "wathet"
+  | "green"
+  | "yellow"
+  | "red"
+  | "purple"
+  | "carmine";
+
+export type CardHeaderTag = { text: string; color?: CardColor };
+export type CardHeaderIcon = { token: string; color?: CardColor };
+export type CardHeader = {
+  template: "green" | "orange" | "grey" | "red" | "blue";
+  title: string;
+  subtitle?: string;
+  icon?: CardHeaderIcon;
+  tags?: CardHeaderTag[];
+};
+
+export type CardTint = "green-50" | "orange-50" | "red-50" | "blue-50" | "grey-50";
+export type CardExtras = {
+  /** Wraps short, table-free bodies in a tinted container matching the card status. */
+  callout?: CardTint;
+  /** Triggering user message excerpt rendered as a multi-line quote at the top of the card body. */
+  prompt?: string;
+};
 
 /**
  * The band a card wears while the turn runs. A patch replaces the whole card, so every live patch
  * has to carry it again — otherwise the header exists only until the first update 15s later.
  */
-const WORKING_HEADER: CardHeader = { template: "blue", title: "⏳ 处理中" };
+const WORKING_HEADER: CardHeader = {
+  template: "blue",
+  title: "PiLot · 处理中",
+  icon: { token: "time_outlined", color: "blue" },
+};
+
+function stripLeadingEmoji(title: string): string {
+  return title.replace(/^(?:✅|⚠️|❌|⏸️|⏹️|⏳|🗑️|🔁|🔴)\s*/u, "").trim() || title;
+}
+
+const CARD_BRAND = "PiLot";
+
+const PROMPT_EXCERPT_MAX = 140;
+
+/** Condenses a triggering user prompt into a clean multi-line excerpt for the card top without single-line header truncation. */
+export function promptExcerpt(raw: string, max = PROMPT_EXCERPT_MAX): string {
+  return digestOf(raw, max);
+}
+
+export function shortModelLabel(modelId: string): string {
+  const trimmed = modelId.trim();
+  const slash = trimmed.lastIndexOf("/");
+  return slash >= 0 && slash < trimmed.length - 1 ? trimmed.slice(slash + 1) : trimmed;
+}
+
+function verdictHeader(
+  base: { template: "green" | "orange" | "grey" | "red" | "blue"; title: string },
+  opts: {
+    subtitle?: string;
+    elapsedMs?: number;
+    icon?: CardHeaderIcon;
+    tagColor?: CardColor;
+    extraTags?: CardHeaderTag[];
+  } = {},
+): CardHeader {
+  const cleanTitle = stripLeadingEmoji(base.title);
+  const tagText = opts.elapsedMs !== undefined && opts.elapsedMs > 0 ? spanText(opts.elapsedMs) : undefined;
+  const defaultTagColor: CardColor = base.template === "grey" ? "neutral" : base.template;
+  const tags: CardHeaderTag[] = [
+    ...(tagText === undefined ? [] : [{ text: tagText, color: opts.tagColor ?? defaultTagColor }]),
+    ...(opts.extraTags ?? []),
+  ];
+  return {
+    template: base.template,
+    title: `${CARD_BRAND} · ${cleanTitle}`,
+    ...(opts.subtitle !== undefined && opts.subtitle.trim().length > 0 ? { subtitle: opts.subtitle.trim() } : {}),
+    ...(opts.icon === undefined ? {} : { icon: opts.icon }),
+    ...(tags.length === 0 ? {} : { tags: tags.slice(0, 3) }),
+  };
+}
 /**
  * Feishu's own two status marks on the message a turn answers. They live outside the card on
  * purpose: a card patch is silent, so in a group these ticks are what a passer-by reads without
@@ -240,10 +316,16 @@ export function stopReason(reason: string | undefined): string {
 }
 
 /** The band on a card that is not the turn's own: a recovered answer arrives as a new message. */
-function standaloneHeader(reason: string | undefined): CardHeader {
+function standaloneHeader(reason: string | undefined, elapsedMs?: number): CardHeader {
   return reason === "turn_limit"
-    ? { template: "orange", title: `⏸️ 到了 ${config.maxTurns} 步上限` }
-    : { template: "grey", title: "⚠️ 这轮没跑完" };
+    ? verdictHeader(
+        { template: "orange", title: `到了 ${config.maxTurns} 步上限` },
+        { elapsedMs, icon: { token: "warning_outlined", color: "orange" } },
+      )
+    : verdictHeader(
+        { template: "grey", title: "这轮没跑完" },
+        { elapsedMs, icon: { token: "warning_outlined", color: "neutral" }, tagColor: "neutral" },
+      );
 }
 
 /**
@@ -293,16 +375,24 @@ export function detailPanel(details: Omit<TurnDetails, "at">): Record<string, un
   if (dropped > 0) lines.unshift(`更早的 ${dropped} 步：${toolTally(details.steps.slice(0, dropped))}`);
   // The trail goes first: "why it took two minutes" is read before "what it ran".
   const decisionLines = (details.decisions ?? []).map(formatDecision);
-  const body = decisionLines.length > 0 ? ["**决策**", ...decisionLines, ...lines] : lines;
+  const promptText = details.prompt?.trim() ?? "";
+  const promptClipped =
+    promptText.length > 1_500 ? `${promptText.slice(0, 1_500).trimEnd()}…` : promptText;
+  const body = [
+    ...(promptClipped.length > 0 ? ["**触发消息**", promptClipped] : []),
+    ...(decisionLines.length > 0 ? ["**决策**", ...decisionLines] : []),
+    ...lines,
+  ];
   // Steps and decisions only. The duration lives in the ping under the card — the one place a
   // reader can see it — and printing it here as well made the two messages stutter at each other.
   // Money never belonged in a panel header nobody opens it for.
   const summary = `${details.steps.length} 步${decisionLines.length > 0 ? ` · ${decisionLines.length} 次决策` : ""}`;
   const elements = bodyElements(body.join("\n\n"));
-  if (details.seconds > 0 || details.costUsd > 0.00005) {
+  if (details.seconds > 0 || details.costUsd > 0.00005 || (details.model !== undefined && details.model.length > 0)) {
     const metaParts: string[] = [];
     if (details.seconds > 0) metaParts.push(`耗时 ${spanText(details.seconds * 1000)}`);
     if (details.costUsd > 0.00005) metaParts.push(`花费 $${details.costUsd.toFixed(4)}`);
+    if (details.model !== undefined && details.model.length > 0) metaParts.push(`模型 ${details.model}`);
     elements.push({ tag: "markdown", content: metaParts.join(" · "), text_size: "notation" });
   }
   return {
@@ -315,9 +405,9 @@ export function detailPanel(details: Omit<TurnDetails, "at">): Record<string, un
       icon_position: "right",
       icon_expanded_angle: -180,
     },
-    border: { color: "grey", corner_radius: "5px" },
+    border: { color: "grey", corner_radius: "8px" },
     vertical_spacing: "8px",
-    padding: "8px 8px 8px 8px",
+    padding: "8px 12px 8px 12px",
     elements,
   };
 }
@@ -499,6 +589,58 @@ export function bodyElements(markdown: string): Array<Record<string, unknown>> {
   return elements.length > 0 ? elements : [{ tag: "markdown", content: markdown }];
 }
 
+const CALLOUT_MAX_CHARS = 800;
+
+function buildHeader(header: CardHeader): Record<string, unknown> {
+  return {
+    template: header.template,
+    title: { tag: "plain_text", content: header.title },
+    ...(header.subtitle !== undefined && header.subtitle.trim().length > 0
+      ? { subtitle: { tag: "plain_text", content: header.subtitle.trim() } }
+      : {}),
+    ...(header.icon === undefined
+      ? {}
+      : {
+          icon: {
+            tag: "standard_icon",
+            token: header.icon.token,
+            ...(header.icon.color === undefined ? {} : { color: header.icon.color }),
+          },
+        }),
+    ...(header.tags === undefined || header.tags.length === 0
+      ? {}
+      : {
+          text_tag_list: header.tags.slice(0, 3).map((tag) => ({
+            tag: "text_tag",
+            text: { tag: "plain_text", content: tag.text },
+            ...(tag.color === undefined ? {} : { color: tag.color }),
+          })),
+        }),
+  };
+}
+
+function calloutBox(tint: CardTint, elements: Array<Record<string, unknown>>): Record<string, unknown> {
+  return {
+    tag: "column_set",
+    flex_mode: "stretch",
+    background_style: tint,
+    columns: [
+      {
+        tag: "column",
+        width: "weighted",
+        weight: 1,
+        padding: "10px 12px 10px 12px",
+        elements,
+      },
+    ],
+  };
+}
+
+function canCallout(elements: Array<Record<string, unknown>>, body: string): boolean {
+  if (body.length > CALLOUT_MAX_CHARS) return false;
+  return elements.every((element) => element["tag"] === "markdown");
+}
+
 /**
  * Card JSON **2.0**, and every card goes through here.
  *
@@ -518,10 +660,24 @@ export function card(
   buttons?: CardButton[],
   header?: CardHeader,
   details?: Omit<TurnDetails, "at">,
+  extras?: CardExtras,
 ): Record<string, unknown> {
-  const elementsFor = (body: string, trail?: Omit<TurnDetails, "at">): Array<Record<string, unknown>> => {
-    const elements: Array<Record<string, unknown>> = bodyElements(stripInlineCode(body));
-    if (trail !== undefined && trail.steps.length > 0) {
+  const elementsFor = (
+    body: string,
+    trail?: Omit<TurnDetails, "at">,
+    cardExtras?: CardExtras,
+  ): Array<Record<string, unknown>> => {
+    const rawElements = bodyElements(body);
+    const bodyList: Array<Record<string, unknown>> =
+      cardExtras?.callout !== undefined && canCallout(rawElements, body)
+        ? [calloutBox(cardExtras.callout, rawElements)]
+        : rawElements;
+    const excerpt = cardExtras?.prompt !== undefined ? promptExcerpt(cardExtras.prompt) : "";
+    const elements: Array<Record<string, unknown>> =
+      excerpt.length > 0
+        ? [{ tag: "markdown", content: `💬 ${excerpt}`, text_size: "notation" }, ...bodyList]
+        : bodyList;
+    if (trail !== undefined && (trail.steps.length > 0 || (trail.decisions?.length ?? 0) > 0)) {
       elements.push(detailPanel(trail));
     }
     if (meta !== undefined && meta.trim().length > 0) {
@@ -549,7 +705,11 @@ export function card(
     return elements;
   };
   const summary = cardSummary(markdown, header);
-  const envelope = (body: string, trail?: Omit<TurnDetails, "at">): Record<string, unknown> => ({
+  const envelope = (
+    body: string,
+    trail?: Omit<TurnDetails, "at">,
+    cardExtras?: CardExtras,
+  ): Record<string, unknown> => ({
     schema: "2.0",
     config: {
       update_multi: true,
@@ -557,35 +717,37 @@ export function card(
       // What the chat list and a push notification show instead of the first line of the body.
       ...(summary.length === 0 ? {} : { summary: { content: summary } }),
     },
-    ...(header === undefined
-      ? {}
-      : { header: { template: header.template, title: { tag: "plain_text", content: header.title } } }),
-    body: { elements: elementsFor(body, trail) },
+    ...(header === undefined ? {} : { header: buildHeader(header) }),
+    body: { elements: elementsFor(body, trail, cardExtras) },
   });
 
-  let draft = envelope(markdown, details);
+  let draft = envelope(markdown, details, extras);
   if (cardBytes(draft) <= CARD_BUDGET_BYTES) return draft;
   // The trail gives way first: the answer is why the message exists, the steps are footnotes.
   if (details !== undefined && details.steps.length > 0) {
     const total = details.steps.length;
     const slim = { ...details, steps: details.steps.slice(-CARD_PANEL_STEPS).map((step) => ({ ...step, preview: "" })) };
-    draft = envelope(markdown, slim);
+    draft = envelope(markdown, slim, extras);
     if (cardBytes(draft) <= CARD_BUDGET_BYTES) {
       log("feishu", "card over budget, step panel trimmed", { steps: total, kept: CARD_PANEL_STEPS, bytes: cardBytes(draft) });
       return draft;
     }
-    draft = envelope(`${markdown}\n\n> 这轮跑了 ${total} 步，卡片放不下就没列出来`, undefined);
+    draft = envelope(`${markdown}\n\n> 这轮跑了 ${total} 步，卡片放不下就没列出来`, undefined, extras);
     if (cardBytes(draft) <= CARD_BUDGET_BYTES) {
       log("feishu", "card over budget, step panel dropped", { steps: total, bytes: cardBytes(draft) });
       return draft;
     }
+  }
+  if (extras !== undefined) {
+    draft = envelope(markdown, undefined, undefined);
+    if (cardBytes(draft) <= CARD_BUDGET_BYTES) return draft;
   }
   // Then the words, a slice at a time: an answer that got shorter still beats one that never
   // arrives, and 230099 is what a card that was too long used to answer with.
   let body = markdown;
   for (let guard = 0; guard < 12 && cardBytes(draft) > CARD_BUDGET_BYTES && body.length > 200; guard += 1) {
     body = `${body.slice(0, Math.max(200, Math.floor(body.length * 0.7)))}\n\n…（太长，后面截掉了）`;
-    draft = envelope(body, undefined);
+    draft = envelope(body, undefined, undefined);
   }
   log("feishu", "card trimmed to fit", { bytes: cardBytes(draft), chars: body.length });
   return draft;
@@ -783,20 +945,47 @@ export function approvalCard(request: ApprovalRequest, outcome?: ApprovalOutcome
       : request.surfaceId.length > 0
         ? request.surfaceId
         : undefined;
+  const headerTemplate = (verdict?.template ?? "orange") as CardHeader["template"];
+  const headerIcon: CardHeaderIcon = !settled
+    ? { token: "warning_outlined", color: "orange" }
+    : nobodyAnswered
+      ? { token: "time_outlined", color: "neutral" }
+      : outcome.ok
+        ? { token: "yes_outlined", color: "green" }
+        : { token: "warning_outlined", color: "red" };
+  const waitedBadge =
+    settled && outcome.waitedMs !== undefined && outcome.waitedMs > 0 ? spanText(outcome.waitedMs) : undefined;
+  const headerTags: CardHeaderTag[] = !settled
+    ? [{ text: "permission", color: "orange" }]
+    : nobodyAnswered
+      ? [{ text: outcome.by === "timeout" ? "timeout" : "interrupted", color: "neutral" }]
+      : waitedBadge !== undefined
+        ? [{ text: waitedBadge, color: outcome.ok ? "green" : "red" }]
+        : [];
+  const calloutTint: CardTint = !settled
+    ? "orange-50"
+    : nobodyAnswered
+      ? "grey-50"
+      : outcome.ok
+        ? "green-50"
+        : "red-50";
+  const header = buildHeader({
+    template: headerTemplate,
+    title: verdict === undefined ? "PiLot · 需要授权确认" : stripLeadingEmoji(verdict.title),
+    ...(sourceText === undefined ? {} : { subtitle: sourceText }),
+    icon: headerIcon,
+    tags: headerTags,
+  });
   return {
     schema: "2.0",
     config: { update_multi: true, width_mode: "fill" },
-    header: {
-      template: verdict?.template ?? "orange",
-      title: { tag: "plain_text", content: verdict?.title ?? "⚠️ 需要你确认" },
-    },
+    header,
     body: {
       elements: [
-        { tag: "markdown", content: `${toolIcon(request.tool)} **${request.tool}** — ${request.reason}` },
-        { tag: "markdown", content: "```\n" + request.summary.slice(0, 1200) + "\n```" },
-        ...(sourceText === undefined
-          ? []
-          : [{ tag: "markdown", content: `来源：${sourceText}`, text_size: "notation" }]),
+        calloutBox(calloutTint, [
+          { tag: "markdown", content: `${toolIcon(request.tool)} **${request.tool}** — ${request.reason}` },
+          { tag: "markdown", content: "```\n" + request.summary.slice(0, 1200) + "\n```" },
+        ]),
         {
           tag: "markdown",
           content: verdict?.line ?? `${Math.round(request.timeoutMs / 1000)}s 内不选则视为拒绝`,
@@ -984,19 +1173,19 @@ export async function stopConversation(
  * Chinese has no spaces to cut on, so the punctuation carries it.
  */
 const DIGEST_MAX = 28;
-const DIGEST_FLOOR = Math.floor(DIGEST_MAX * 0.6);
 const DIGEST_BREAK = /[\s，。、；：,.;:!?！？)）】」”"'…]/;
 
-export function digestOf(text: string): string {
+export function digestOf(text: string, max = DIGEST_MAX): string {
   const oneLine = text.replace(/\s+/g, " ").trim();
-  if (oneLine.length <= DIGEST_MAX) return oneLine;
-  for (let i = DIGEST_MAX; i >= DIGEST_FLOOR; i -= 1) {
+  if (oneLine.length <= max) return oneLine;
+  const floor = Math.floor(max * 0.6);
+  for (let i = max; i >= floor; i -= 1) {
     if (!DIGEST_BREAK.test(oneLine.charAt(i - 1))) continue;
     const cut = oneLine.slice(0, i).trimEnd();
     // A line that is all break characters would clip to nothing; the hard cut is the fallback.
-    if (cut.length >= DIGEST_FLOOR) return `${cut}…`;
+    if (cut.length >= floor) return `${cut}…`;
   }
-  return `${oneLine.slice(0, DIGEST_MAX)}…`;
+  return `${oneLine.slice(0, max)}…`;
 }
 
 /** What a card needs to say more than "处理中": whose turn it is. */
@@ -1685,13 +1874,14 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     header?: CardHeader,
     buttons?: CardButton[],
     details?: Omit<TurnDetails, "at">,
+    extras?: CardExtras,
   ): Promise<string | undefined> {
     const response = await im.message.create({
       params: { receive_id_type: "chat_id" },
       data: {
         receive_id: chatId,
         msg_type: "interactive",
-        content: JSON.stringify(card(markdown, meta, buttons, header, details)),
+        content: JSON.stringify(card(markdown, meta, buttons, header, details, extras)),
       },
     });
     const messageId = (response as { data?: { message_id?: unknown } } | undefined)?.data?.message_id;
@@ -1715,16 +1905,17 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     header?: CardHeader,
     buttons?: CardButton[],
     details?: Omit<TurnDetails, "at">,
+    extras?: CardExtras,
   ): Promise<void> {
     if (messageId === undefined) {
-      await sendMarkdown(chatId, markdown, meta, header, buttons, details);
+      await sendMarkdown(chatId, markdown, meta, header, buttons, details, extras);
       return;
     }
     const response = await im.message.reply({
       path: { message_id: messageId },
       data: {
         msg_type: "interactive",
-        content: JSON.stringify(card(markdown, meta, buttons, header, details)),
+        content: JSON.stringify(card(markdown, meta, buttons, header, details, extras)),
         ...(thread === true ? { reply_in_thread: true } : {}),
       },
     });
@@ -1752,8 +1943,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     header?: CardHeader,
     details?: Omit<TurnDetails, "at">,
     keepText = true,
+    extras?: CardExtras,
   ): Promise<void> {
-    const content = JSON.stringify(card(markdown, meta, buttons, header, details));
+    const content = JSON.stringify(card(markdown, meta, buttons, header, details, extras));
     // Streaming frames pass `keepText: false`: they are shown for seconds and a doc write per
     // frame is not worth it — the final patch is the one a quote would hit.
     await patchCardContent(messageId, content, keepText ? markdown : "");
@@ -1809,16 +2001,18 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     header?: CardHeader,
     details?: Omit<TurnDetails, "at">,
     replyContext?: { replyTo?: string; thread?: boolean },
+    extras?: CardExtras,
   ): Promise<void> {
     const chunks = splitAnswerForCards(markdown);
     const primary = chunks[0] ?? markdown;
     const primaryButtons = chunks.length === 1 ? buttons : undefined;
     const primaryDetails = chunks.length === 1 ? details : undefined;
     const primaryMeta = chunks.length === 1 ? meta : "";
+    const primaryExtras = chunks.length === 1 ? extras : undefined;
     let patched = false;
     for (let attempt = 0; ; attempt += 1) {
       try {
-        await patchCard(cardId, primary, primaryMeta, primaryButtons, header, primaryDetails);
+        await patchCard(cardId, primary, primaryMeta, primaryButtons, header, primaryDetails, true, primaryExtras);
         log("feishu", "final card patched", { chatId, cardId, chars: markdown.length, chunks: chunks.length, attempts: attempt + 1 });
         patched = true;
         break;
@@ -1848,6 +2042,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
           header,
           isLast ? buttons : undefined,
           isLast ? details : undefined,
+          isLast ? extras : undefined,
         ).catch((error) => logError("feishu", "continuation card failed", error));
       }
       return;
@@ -1862,6 +2057,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
           header,
           isLast ? buttons : undefined,
           isLast ? details : undefined,
+          isLast ? extras : undefined,
         );
       }
       log("feishu", "answer sent as its own card after a failed patch");
@@ -1892,14 +2088,14 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     messageId: string,
     markdown: string,
     meta?: string,
-    options: { thread?: boolean; mention?: string; buttons?: CardButton[]; header?: CardHeader } = {},
+    options: { thread?: boolean; mention?: string; buttons?: CardButton[]; header?: CardHeader; extras?: CardExtras } = {},
   ): Promise<string | undefined> {
     const body = options.mention === undefined ? markdown : `<at id=${options.mention}></at> ${markdown}`;
     const response = await im.message.reply({
       path: { message_id: messageId },
       data: {
         msg_type: "interactive",
-        content: JSON.stringify(card(body, meta ?? "▶️ 处理中", options.buttons, options.header)),
+        content: JSON.stringify(card(body, meta, options.buttons, options.header, undefined, options.extras)),
         // Group replies stay in one thread: the timeline stays readable and the
         // thread itself becomes the conversation (our fork logic keys on thread_id).
         ...(options.thread === true ? { reply_in_thread: true } : {}),
@@ -2080,6 +2276,40 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     });
   }
 
+  async function turnContextLabel(
+    conversationId: number,
+    chatId: string,
+    workDir?: string,
+  ): Promise<string | undefined> {
+    const projectId = await runtime.projectOfConversation(conversationId).catch(() => undefined);
+    if (projectId !== undefined) {
+      const project = (await runtime.projects().catch(() => [])).find((item) => item.id === projectId);
+      if (project !== undefined && !project.builtin) return project.name;
+    }
+    const chatTitle = (await runtime.harness.snapshot(SurfaceMetaDoc, context).catch(() => undefined))?.surfaces[chatId]?.title;
+    if (chatTitle !== undefined && chatTitle.trim().length > 0) return chatTitle.trim();
+    const folder = workDir === undefined ? "" : basename(workDir);
+    return folder.length > 0 && folder !== "workspace" ? folder : undefined;
+  }
+
+  async function turnModelInfo(
+    turnAgent: { model?: { provider: string; modelId: string }; thinkingLevel?: string } | undefined,
+  ): Promise<{ label: string; customTag?: string }> {
+    const provider = turnAgent?.model?.provider ?? config.model.provider;
+    const modelId = turnAgent?.model?.modelId ?? config.model.modelId;
+    const thinking = turnAgent?.thinkingLevel ?? config.thinkingLevel;
+    const shortId = shortModelLabel(modelId);
+    const defaultModel = await runtime.defaultModel().catch(() => undefined);
+    const defaultProvider = defaultModel?.provider ?? config.model.provider;
+    const defaultId = defaultModel?.modelId ?? config.model.modelId;
+    const defaultThinking = defaultModel?.thinkingLevel ?? config.thinkingLevel;
+    const isCustom = provider !== defaultProvider || modelId !== defaultId || thinking !== defaultThinking;
+    return {
+      label: `${shortId} (${thinking})`,
+      ...(isCustom ? { customTag: shortId } : {}),
+    };
+  }
+
   /**
    * A routine's turn. Same skeleton as a message turn — card, queue slot, submission, answer in the
    * card — minus everything that only makes sense for a message that arrived: no reply chain, no
@@ -2109,9 +2339,15 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         .find((line) => line.length > 0 && !line.startsWith("⏰")) ?? "定时任务";
     const cardId = await sendMarkdown(
       chatId,
-      `> ${digest.slice(0, 240)}\n\n⏳ 定时任务开跑…`,
+      "⏳ 定时任务开跑…",
       undefined,
-      { title: "⏰ 定时任务", template: "blue" },
+      {
+        title: `${CARD_BRAND} · 定时任务`,
+        template: "blue",
+        subtitle: digest.slice(0, 80),
+        icon: { token: "time_outlined", color: "blue" },
+        tags: [{ text: "routine", color: "blue" }],
+      },
     );
     if (cardId === undefined) {
       log("feishu", "routine card creation failed, skipping the turn", { chatId });
@@ -2119,7 +2355,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     }
     log("feishu", "routine card created", { chatId, cardId, key });
 
-    const card = liveCard(conversation, cardId, digest, startedAt);
+    const card = liveCard(conversation, cardId, "", startedAt, digest.slice(0, 80));
     card.stall(300_000);
     const slot = enqueueTurn(conversation.id as unknown as number);
     if (slot.queued) {
@@ -2135,7 +2371,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
           "这一轮定时任务在排队时被撤掉了，下个周期照常。",
           "🗑️ 撤销",
           undefined,
-          { template: "grey", title: "🗑️ 已撤销" },
+          verdictHeader({ template: "grey", title: "已撤销" }, { subtitle: digest.slice(0, 80) }),
         ).catch(() => undefined);
         return false;
       }
@@ -2181,6 +2417,12 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       }
       await card.finish();
 
+      const modelInfo = await turnModelInfo(turnAgent);
+      const subtitle = digest.slice(0, 80);
+      const customModelTags: CardHeaderTag[] | undefined =
+        modelInfo.customTag === undefined ? undefined : [{ text: modelInfo.customTag, color: "indigo" }];
+      const routineDetails =
+        decisions.length === 0 ? undefined : { steps: [], seconds, costUsd: 0, decisions, model: modelInfo.label };
       if (settled.status === "done" && settled.answer !== undefined) {
         const answer = await runtime.answerText(conversation, settled.answer, settled.entry);
         const blocks = await runtime
@@ -2191,14 +2433,24 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         // One line under the card, and only when there is something to say: what changed on disk.
         // The tool count and the clock said nothing the reader could act on.
         const meta = touchedLine(touched);
+        const baseHeader =
+          claim === undefined ? { template: "green" as const, title: "✅ 定时任务跑完了" } : doneVerdict(claim);
+        const failedClaim = claim?.met === false;
         await deliverAnswer(
           chatId,
           cardId,
           text,
           meta,
           undefined,
-          claim === undefined ? { template: "green", title: "✅ 定时任务跑完了" } : doneVerdict(claim),
-          decisions.length === 0 ? undefined : { steps: [], seconds, costUsd: 0, decisions },
+          verdictHeader(baseHeader, {
+            subtitle,
+            elapsedMs: seconds * 1000,
+            icon: { token: failedClaim ? "warning_outlined" : "yes_outlined", color: failedClaim ? "orange" : "green" },
+            extraTags: customModelTags,
+          }),
+          routineDetails,
+          undefined,
+          { callout: failedClaim ? "orange-50" : "green-50" },
         );
         if (claim?.met === false) {
           await pingDone(chatId, cardId, `⚠️ 定时任务目标未达成 · ${seconds}s`, {
@@ -2217,8 +2469,15 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         `这轮没跑完：${stopReason(settled.reason)}`,
         "",
         undefined,
-        { template: "orange", title: "⚠️ 定时任务没跑完" },
-        decisions.length === 0 ? undefined : { steps: [], seconds, costUsd: 0, decisions },
+        verdictHeader({ template: "orange", title: "定时任务没跑完" }, {
+          subtitle,
+          elapsedMs: seconds * 1000,
+          icon: { token: "warning_outlined", color: "orange" },
+          extraTags: customModelTags,
+        }),
+        routineDetails,
+        undefined,
+        { callout: "orange-50" },
       );
       await pingDone(chatId, cardId, `⚠️ 定时任务没跑完（${stopReason(settled.reason)}） · ${seconds}s`, {
         thread: topicChats.get(chatId) === true,
@@ -2232,7 +2491,13 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         `定时任务出错：${(error as Error)?.message ?? String(error)}`,
         "",
         undefined,
-        { template: "red", title: "❌ 定时任务失败" },
+        verdictHeader({ template: "red", title: "定时任务失败" }, {
+          subtitle: digest.slice(0, 80),
+          icon: { token: "warning_outlined", color: "red" },
+        }),
+        undefined,
+        undefined,
+        { callout: "red-50" },
       ).catch(() => undefined);
       await pingDone(chatId, cardId, `❌ 定时任务失败：${(error as Error)?.message ?? String(error)}`.slice(0, 140), {
         thread: topicChats.get(chatId) === true,
@@ -2438,8 +2703,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
   function liveCard(
     conversation: Awaited<ReturnType<AgentRuntime["conversationFor"]>>,
     cardId: string,
-    digest: string,
+    prompt: string,
     startedAt: number,
+    subtitle?: string,
   ) {
     // The card's clock: seconds since the turn started, the same number /status would show.
     const age = (): string => `${Math.round((Date.now() - startedAt) / 1000)}s`;
@@ -2498,17 +2764,21 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     };
     const body = (): string => {
       if (last !== undefined) return renderLive(last, trail, stages);
-      return digest.length === 0 ? "🤔 思考中…" : `> ${digest}\n\n🤔 思考中…`;
+      return "🤔 思考中…";
     };
-    // How far the turn got, in the subtitle: "第 3 步 · 2m18s" beats a bare clock, and it replaces
-    // the rows of finished steps the body used to stack. The header already says 处理中, so the
-    // subtitle does not say it a second time.
-    const working = (): string => {
+    // How far the turn got, in the header badge: "第 3 步 · 2m18s" beats a bare clock.
+    const workingTag = (): string => {
       const { done, running } = stepCount(trail);
-      if (running) return `▶️ 第 ${done + 1} 步 · ${age()}`;
-      if (done === 0) return `▶️ ${age()}`;
-      return `▶️ ${done} 步 · ${age()}`;
+      if (running) return `第 ${done + 1} 步 · ${age()}`;
+      if (done === 0) return age();
+      return `${done} 步 · ${age()}`;
     };
+    const liveHeader = (): CardHeader => ({
+      ...WORKING_HEADER,
+      title: `${CARD_BRAND} · 处理中`,
+      ...(subtitle !== undefined && subtitle.length > 0 ? { subtitle } : {}),
+      tags: [{ text: status === "" ? workingTag() : status.replace(/^[⏸️⏳]+\s*/u, ""), color: status === "" ? "blue" : "orange" }],
+    });
     // Stopping used to mean finding the input box and typing /stop, on a phone, while the run kept
     // going. The card is where the progress lives, so the way to stop lives there too.
     const stopButtons = (): CardButton[] => [
@@ -2527,13 +2797,14 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       if (phase !== "live") return;
       refreshStages();
       const text = body();
-      const subtitle = status === "" ? working() : status;
-      const frame = `${text}\u0000${subtitle}`;
+      const badge = status === "" ? workingTag() : status;
+      const frame = `${text}\u0000${badge}`;
       // Nothing new: the 20s tick and a commit that changed no visible word do not need a round trip.
       if (frame === lastFrame) return;
       lastFrame = frame;
       paintedAt = Date.now();
-      void patchCard(cardId, text, subtitle, stopButtons(), WORKING_HEADER, undefined, false).catch((error) => {
+      const liveExtras = prompt.trim().length > 0 ? { prompt } : undefined;
+      void patchCard(cardId, text, status, stopButtons(), liveHeader(), undefined, false, liveExtras).catch((error) => {
         if (streamErrors < 3) {
           streamErrors += 1;
           logError("feishu", "stream patch failed", error);
@@ -2636,9 +2907,12 @@ const continuing = new Set<string>();
       const indexed =
         hit === undefined ? undefined : await runtime.harness.conversation(hit.conversationId as never, context);
       const conversation = indexed ?? (await runtime.conversationFor(chatId));
+      const turnAgent = await conversation.agent(context).catch(() => undefined);
+      const workDir = turnAgent?.cwd ?? config.workspace;
+      const subtitle = await turnContextLabel(conversation.id as unknown as number, chatId, workDir).catch(() => undefined);
       // Same living card as a fresh turn: resuming an 80-step run behind a frozen "继续中…" hides the
       // seven minutes it takes, which is exactly when someone is watching for progress.
-      card = liveCard(conversation, cardId, "", startedAt);
+      card = liveCard(conversation, cardId, "", startedAt, subtitle);
       card.stall(300_000);
       await card.start();
       const submission = await conversation.submit(
@@ -2657,11 +2931,16 @@ const continuing = new Set<string>();
           chatId,
           cardId,
           answer,
-          `✅ 接着答完了 · ${seconds}s`,
+          "",
           undefined,
-          { template: "green", title: "✅ 答完了" },
+          verdictHeader({ template: "green", title: "接着答完了" }, {
+            subtitle,
+            elapsedMs: seconds * 1000,
+            icon: { token: "yes_outlined", color: "green" },
+          }),
           undefined,
           { replyTo: messageId || cardId, thread: inThread },
+          { callout: "green-50" },
         );
         if (shouldPingDone(config.feishu.donePingSeconds, seconds * 1000)) {
           await pingDone(chatId, messageId || cardId, `✅ 接着答完了 · ${seconds}s`, { thread: inThread });
@@ -2671,11 +2950,16 @@ const continuing = new Set<string>();
           chatId,
           cardId,
           `⚠️ 接着跑也没收尾：${settled.reason ?? "unanswered"}`,
-          `⏸️ ${seconds}s`,
+          "",
           continueButton(messageId),
-          { template: "orange", title: "⏸️ 还是没收尾" },
+          verdictHeader({ template: "orange", title: "还是没收尾" }, {
+            subtitle,
+            elapsedMs: seconds * 1000,
+            icon: { token: "warning_outlined", color: "orange" },
+          }),
           undefined,
           { replyTo: messageId || cardId, thread: inThread },
+          { callout: "orange-50" },
         );
         if (shouldPingDone(config.feishu.donePingSeconds, seconds * 1000)) {
           await pingDone(chatId, messageId || cardId, `⏸️ 还是没收尾 · ${seconds}s`, { thread: inThread });
@@ -2687,9 +2971,14 @@ const continuing = new Set<string>();
         chatId,
         cardId,
         `❌ 继续失败：${(error as Error).message}`,
-        "⏹️ 失败",
+        "",
         continueButton(messageId),
-        { template: "red", title: "❌ 出错了" },
+        verdictHeader({ template: "red", title: "出错了" }, {
+          icon: { token: "warning_outlined", color: "red" },
+        }),
+        undefined,
+        undefined,
+        { callout: "red-50" },
       );
     } finally {
       // An error still has to stop the clock: a live card keeps patching and would paint over
@@ -3548,7 +3837,9 @@ const continuing = new Set<string>();
     log("feishu", "turn start", { chatId, conversationId: conversation.id, type: message.message_type, batched: burst.length });
     const inGroup = message.chat_type === "group";
     const replyOptions = { thread: threadFor(message), mention: mentionFor(event, message) };
-    const digest = digestOf(burst.length === 1 ? parsed.text : burst.map((entry) => entry.parsed.text).join(" / "));
+    const rawPrompt = (burst.length === 1 ? parsed.text : burst.map((entry) => entry.parsed.text).join(" / ")).trim();
+    const convId = conversation.id as unknown as number;
+    const contextLabel = await turnContextLabel(convId, chatId).catch(() => undefined);
     const opening =
       parsed.audioKey !== undefined
         ? "🎧 听语音…"
@@ -3557,11 +3848,20 @@ const continuing = new Set<string>();
           : "🤔 收到，处理中…";
     const cardId = await replyCard(
       message.message_id,
-      digest.length === 0 ? opening : `> ${digest}\n\n${opening}`,
+      opening,
       undefined,
       // The card carries its status from the first frame, so it never starts as a bare message and
       // then grows a header when it settles.
-      { ...replyOptions, header: WORKING_HEADER },
+      {
+        ...replyOptions,
+        header: {
+          ...WORKING_HEADER,
+          title: `${CARD_BRAND} · 处理中`,
+          ...(contextLabel === undefined ? {} : { subtitle: contextLabel }),
+          tags: [{ text: "准备中", color: "blue" }],
+        },
+        ...(rawPrompt.length > 0 ? { extras: { prompt: rawPrompt } } : {}),
+      },
     );
     if (cardId === undefined) {
       log("feishu", "reply card creation failed, continuing without streaming");
@@ -3588,7 +3888,7 @@ const continuing = new Set<string>();
     );
 
     // If the run stalls (provider hang, restart mid-run), say so instead of spinning forever.
-    const card = liveCard(conversation, cardId, digest, startedAt);
+    const card = liveCard(conversation, cardId, rawPrompt, startedAt, contextLabel);
     card.stall(300_000);
 
     // The card's own life, as one value instead of a flag per concern: only a live card may be
@@ -3718,6 +4018,11 @@ const continuing = new Set<string>();
         if (!pings) return;
         await pingDone(chatId, message.message_id ?? "", text, { thread: replyOptions.thread === true });
       };
+      const modelInfo = await turnModelInfo(turnAgent);
+      const subtitle = (await turnContextLabel(convId, chatId, workDir).catch(() => undefined)) ?? contextLabel;
+      const customModelTags: CardHeaderTag[] | undefined =
+        modelInfo.customTag === undefined ? undefined : [{ text: modelInfo.customTag, color: "indigo" }];
+      const promptExtra: Partial<CardExtras> = rawPrompt.length > 0 ? { prompt: rawPrompt } : {};
       // One builder for all four exits. The failure paths used to hand over a card with a reason
       // and nothing to look at, exactly when "which step broke, and what did it print" is the
       // question the owner is about to ask.
@@ -3727,7 +4032,14 @@ const continuing = new Set<string>();
           .turnSteps(conversation, settled.entry as unknown as number, settled.answer as unknown as number)
           .catch(() => []);
         if (taken.length === 0 && decisions.length === 0) return undefined;
-        return { steps: taken, seconds, costUsd: spentUsd, decisions };
+        return {
+          steps: taken,
+          seconds,
+          costUsd: spentUsd,
+          decisions,
+          ...(rawPrompt.length > 0 ? { prompt: rawPrompt } : {}),
+          model: modelInfo.label,
+        };
       };
       if (settled.entry !== undefined) {
         // Remember where this message landed so a later reply can fork at it. The card is
@@ -3765,15 +4077,23 @@ const continuing = new Set<string>();
           .catch(() => [] as AnswerBlock[]);
         const text = blocks.length > 0 ? composeAnswer(blocks) : answer || "（模型没有返回文本）";
         const replyCtx = { replyTo: message.message_id, thread: replyOptions.thread === true };
+        const baseHeader = claim === undefined ? { template: "green" as const, title: "✅ 已完成" } : doneVerdict(claim);
+        const failedClaim = claim?.met === false;
         await deliverAnswer(
           chatId,
           cardId,
           text,
           meta,
           undefined,
-          claim === undefined ? { template: "green", title: "✅ 答完了" } : doneVerdict(claim),
+          verdictHeader(baseHeader, {
+            subtitle,
+            elapsedMs: seconds * 1000,
+            icon: { token: failedClaim ? "warning_outlined" : "yes_outlined", color: failedClaim ? "orange" : "green" },
+            extraTags: customModelTags,
+          }),
           steps,
           replyCtx,
+          { callout: failedClaim ? "orange-50" : "green-50", ...promptExtra },
         );
         answered = true;
         await ping(`✅ 答完了 · ${seconds}s`);
@@ -3807,15 +4127,24 @@ const continuing = new Set<string>();
           const total = Math.round((Date.now() - startedAt) / 100) / 10;
           // Nothing under the answer: the header says 续跑一次 and the ping says how long. The line
           // that used to sit here repeated both in smaller type.
+          const baseHeader =
+            claim === undefined ? { template: "green" as const, title: "✅ 已完成（续跑一次）" } : doneVerdict(claim);
+          const failedClaim = claim?.met === false;
           await deliverAnswer(
             chatId,
             cardId,
             answer,
             "",
             undefined,
-            claim === undefined ? { template: "green", title: "✅ 答完了（续跑一次）" } : doneVerdict(claim),
+            verdictHeader(baseHeader, {
+              subtitle,
+              elapsedMs: total * 1000,
+              icon: { token: failedClaim ? "warning_outlined" : "yes_outlined", color: failedClaim ? "orange" : "green" },
+              extraTags: customModelTags,
+            }),
             undefined,
             { replyTo: message.message_id, thread: replyOptions.thread === true },
+            { callout: failedClaim ? "orange-50" : "green-50", ...promptExtra },
           );
           answered = true;
           await ping(`✅ 答完了（自动续跑一次） · ${total}s`);
@@ -3829,8 +4158,15 @@ const continuing = new Set<string>();
           `续跑一次仍没收尾（活比较大，不是出错）。\n\n进度都在，点「继续」接着做。`,
           "",
           continueButton(message.message_id),
-          { template: "orange", title: `⏸️ 到了 ${config.maxTurns} 步上限` },
+          verdictHeader({ template: "orange", title: `到了 ${config.maxTurns} 步上限` }, {
+            subtitle,
+            elapsedMs: seconds * 1000,
+            icon: { token: "warning_outlined", color: "orange" },
+            extraTags: customModelTags,
+          }),
           await turnPanel(spent === undefined ? 0 : Math.max(0, spent.spentToday - budget.spentToday)),
+          undefined,
+          { callout: "orange-50", ...promptExtra },
         );
         await ping(`⏸️ 这轮到了 ${config.maxTurns} 步上限，续跑后仍未收尾 · ${seconds}s`);
       } else if (settled.reason === "aborted") {
@@ -3843,8 +4179,16 @@ const continuing = new Set<string>();
           "已经停在这里了。进度都在，点「继续」接着做。",
           "",
           continueButton(message.message_id),
-          { template: "grey", title: "⏹️ 已中断" },
+          verdictHeader({ template: "grey", title: "已中断" }, {
+            subtitle,
+            elapsedMs: seconds * 1000,
+            icon: { token: "time_outlined", color: "neutral" },
+            tagColor: "neutral",
+            extraTags: customModelTags,
+          }),
           await turnPanel(spent === undefined ? 0 : Math.max(0, spent.spentToday - budget.spentToday)),
+          undefined,
+          { callout: "grey-50", ...promptExtra },
         );
         await ping(`⏹️ 已中断 · ${seconds}s`);
       } else {
@@ -3860,8 +4204,16 @@ const continuing = new Set<string>();
           `${text}卡在：${stopReason(reason)}。进度都在，点「继续」接着做。`,
           "",
           continueButton(message.message_id),
-          { template: "grey", title: "⚠️ 这轮没跑完" },
+          verdictHeader({ template: "grey", title: "这轮没跑完" }, {
+            subtitle,
+            elapsedMs: seconds * 1000,
+            icon: { token: "warning_outlined", color: "neutral" },
+            tagColor: "neutral",
+            extraTags: customModelTags,
+          }),
           await turnPanel(spent === undefined ? 0 : Math.max(0, spent.spentToday - budget.spentToday)),
+          undefined,
+          { callout: "grey-50", ...promptExtra },
         );
         await ping(`⚠️ 这轮没跑完（${stopReason(reason)}）· ${seconds}s`);
       }
@@ -3873,7 +4225,13 @@ const continuing = new Set<string>();
         `原因：${(error as Error).message}\n\n进度都在，点「继续」接着做。`,
         "",
         continueButton(message.message_id),
-        { template: "red", title: "❌ 出错了" },
+        verdictHeader({ template: "red", title: "出错了" }, {
+          subtitle: contextLabel,
+          icon: { token: "warning_outlined", color: "red" },
+        }),
+        undefined,
+        undefined,
+        { callout: "red-50", ...(rawPrompt.length > 0 ? { prompt: rawPrompt } : {}) },
       );
     } finally {
       slot.done();
@@ -4278,6 +4636,14 @@ async function backfillChatNames(): Promise<void> {
           card.cardId,
           `🔁 进程重启过，这条消息没来得及提交（${startedAt} 发出）。麻烦再发一次。`,
           `🔁 未提交 · ${elapsed} 前`,
+          undefined,
+          verdictHeader(
+            { template: "grey", title: "未提交（进程曾重启）" },
+            { subtitle: `${startedAt} 发出`, icon: { token: "time_outlined", color: "neutral" }, tagColor: "neutral" },
+          ),
+          undefined,
+          true,
+          { callout: "grey-50" },
         ).catch(() => {});
         await settle(false);
         await clearCardPending(runtime.harness, context, card.requestId).catch(() => {});
@@ -4286,7 +4652,17 @@ async function backfillChatNames(): Promise<void> {
       await patchCard(
         card.cardId,
         `🔁 进程重启过，这条任务已在后台恢复。\n\n开始于 ${startedAt}，已跑 ${elapsed}，结果会写进这张卡片。`,
-        `🔁 已恢复 · ${startedAt} 起`,
+        "",
+        undefined,
+        {
+          ...WORKING_HEADER,
+          title: `${CARD_BRAND} · 已恢复，运行中`,
+          subtitle: `${startedAt} 起`,
+          tags: [{ text: elapsed, color: "blue" }],
+        },
+        undefined,
+        false,
+        { callout: "blue-50" },
       ).catch(() => {});
       void (async () => {
         try {
@@ -4300,7 +4676,8 @@ async function backfillChatNames(): Promise<void> {
             card.conversationId as unknown as Parameters<typeof runtime.harness.conversation>[0],
             context,
           );
-          const total = duration(Date.now() - card.at);
+          const elapsedMs = Date.now() - card.at;
+          const total = duration(elapsedMs);
           // The run may have been resumed by the new process's own turn handler, which delivers the
           // answer and clears the mark. Delivering it here as well is what posted the same message
           // twice — once inside the topic as a card, once in the chat as text.
@@ -4320,8 +4697,17 @@ async function backfillChatNames(): Promise<void> {
             return;
           }
           log("feishu", "recovered delivery footer", `${startedAt} 起 · ${total}`);
+          const replyCtx = { replyTo: card.messageId ?? card.cardId, thread: card.thread === true };
+          const recoveredDetails = async (): Promise<Omit<TurnDetails, "at"> | undefined> => {
+            if (conversation === undefined || settled.entry === undefined) return undefined;
+            const steps = await runtime
+              .turnSteps(conversation, settled.entry as unknown as number, settled.answer as unknown as number)
+              .catch(() => []);
+            if (steps.length === 0) return undefined;
+            return { steps, seconds: Math.round(elapsedMs / 100) / 10, costUsd: 0, decisions: [] };
+          };
           if (settled.status === "done" && settled.answer !== undefined && conversation !== undefined) {
-            const answer = await runtime.answerText(conversation, settled.answer, settled.entry);
+            const answer = await renderAnswerBody(conversation, settled.answer, settled.entry);
             // Into the card that asked, not a second card beside it: one message, one card. Posting
             // a fresh card left the interrupted one frozen at 处理中 and made the same work appear
             // twice in the chat.
@@ -4329,9 +4715,15 @@ async function backfillChatNames(): Promise<void> {
               card.chatId,
               card.cardId,
               answer.length > 0 ? answer : "（模型没有返回文本）",
-              `✅ ${total} · ${startedAt} 起，中途进程重启过`,
+              `🔁 中途进程重启过（${startedAt} 起）`,
               undefined,
-              { template: "green", title: "✅ 答完了（重启后补发）" },
+              verdictHeader(
+                { template: "green", title: "已完成（重启后补发）" },
+                { subtitle: `${startedAt} 起`, elapsedMs, icon: { token: "yes_outlined", color: "green" } },
+              ),
+              await recoveredDetails(),
+              replyCtx,
+              { callout: "green-50" },
             );
             log("feishu", "recovered answer delivered", { chatId: card.chatId, chars: answer.length, total });
             await ping(`✅ 答完了（重启后补发） · ${total}`);
@@ -4348,9 +4740,12 @@ async function backfillChatNames(): Promise<void> {
               settled.reason === "turn_limit"
                 ? `上次那条跑到 ${config.maxTurns} 步上限就停了（工作是接着跑的，进度都在）。回一句「继续」我接着做。`
                 : `上次那条没答出来（${settled.reason ?? "unanswered"}）。回一句「继续」我接着做。`,
-              `${startedAt} 起 · ${total}`,
+              `🔁 ${startedAt} 起`,
               undefined,
-              standaloneHeader(settled.reason),
+              standaloneHeader(settled.reason, elapsedMs),
+              await recoveredDetails(),
+              replyCtx,
+              { callout: settled.reason === "turn_limit" ? "orange-50" : "grey-50" },
             );
             await ping(`❌ 没答完（重启后补发） · ${total}`);
             await settle(false);
@@ -4361,9 +4756,15 @@ async function backfillChatNames(): Promise<void> {
             card.chatId,
             card.cardId,
             "上次那条恢复失败，麻烦再发一次。",
-            `❌ 恢复失败`,
+            "",
             undefined,
-            { template: "red", title: "❌ 恢复失败" },
+            verdictHeader(
+              { template: "red", title: "恢复失败" },
+              { subtitle: `${startedAt} 起`, icon: { token: "warning_outlined", color: "red" } },
+            ),
+            undefined,
+            undefined,
+            { callout: "red-50" },
           ).catch(() => {});
           await settle(false);
         } finally {

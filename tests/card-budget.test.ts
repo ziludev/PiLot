@@ -129,3 +129,50 @@ test("noticeHeader maps severity icons to card templates", () => {
   assert.equal(noticeHeader("✅ 恢复正常").template, "green");
   assert.equal(noticeHeader("普通进度更新").template, "blue");
 });
+
+test("card 2.0 preserves inline code and supports rich header, prompt excerpt, and callout", () => {
+  const built = card(
+    "检查了 `src/feishu.ts` 和 `tests/approval-card.test.ts`。",
+    undefined,
+    undefined,
+    {
+      template: "green",
+      title: "PiLot · 已完成",
+      subtitle: "pi-durable-agent",
+      icon: { token: "yes_outlined", color: "green" },
+      tags: [{ text: "4m 45s", color: "green" }, { text: "claude-sonnet-4-5", color: "indigo" }],
+    },
+    undefined,
+    {
+      callout: "green-50",
+      prompt: "应该不是大模型引起的吧，你看的是最新的提交记录吗？顺便把卡片里的提示也改一下。",
+    },
+  );
+  const header = built["header"] as Record<string, unknown>;
+  assert.deepEqual(header["subtitle"], { tag: "plain_text", content: "pi-durable-agent" });
+  assert.deepEqual(header["icon"], { tag: "standard_icon", token: "yes_outlined", color: "green" });
+  assert.deepEqual(header["text_tag_list"], [
+    { tag: "text_tag", text: { tag: "plain_text", content: "4m 45s" }, color: "green" },
+    { tag: "text_tag", text: { tag: "plain_text", content: "claude-sonnet-4-5" }, color: "indigo" },
+  ]);
+  const elements = (built["body"] as { elements: Array<Record<string, unknown>> }).elements;
+  assert.equal(elements.length, 2);
+  assert.equal(elements[0]?.["tag"], "markdown");
+  assert.equal(elements[0]?.["text_size"], "notation");
+  assert.match(String(elements[0]?.["content"]), /^💬 应该不是大模型引起的吧，你看的是最新的提交记录吗？/);
+  assert.equal(elements[1]?.["tag"], "column_set");
+  assert.equal(elements[1]?.["background_style"], "green-50");
+  assert.ok(JSON.stringify(elements[1]).includes("`src/feishu.ts`"));
+
+  // Tables bypass callout wrapping so tabular columns never get squeezed into a padded box.
+  const withTable = card(
+    "| A | B |\n|---|---|\n| 1 | 2 |",
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { callout: "green-50" },
+  );
+  const tableElements = (withTable["body"] as { elements: Array<Record<string, unknown>> }).elements;
+  assert.equal(tableElements[0]?.["tag"], "table");
+});

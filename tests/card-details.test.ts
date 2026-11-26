@@ -85,3 +85,18 @@ test("the panel never prints a duration in its header, and appends duration/cost
   assert.doesNotMatch(card.header.title.content, /68s|s\b/);
   assert.match(text(card), /耗时 1m 8s · 花费 \$0\.0123/);
 });
+
+test("the panel shows full triggering prompt and model info when provided", () => {
+  const card = panel({
+    steps: [{ name: "read", ok: true, preview: "done" }],
+    seconds: 12,
+    costUsd: 0.005,
+    prompt: "应该不是大模型引起的吧，你看的是最新的提交记录吗？",
+    model: "deepseek-flash (high)",
+  });
+  const body = text(card);
+  assert.match(body, /\*\*触发消息\*\*/);
+  assert.match(body, /应该不是大模型引起的吧，你看的是最新的提交记录吗？/);
+  assert.ok(body.indexOf("触发消息") < body.indexOf("read"));
+  assert.match(body, /模型 deepseek-flash \(high\)/);
+});

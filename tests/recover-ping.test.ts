@@ -13,7 +13,7 @@ const source = readFileSync(new URL("../src/feishu.ts", import.meta.url), "utf8"
 function recoveryBody(): string {
   const start = source.indexOf('"recovered answer delivered"');
   assert.ok(start > 0, "recovery delivery log line is gone");
-  const end = source.indexOf("standaloneHeader(settled.reason)", start);
+  const end = source.indexOf("standaloneHeader(settled.reason", start);
   assert.ok(end > start, "recovery else-branch is gone");
   return source.slice(start, end + 200);
 }

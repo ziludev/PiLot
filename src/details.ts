@@ -66,6 +66,10 @@ export type TurnDetails = {
   costUsd: number;
   /** Approvals asked and why the turn ended, when either happened. */
   decisions?: DecisionNote[];
+  /** Full user prompt that triggered the turn, shown inside the folded detail panel. */
+  prompt?: string;
+  /** Model + thinking level that ran this turn (e.g. `deepseek-flash (high)`). */
+  model?: string;
   at: number;
 };
 

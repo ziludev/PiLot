@@ -20,9 +20,30 @@ type Button = { text: { content: string }; value: Record<string, unknown>; type?
 
 function buttonsOf(card: Record<string, unknown>): Button[] {
   const body = card["body"] as { elements?: Array<Record<string, unknown>> };
-  const row = (body.elements ?? []).find((element) => element["tag"] === "column_set");
-  const columns = (row?.["columns"] as Array<{ elements?: Button[] }> | undefined) ?? [];
-  return columns.flatMap((column) => column.elements ?? []);
+  const rows = (body.elements ?? []).filter((element) => element["tag"] === "column_set");
+  for (const row of rows) {
+    const columns = (row["columns"] as Array<{ elements?: Array<Record<string, unknown>> }> | undefined) ?? [];
+    const buttons = columns.flatMap((column) => (column.elements ?? []).filter((el) => el["tag"] === "button"));
+    if (buttons.length > 0) return buttons as unknown as Button[];
+  }
+  return [];
+}
+
+function bodyTextOf(card: Record<string, unknown>): string {
+  const parts: string[] = [];
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
+    }
+    if (node !== null && typeof node === "object") {
+      const record = node as Record<string, unknown>;
+      if (typeof record["content"] === "string") parts.push(record["content"]);
+      for (const value of Object.values(record)) walk(value);
+    }
+  };
+  walk(card["body"]);
+  return parts.join("\n");
 }
 
 test("the approval card is 2.0, because 1.0 cannot show a collapsible panel", () => {
@@ -75,8 +96,7 @@ test("a settled card keeps the request and freezes every button, keeping the use
     { ...request, grantKey: "rm" },
     { ok: true, by: "feishu", pick: "all", waitedMs: 42_000 },
   );
-  const body = built["body"] as { elements: Array<Record<string, unknown>> };
-  const text = body.elements.map((element) => String(element["content"] ?? "")).join("\n");
+  const text = bodyTextOf(built);
   assert.match(text, /rm -rf \/tmp\/x/, "the command it asked about is still on the card");
   const buttons = buttonsOf(built);
   assert.deepEqual(
@@ -95,16 +115,12 @@ test("a settled card keeps the request and freezes every button, keeping the use
 
 test("a card the owner answered from the desktop says so, and a timeout says nobody did", () => {
   const fromClient = approvalCard(request, { ok: false, by: "client", pick: "deny", waitedMs: 90_000 });
-  const clientText = (fromClient["body"] as { elements: Array<Record<string, unknown>> }).elements
-    .map((element) => String(element["content"] ?? ""))
-    .join("\n");
+  const clientText = bodyTextOf(fromClient);
   assert.match(clientText, /桌面客户端选了「拒绝」/);
   assert.equal((fromClient["header"] as { template: string }).template, "red");
 
   const timedOut = approvalCard({ ...request, timeoutMs: 300_000 }, { ok: false, by: "timeout", waitedMs: 300_000 });
-  const timedText = (timedOut["body"] as { elements: Array<Record<string, unknown>> }).elements
-    .map((element) => String(element["content"] ?? ""))
-    .join("\n");
+  const timedText = bodyTextOf(timedOut);
   assert.match(timedText, /300s 内没人回答/);
   // Nobody chose anything: no button may look like the answer.
   const types = buttonsOf(timedOut).map((button) => button.type);
@@ -112,11 +128,18 @@ test("a card the owner answered from the desktop says so, and a timeout says nob
   assert.ok(buttonsOf(timedOut).every((button) => button.disabled === true));
 });
 
-test("a pending card still counts down and stays clickable, and shows its source chat", () => {
+test("a pending card still counts down and stays clickable, and shows its source chat in header subtitle", () => {
   const built = approvalCard({ ...request, chatTitle: "研发排查群" });
+  const header = built["header"] as {
+    subtitle?: { content: string };
+    icon?: { token: string; color?: string };
+    text_tag_list?: Array<{ text: { content: string } }>;
+  };
+  assert.equal(header.subtitle?.content, "研发排查群");
+  assert.equal(header.icon?.token, "warning_outlined");
+  assert.equal(header.text_tag_list?.[0]?.text.content, "permission");
   const body = built["body"] as { elements: Array<Record<string, unknown>> };
-  const text = body.elements.map((element) => String(element["content"] ?? "")).join("\n");
-  assert.match(text, /来源：研发排查群/);
+  assert.equal(body.elements[0]?.["background_style"], "orange-50");
   const buttons = buttonsOf(built);
   assert.ok(buttons.every((button) => button.disabled === undefined));
   assert.equal(buttons[0]?.type, "primary");
