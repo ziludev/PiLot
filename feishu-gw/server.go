@@ -32,6 +32,8 @@ func newServer(conf config, build func() *lark.Client, state *stats, out *loggin
 	s.mux.HandleFunc("PATCH /v1/message/{id}", s.guarded(s.patch))
 	s.mux.HandleFunc("GET /v1/message/{id}/sender", s.guarded(s.senderOf))
 	s.mux.HandleFunc("GET /v1/message/{id}/resource", s.guarded(s.resource))
+	s.mux.HandleFunc("POST /v1/message/{id}/reaction", s.guarded(s.reaction))
+	s.mux.HandleFunc("DELETE /v1/message/{id}/reaction/{reactionId}", s.guarded(s.reactionRemove))
 	return s
 }
 
@@ -160,6 +162,37 @@ func (s *server) senderOf(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{"openId": openID, "appId": appID, "senderType": senderType})
+}
+
+// reaction / reactionRemove are the two marks the bridge puts on the message a turn answers: 👀
+// while it runs, ✅ once it lands. They exist for the timeline, not the thread — a card patch is
+// silent, so in a group the tick on the question is the only thing a passer-by sees without
+// opening it.
+func (s *server) reaction(writer http.ResponseWriter, request *http.Request) {
+	body := struct {
+		Emoji string `json:"emoji"`
+	}{}
+	if !decode(writer, request, &body) {
+		return
+	}
+	if body.Emoji == "" {
+		writeError(writer, http.StatusBadRequest, "bad_request", "emoji is required", nil)
+		return
+	}
+	reactionID, err := s.send.reactionAdd(request.Context(), request.PathValue("id"), body.Emoji)
+	if err != nil {
+		s.fail(writer, "reaction failed", err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"reactionId": reactionID})
+}
+
+func (s *server) reactionRemove(writer http.ResponseWriter, request *http.Request) {
+	if err := s.send.reactionRemove(request.Context(), request.PathValue("id"), request.PathValue("reactionId")); err != nil {
+		s.fail(writer, "reaction removal failed", err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *server) resource(writer http.ResponseWriter, request *http.Request) {

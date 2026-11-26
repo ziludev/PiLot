@@ -182,3 +182,19 @@ func TestCreateRejectsAnIncompleteBody(t *testing.T) {
 		t.Fatalf("status = %d, want 400", recorder.Code)
 	}
 }
+
+// The reaction routes are the bridge's two status marks; without an emoji name there is nothing to
+// put on the message, and Feishu would answer with its own, vaguer complaint.
+func TestReactionNeedsAnEmoji(t *testing.T) {
+	state := &stats{started: time.Now()}
+	server := newServer(config{token: "secret"}, nil, state, quiet(t))
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/message/om_1/reaction", strings.NewReader(`{}`))
+	request.Header.Set("x-pilot-token", "secret")
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", recorder.Code)
+	}
+}

@@ -37,6 +37,15 @@ export type FeishuIm = {
       params: { type: string };
     }): Promise<{ getReadableStream?: () => AsyncIterable<Buffer> }>;
   };
+  // The app's own emoji mark on a message: Feishu has no "replace", so settling is a delete and a
+  // create. `reaction_id` is the handle the delete needs.
+  messageReaction: {
+    create(input: {
+      path: { message_id: string };
+      data: { reaction_type: { emoji_type: string } };
+    }): Promise<ImResponse>;
+    delete(input: { path: { message_id: string; reaction_id: string } }): Promise<ImResponse>;
+  };
   botOpenId(): Promise<string | undefined>;
 };
 
@@ -158,6 +167,22 @@ export function gatewayClient(endpoint: { url: string; token: string } = gateway
             yield bytes;
           },
         };
+      },
+    },
+    messageReaction: {
+      async create(input) {
+        const answer = (await operation("POST", `/v1/message/${encodeURIComponent(input.path.message_id)}/reaction`, {
+          emoji: input.data.reaction_type.emoji_type,
+        })) as unknown as { reactionId?: string };
+        // Put the id back under the SDK's name: callers read `data.reaction_id`.
+        return { code: 0, msg: "success", data: { reaction_id: answer.reactionId } };
+      },
+      async delete(input) {
+        await call(
+          "DELETE",
+          `/v1/message/${encodeURIComponent(input.path.message_id)}/reaction/${encodeURIComponent(input.path.reaction_id)}`,
+        );
+        return { code: 0, msg: "success" };
       },
     },
     async botOpenId() {

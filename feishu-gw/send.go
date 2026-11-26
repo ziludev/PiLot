@@ -1,8 +1,9 @@
-// send.go: the five Feishu operations the bridge actually uses, and nothing else.
+// send.go: the Feishu operations the bridge actually uses, and nothing else.
 //
 // The bridge used to reach for the SDK for each of them; what it needs from Feishu is create,
-// reply, patch, "who sent this" and "give me that attachment". Keeping the list closed is the point
-// — anything else it might want later is a new decision, not a fallthrough.
+// reply, patch, "who sent this", "give me that attachment" and the two reaction marks. Keeping
+// the list closed is the point — anything else it might want later is a new decision, not a
+// fallthrough.
 package main
 
 import (
@@ -156,6 +157,51 @@ func (s *sender) patch(ctx context.Context, messageID, content string) error {
 		response, err := client.Im.Message.Patch(ctx, larkim.NewPatchMessageReqBuilder().
 			MessageId(messageID).
 			Body(larkim.NewPatchMessageReqBodyBuilder().Content(content).Build()).
+			Build())
+		if err != nil {
+			return err
+		}
+		if !response.Success() {
+			return &feishuError{code: response.Code, msg: response.Msg}
+		}
+		return nil
+	})
+}
+
+// reactionAdd puts one of the app's own emoji on a message and answers its reaction id, the handle
+// the removal needs. Feishu has no "replace one reaction with another", so a turn that settles is a
+// delete followed by a create.
+func (s *sender) reactionAdd(ctx context.Context, messageID, emoji string) (string, error) {
+	var reactionID string
+	err := s.guard("reaction", func(client *lark.Client) error {
+		response, err := client.Im.MessageReaction.Create(ctx, larkim.NewCreateMessageReactionReqBuilder().
+			MessageId(messageID).
+			Body(larkim.NewCreateMessageReactionReqBodyBuilder().
+				ReactionType(larkim.NewEmojiBuilder().EmojiType(emoji).Build()).
+				Build()).
+			Build())
+		if err != nil {
+			return err
+		}
+		if !response.Success() {
+			return &feishuError{code: response.Code, msg: response.Msg}
+		}
+		if response.Data == nil || response.Data.ReactionId == nil {
+			return fmt.Errorf("feishu returned no reaction id")
+		}
+		reactionID = *response.Data.ReactionId
+		return nil
+	})
+	return reactionID, err
+}
+
+// reactionRemove takes back one reaction the app placed itself. Feishu reports "not found" for a
+// reaction somebody else's hand already removed, which is the outcome the caller wanted anyway.
+func (s *sender) reactionRemove(ctx context.Context, messageID, reactionID string) error {
+	return s.guard("reaction removal", func(client *lark.Client) error {
+		response, err := client.Im.MessageReaction.Delete(ctx, larkim.NewDeleteMessageReactionReqBuilder().
+			MessageId(messageID).
+			ReactionId(reactionID).
 			Build())
 		if err != nil {
 			return err
