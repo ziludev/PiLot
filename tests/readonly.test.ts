@@ -29,6 +29,9 @@ const reads = [
   "git -C /tmp/x log",
   "jq '.name' package.json",
   "wc -l src/*.ts",
+  "awk '{print $1}' logs/agent.log",
+  "awk '$3 > 10 {print $1}' data.txt",
+  "awk '/foo|bar/ {print $0}' data.txt",
 ];
 
 const writes = [
@@ -40,6 +43,14 @@ const writes = [
   "find . -delete",
   "find . -exec rm {} +",
   "sed -i '' 's/a/b/' f.ts",
+  "awk '{print > \"pwn.txt\"}' data.txt",
+  "awk '{print >> \"pwn.txt\"}' data.txt",
+  "awk 'BEGIN { system(\"rm -rf /\") }'",
+  "awk -i inplace '{print}' file.txt",
+  "awk -f /tmp/pwn.awk data.txt",
+  "awk --file=/tmp/pwn.awk data.txt",
+  "awk --source '{system(\"id\")}' data.txt",
+  "awk 'BEGIN { \"id\" | getline out }'",
   "node -e 'require(\"fs\").writeFileSync(\"a\",\"b\")'",
   "python3 -c 'open(\"x\",\"w\")'",
   "echo hi > f",

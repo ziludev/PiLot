@@ -146,12 +146,26 @@ export function needsConservativeRefusal(command: string): string | undefined {
   return `无法确认这条 ${name} 命令只看不改（${rest.slice(0, 3).join(" ").slice(0, 60)}）`;
 }
 
+function awkReads(args: readonly string[]): boolean {
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i] ?? "";
+    if (arg === "--inplace" || arg === "-i" || /^-i.+/.test(arg)) return false;
+    // `-f script.awk` keeps the program out of the arguments, so the checks below never see it.
+    if (arg === "-f" || arg === "--file" || arg === "--source" || /^(-f.+|--file=|--source=)/.test(arg)) return false;
+    if (/\bsystem\s*\(/.test(arg)) return false;
+    if (/>>|\|\s*getline\b|\|\&/.test(arg)) return false;
+    if (/\b(?:print|printf)\b[^;{}\n]*?(?:>|(?<!\|)\|(?!\|))\s*["'/A-Za-z0-9_$.]/.test(arg)) return false;
+  }
+  return true;
+}
+
 export function isReadOnlyCommand(command: string): boolean {
   const args = tokens(command.trim());
   if (args === undefined || args.length === 0) return false;
   const [program, ...rest] = args as [string, ...string[]];
   const name = program.split("/").pop() ?? program;
   if (name === "sed") return !rest.includes("-i") && !rest.some((arg) => /^-[a-zA-Z]*i[a-zA-Z]*$/.test(arg));
+  if (name === "awk" || name === "gawk" || name === "mawk" || name === "nawk") return awkReads(rest);
   if (name === "find") return !rest.some((arg) => FIND_WRITES.has(arg.split("=")[0] ?? arg));
   if (name === "git") return gitReads(rest);
   if (name === "xargs" || name === "env" || name === "sudo" || name === "time" || name === "nohup") return false;
