@@ -9,8 +9,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/i18n"
-	"pitta/internal/protocol"
+	"pilot/internal/i18n"
+	"pilot/internal/protocol"
 )
 
 // withPrefsFile points the window's preference file at a temp dir for one test.

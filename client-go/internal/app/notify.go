@@ -20,8 +20,8 @@ import (
 
 	"github.com/egoist/mygo"
 
-	"pitta/internal/i18n"
-	"pitta/internal/protocol"
+	"pilot/internal/i18n"
+	"pilot/internal/protocol"
 )
 
 // alert is one banner: the chat that opens when it is clicked, the two lines it

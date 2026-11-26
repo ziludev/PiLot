@@ -5,7 +5,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/i18n"
+	"pilot/internal/i18n"
 )
 
 // TestMessageActionsShowOnHover: the bar is built but invisible until the

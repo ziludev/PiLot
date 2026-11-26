@@ -7,7 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/theme"
+	"pilot/internal/theme"
 )
 
 // avatarPNG is the fennec the window answers as.

@@ -15,8 +15,8 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"pitta/toolbox/internal/server"
-	"pitta/toolbox/internal/tools"
+	"pilot/toolbox/internal/server"
+	"pilot/toolbox/internal/tools"
 )
 
 // version is bumped when the wire format changes in a way the agent must notice.

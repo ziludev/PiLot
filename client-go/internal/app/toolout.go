@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"pitta/internal/i18n"
+	"pilot/internal/i18n"
 )
 
 // Tool output arrives as one string that used to be flattened to eighty

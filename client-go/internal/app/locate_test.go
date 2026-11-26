@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"pitta/internal/i18n"
+	"pilot/internal/i18n"
 )
 
 // TestWorktreePathUsesWhatTheDrawerAlreadyRead: the drawer holds the path after

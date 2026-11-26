@@ -7,8 +7,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/i18n"
-	"pitta/internal/theme"
+	"pilot/internal/i18n"
+	"pilot/internal/theme"
 )
 
 // The new-chat dialog exists because a chat's branch is now a person's choice: one

@@ -3,8 +3,8 @@ package main
 import (
 	"github.com/egoist/mygo"
 
-	"pitta/internal/app"
-	"pitta/internal/i18n"
+	"pilot/internal/app"
+	"pilot/internal/i18n"
 )
 
 // installMenu is the application menu: the window's three verbs under File, the

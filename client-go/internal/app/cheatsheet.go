@@ -6,8 +6,8 @@ package app
 // reader can call up is cheaper than putting them all in the interface.
 
 import (
-	"pitta/internal/i18n"
-	"pitta/internal/theme"
+	"pilot/internal/i18n"
+	"pilot/internal/theme"
 
 	"github.com/egoist/mygo/ui"
 )

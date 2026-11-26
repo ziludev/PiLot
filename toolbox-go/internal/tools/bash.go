@@ -13,8 +13,8 @@ import (
 	"syscall"
 	"time"
 
-	"pitta/toolbox/internal/proto"
-	"pitta/toolbox/internal/server"
+	"pilot/toolbox/internal/proto"
+	"pilot/toolbox/internal/server"
 )
 
 // BashArgs mirrors the `bash` tool's parameters: pi-schema validated them on the

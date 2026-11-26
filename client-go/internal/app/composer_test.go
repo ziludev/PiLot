@@ -12,9 +12,9 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/api"
-	"pitta/internal/i18n"
-	"pitta/internal/protocol"
+	"pilot/internal/api"
+	"pilot/internal/i18n"
+	"pilot/internal/protocol"
 )
 
 // recorder collects what a fake bridge was sent, safe for the server's

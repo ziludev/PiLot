@@ -8,9 +8,9 @@ package app
 import (
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/i18n"
-	"pitta/internal/icons"
-	"pitta/internal/theme"
+	"pilot/internal/i18n"
+	"pilot/internal/icons"
+	"pilot/internal/theme"
 )
 
 // settingsPanel is only a latch: every switch it shows reads and writes prefs

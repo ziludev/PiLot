@@ -1,7 +1,7 @@
 package tools
 
 import (
-	"pitta/toolbox/internal/unicodenorm"
+	"pilot/toolbox/internal/unicodenorm"
 	"strings"
 	"unicode"
 	"unicode/utf8"

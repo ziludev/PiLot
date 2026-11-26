@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"strings"
 
-	"pitta/internal/protocol"
+	"pilot/internal/protocol"
 )
 
 // Client talks to one bridge.

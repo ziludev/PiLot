@@ -3,8 +3,8 @@ package app
 import (
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/i18n"
-	"pitta/internal/theme"
+	"pilot/internal/i18n"
+	"pilot/internal/theme"
 )
 
 // The comparison base: what a chat's work is measured against. It decides which

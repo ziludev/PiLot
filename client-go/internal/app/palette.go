@@ -4,9 +4,9 @@ import (
 	"sort"
 	"strings"
 
-	"pitta/internal/i18n"
-	"pitta/internal/icons"
-	"pitta/internal/theme"
+	"pilot/internal/i18n"
+	"pilot/internal/icons"
+	"pilot/internal/theme"
 
 	"github.com/egoist/mygo/ui"
 )

@@ -1,4 +1,4 @@
-module pitta/feishu-gw
+module pilot/feishu-gw
 
 go 1.27.4
 

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"pitta/internal/i18n"
+	"pilot/internal/i18n"
 
 	"github.com/egoist/mygo/ui"
 )

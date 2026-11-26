@@ -16,10 +16,10 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/i18n"
-	"pitta/internal/icons"
-	"pitta/internal/protocol"
-	"pitta/internal/theme"
+	"pilot/internal/i18n"
+	"pilot/internal/icons"
+	"pilot/internal/protocol"
+	"pilot/internal/theme"
 )
 
 const (

@@ -23,9 +23,9 @@ package app
 import (
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/api"
-	"pitta/internal/i18n"
-	"pitta/internal/theme"
+	"pilot/internal/api"
+	"pilot/internal/i18n"
+	"pilot/internal/theme"
 )
 
 // stageStatus is how one child of a task ended up — the four readings a

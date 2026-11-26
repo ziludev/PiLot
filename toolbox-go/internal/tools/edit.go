@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"pitta/toolbox/internal/proto"
-	"pitta/toolbox/internal/server"
+	"pilot/toolbox/internal/proto"
+	"pilot/toolbox/internal/server"
 )
 
 // Edit is one replacement: exact text to find, and what to put in its place.

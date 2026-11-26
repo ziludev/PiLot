@@ -9,8 +9,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/api"
-	"pitta/internal/i18n"
+	"pilot/internal/api"
+	"pilot/internal/i18n"
 )
 
 // newChatBridge records what the dialog asked the bridge to create, because the

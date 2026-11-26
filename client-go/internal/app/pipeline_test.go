@@ -9,8 +9,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/api"
-	"pitta/internal/i18n"
+	"pilot/internal/api"
+	"pilot/internal/i18n"
 )
 
 // pipelineBridge answers the CI tab: one run, its jobs, and one job's log.
@@ -200,7 +200,7 @@ func TestPipelineMissingLoginSaysWhichCommand(t *testing.T) {
 // TestSnapshotJobLog draws one job's log, the way the tab shows it after a click.
 func TestSnapshotJobLog(t *testing.T) {
 	i18n.Set(i18n.ZH)
-	trace := "$ go test ./...\nok  \tpitta/internal/api\nok  \tpitta/internal/app\n" +
+	trace := "$ go test ./...\nok  \tpilot/internal/api\nok  \tpilot/internal/app\n" +
 		"--- FAIL: TestQueueRetries (0.02s)\n    queue_test.go:41: got 2 retries, want 3\n" +
 		"warning: coverage under the threshold\nERROR: Job failed: exit code 1\n"
 	a, _ := pipelineFixture(t, ciRun, "", trace)

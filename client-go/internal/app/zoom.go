@@ -13,8 +13,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/i18n"
-	"pitta/internal/theme"
+	"pilot/internal/i18n"
+	"pilot/internal/theme"
 )
 
 // zoomEdge is the longest side a picture is decoded to for the overlay: enough

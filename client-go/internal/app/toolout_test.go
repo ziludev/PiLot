@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"pitta/internal/i18n"
+	"pilot/internal/i18n"
 )
 
 func TestOutputLinesSplitsAndKinds(t *testing.T) {
@@ -91,7 +91,7 @@ func TestClassifyLeavesCleanOutputAlone(t *testing.T) {
 		"0 errors, 0 warnings",    // the summary after a good build
 		"--- a/file.go",           // a diff header, not a removal
 		"+++ b/file.go",           // nor an addition
-		"PASS pitta/internal/app", // a plain line with a capital word
+		"PASS pilot/internal/app", // a plain line with a capital word
 	} {
 		if kind := classify(line); kind != outPlain && kind != outWarn {
 			t.Errorf("%q classified %v", line, kind)

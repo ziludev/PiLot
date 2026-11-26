@@ -5,7 +5,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/i18n"
+	"pilot/internal/i18n"
 )
 
 // The footer's two switches moved behind one gear. Nothing about the switches

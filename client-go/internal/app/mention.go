@@ -13,8 +13,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/icons"
-	"pitta/internal/theme"
+	"pilot/internal/icons"
+	"pilot/internal/theme"
 )
 
 // mentionRows is how many candidates the popover shows before the list stops

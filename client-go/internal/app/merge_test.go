@@ -9,7 +9,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/api"
+	"pilot/internal/api"
 )
 
 // mergeBridge answers the merge tab and records what was asked of it: the title

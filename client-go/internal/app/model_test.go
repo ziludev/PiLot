@@ -13,8 +13,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/i18n"
-	"pitta/internal/protocol"
+	"pilot/internal/i18n"
+	"pilot/internal/protocol"
 )
 
 const modelCatalog = `{"models":[

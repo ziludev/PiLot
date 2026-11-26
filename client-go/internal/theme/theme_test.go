@@ -30,9 +30,9 @@ func frame(t *testing.T, dark bool) *ui.Tester {
 // the palette actually produced.
 func savePNG(t *testing.T, tt *ui.Tester, dark bool) {
 	t.Helper()
-	name := "/tmp/pitta-theme-light.png"
+	name := "/tmp/pilot-theme-light.png"
 	if dark {
-		name = "/tmp/pitta-theme-dark.png"
+		name = "/tmp/pilot-theme-dark.png"
 	}
 	f, err := os.Create(name)
 	if err != nil {

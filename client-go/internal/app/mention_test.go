@@ -5,8 +5,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/i18n"
-	"pitta/internal/protocol"
+	"pilot/internal/i18n"
+	"pilot/internal/protocol"
 )
 
 // mentionApp is a window with one checkout and one other chat, so both kinds

@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"pitta/internal/protocol"
+	"pilot/internal/protocol"
 )
 
 // TestOlderPageMergesWithoutDuplicates: the page read backwards joins the

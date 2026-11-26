@@ -66,7 +66,7 @@ handler resolve 才 ack，所以早先每条消息被重复投递。
 职责边界一句话：**`feishu-gw` 不认识「轮次」「会话」「卡片 2.0」，它只认识飞书的 API 形状和
 事件信封。** 桥接层不认识 App Secret、不建长连接。
 
-进程：`feishu-gw` 作为第三个 launchd job（`com.pitta.agent.feishu`，`KeepAlive`），只绑
+进程：`feishu-gw` 作为第三个 launchd job（`com.pilot.agent.feishu`，`KeepAlive`），只绑
 `127.0.0.1:8788`，与 bridge 的 `:8787` 并列。启动顺序不敏感——bridge 每次调它之前失败重试即可，
 不搞启动依赖。
 
@@ -122,7 +122,7 @@ JSON 对象发出去。这也是本方案能小步走的前提：**改动面只�
 
 ## 7. 改造清单
 
-Go 侧（新目录 `services/feishu-gw/`，独立 module `pitta/feishu-gw`）
+Go 侧（新目录 `services/feishu-gw/`，独立 module `pilot/feishu-gw`）
 - `main.go`：读 env（`FEISHU_APP_ID/SECRET`、`FEISHU_GW_TOKEN`、`BRIDGE_URL`、端口）
 - `larkws` 客户端：`im.message.receive_v1`、`card.action.trigger` 两个 handler，连接状态上报 `/healthz`
 - `sender.go`：5 个操作 → 5 个 handler，统一的错误封装与超时（写 10s / 读 15s）
@@ -186,7 +186,7 @@ TS 侧
 - watchdog：bridge 每 30s 探一次 `/healthz`，连续 10 次（5 分钟）不健康 → 一条告警 + `kickstart -k`
   重启网关（标签从 `~/Library/LaunchAgents/*feishu-gw.plist` 反查，不写死），恢复后再发一条
   「已恢复」。告警本身走 **SDK 直发**（`im.message.create` 到 owner 会话）：网关正是坏掉的那一环，
-  不能再指望它送这条消息。`kickstart -k gui/501/com.pitta.agent.feishu-gw` 已实测能重启并让
+  不能再指望它送这条消息。`kickstart -k gui/501/com.pilot.agent.feishu-gw` 已实测能重启并让
   `/healthz` 重新 `connected:true`。判据抽成 `gatewayWatchStep()`（纯函数，4 个单测）：掉线报一次、
   半小时内不重复、恢复只报一次。
 

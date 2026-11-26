@@ -29,7 +29,7 @@ func TestGeistAndCJK(t *testing.T) {
 		return tt.Image()
 	}
 	zhi, heng := render("知"), render("衡")
-	if f, err := os.Create("/tmp/pitta-fonts.png"); err == nil {
+	if f, err := os.Create("/tmp/pilot-fonts.png"); err == nil {
 		png.Encode(f, heng)
 		f.Close()
 	}

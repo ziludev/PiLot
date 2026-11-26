@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"pitta/internal/i18n"
+	"pilot/internal/i18n"
 )
 
 // exportHTML writes the chat on screen as a stand-alone page.

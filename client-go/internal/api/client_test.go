@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"pitta/internal/protocol"
+	"pilot/internal/protocol"
 )
 
 // The bodies below are trimmed copies of real bridge replies, keeping fields

@@ -12,9 +12,9 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/api"
-	"pitta/internal/i18n"
-	"pitta/internal/protocol"
+	"pilot/internal/api"
+	"pilot/internal/i18n"
+	"pilot/internal/protocol"
 )
 
 // projectBridge answers the projects endpoints and remembers what it was asked.

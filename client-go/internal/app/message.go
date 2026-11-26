@@ -13,9 +13,9 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/i18n"
-	"pitta/internal/icons"
-	"pitta/internal/theme"
+	"pilot/internal/i18n"
+	"pilot/internal/icons"
+	"pilot/internal/theme"
 )
 
 // messageActions draws the bar under one message. It is always built and hidden

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"pitta/toolbox/internal/proto"
-	"pitta/toolbox/internal/server"
+	"pilot/toolbox/internal/proto"
+	"pilot/toolbox/internal/server"
 )
 
 // callResult is one call's outcome as the agent sees it.

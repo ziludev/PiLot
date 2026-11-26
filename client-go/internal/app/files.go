@@ -20,7 +20,7 @@ import (
 	"sort"
 	"strings"
 
-	"pitta/internal/i18n"
+	"pilot/internal/i18n"
 )
 
 // repoFileMax is how many paths a walk is allowed to collect when git cannot

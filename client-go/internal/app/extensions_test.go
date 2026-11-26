@@ -10,8 +10,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/api"
-	"pitta/internal/protocol"
+	"pilot/internal/api"
+	"pilot/internal/protocol"
 )
 
 // extBridge answers the extensions list and records the switch that was flipped.

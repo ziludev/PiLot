@@ -11,7 +11,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/api"
+	"pilot/internal/api"
 )
 
 // strayBridge answers the projects drawer and the leftover-checkout half of it.

@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"pitta/toolbox/internal/proto"
-	"pitta/toolbox/internal/server"
+	"pilot/toolbox/internal/proto"
+	"pilot/toolbox/internal/server"
 )
 
 const (

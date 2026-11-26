@@ -11,7 +11,7 @@ import (
 	"net"
 	"sync"
 
-	"pitta/toolbox/internal/proto"
+	"pilot/toolbox/internal/proto"
 )
 
 // Failure ends a call with a code the agent maps onto its own error handling, plus

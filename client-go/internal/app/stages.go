@@ -6,9 +6,9 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/i18n"
-	"pitta/internal/protocol"
-	"pitta/internal/theme"
+	"pilot/internal/i18n"
+	"pilot/internal/protocol"
+	"pilot/internal/theme"
 )
 
 // The stage strip is the one place the window says where the work stands: develop

@@ -5,8 +5,8 @@ import (
 	"context"
 	"os"
 
-	"pitta/toolbox/internal/proto"
-	"pitta/toolbox/internal/server"
+	"pilot/toolbox/internal/proto"
+	"pilot/toolbox/internal/server"
 )
 
 // PingResult is what the agent checks once at startup: the toolbox answering

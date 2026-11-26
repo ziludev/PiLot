@@ -5,9 +5,9 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/i18n"
-	"pitta/internal/protocol"
-	"pitta/internal/theme"
+	"pilot/internal/i18n"
+	"pilot/internal/protocol"
+	"pilot/internal/theme"
 )
 
 // The pipeline tab: the branch's latest run, its jobs grouped by stage, and one

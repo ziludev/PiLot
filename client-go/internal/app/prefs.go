@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"pitta/internal/i18n"
+	"pilot/internal/i18n"
 )
 
 // prefs is the little of the earlier client's preference file this window uses:
@@ -58,15 +58,15 @@ type prefs struct {
 	Drafts map[string]string `json:"drafts,omitempty"`
 }
 
-// prefsPath is this window's own file. The earlier client's ~/.pitta/ui.json is
-// left alone: it holds forty keys this window never reads, and adopting it would
-// mean inheriting its choices.
+// prefsPath is this window's own file. The earlier Rust client's ui.json is left
+// alone: it holds forty keys this window never reads, and adopting it would mean
+// inheriting its choices.
 var prefsPath = func() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".pitta", "window.json")
+	return filepath.Join(home, ".pilot", "window.json")
 }
 
 func readPrefs() prefs {

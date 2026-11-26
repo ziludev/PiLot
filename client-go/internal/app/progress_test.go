@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"pitta/internal/api"
+	"pilot/internal/api"
 )
 
 // The tally is the whole arithmetic of the stage bar, and the only part of it

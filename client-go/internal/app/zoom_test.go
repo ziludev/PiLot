@@ -11,7 +11,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/i18n"
+	"pilot/internal/i18n"
 )
 
 // solidPNG is a picture with something in it: a gradient, so a render that
@@ -160,7 +160,7 @@ func TestDividerShowsInTheTranscript(t *testing.T) {
 	if !tt.HasText("新消息") {
 		t.Fatalf("no line drawn; texts = %v", tt.Texts())
 	}
-	writePNG(t, "/tmp/pitta-divider.png", tt.Image())
+	writePNG(t, "/tmp/pilot-divider.png", tt.Image())
 
 	// With nothing new the line is gone again.
 	a.vm.newFrom[11] = 48
@@ -190,7 +190,7 @@ func TestZoomOverlayDraws(t *testing.T) {
 	if !tt.HasText("关闭") {
 		t.Fatalf("overlay has no way out")
 	}
-	writePNG(t, "/tmp/pitta-zoom.png", tt.Image())
+	writePNG(t, "/tmp/pilot-zoom.png", tt.Image())
 }
 
 // TestRememberKeepsTheReadMarkAcrossRestarts: the line is only useful if it

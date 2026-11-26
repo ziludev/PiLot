@@ -13,7 +13,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"pitta/internal/protocol"
+	"pilot/internal/protocol"
 )
 
 func frameJSON(id int, text, run string) string {

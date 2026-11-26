@@ -11,7 +11,7 @@ import (
 // without pointing prefsPath elsewhere wrote a zero-valued file over the
 // running window's settings — the language picked last time among them.
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "pitta-test-prefs")
+	dir, err := os.MkdirTemp("", "pilot-test-prefs")
 	if err != nil {
 		panic(err)
 	}

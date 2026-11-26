@@ -167,10 +167,10 @@ test("an output tail that is a bare word is not worth the room", () => {
   // `db_query` on dev ends its output with the word `dev` — the shape of a value, not a fact.
   let trail: Trail = { rounds: [], since: 0 };
   trail = advance(trail, live(["db_query"], ["a"], "dev"), 0);
-  trail = advance(trail, live(["db_query"], ["b"], "ok pitta/internal/app"), 1_000);
+  trail = advance(trail, live(["db_query"], ["b"], "ok pilot/internal/app"), 1_000);
   trail = advance(trail, live(["read"], ["c"]), 3_000);
   assert.equal(roundLine(trail, 0), "✓ 🗄️ db_query · 1s");
-  assert.equal(roundLine(trail, 1), "✓ 🗄️ db_query · 2s · ok pitta/internal/app");
+  assert.equal(roundLine(trail, 1), "✓ 🗄️ db_query · 2s · ok pilot/internal/app");
 });
 
 test("a command too long for the line drops its cd preamble, not its verb", () => {

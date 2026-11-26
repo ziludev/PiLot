@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"pitta/internal/i18n"
-	"pitta/internal/protocol"
+	"pilot/internal/i18n"
+	"pilot/internal/protocol"
 )
 
 // relTime places a conversation in time. An unknown time draws nothing: a

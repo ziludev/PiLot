@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"pitta/internal/protocol"
+	"pilot/internal/protocol"
 )
 
 func TestInboxText(t *testing.T) {

@@ -9,9 +9,9 @@ import (
 	"github.com/egoist/mygo/ui/editor"
 	"github.com/egoist/mygo/ui/markdown"
 
-	"pitta/internal/i18n"
-	"pitta/internal/icons"
-	"pitta/internal/theme"
+	"pilot/internal/i18n"
+	"pilot/internal/icons"
+	"pilot/internal/theme"
 )
 
 // maxContent is how wide the transcript reads: full window width is a line no

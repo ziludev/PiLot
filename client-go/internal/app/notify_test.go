@@ -3,8 +3,8 @@ package app
 import (
 	"testing"
 
-	"pitta/internal/i18n"
-	"pitta/internal/protocol"
+	"pilot/internal/i18n"
+	"pilot/internal/protocol"
 )
 
 // A snapshot that has a turn running in chat 12, named by its surface.

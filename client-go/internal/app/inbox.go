@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"pitta/internal/protocol"
+	"pilot/internal/protocol"
 )
 
 // inboxText is the words of one waiting message. The harness keeps content the

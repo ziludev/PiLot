@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"pitta/internal/protocol"
+	"pilot/internal/protocol"
 )
 
 // Delta ops from the bridge's `?ops=1` watch stream.

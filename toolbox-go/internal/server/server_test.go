@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"pitta/toolbox/internal/proto"
+	"pilot/toolbox/internal/proto"
 )
 
 // start serves a server on a socket in a temp dir and returns a dialer plus a

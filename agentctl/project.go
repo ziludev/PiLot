@@ -15,7 +15,7 @@ import (
 // The launchd labels. These are the contract with everything already installed: the plist files on
 // disk, client-go's Restart/Backup buttons, and the notes src/restart.ts reads back.
 const (
-	labelAgent = "com.pitta.agent"
+	labelAgent = "com.pilot.agent"
 	labelGW    = labelAgent + ".feishu-gw"
 	labelBack  = labelAgent + ".backup"
 	// A restart asked for from inside a turn cannot do the bootout itself: it would kill the turn

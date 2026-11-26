@@ -10,9 +10,9 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/api"
-	"pitta/internal/i18n"
-	"pitta/internal/protocol"
+	"pilot/internal/api"
+	"pilot/internal/i18n"
+	"pilot/internal/protocol"
 )
 
 // branchBridge answers the branch list and records the base it was told to move

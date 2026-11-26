@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"pitta/internal/i18n"
+	"pilot/internal/i18n"
 )
 
 // The keys the package draws, read from its own source: T("x") and TF("x", ...).

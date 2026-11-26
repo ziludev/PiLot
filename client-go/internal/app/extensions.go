@@ -13,10 +13,10 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/i18n"
-	"pitta/internal/icons"
-	"pitta/internal/protocol"
-	"pitta/internal/theme"
+	"pilot/internal/i18n"
+	"pilot/internal/icons"
+	"pilot/internal/protocol"
+	"pilot/internal/theme"
 )
 
 // extPanel is the list and the one write in flight. conv is the chat the rows

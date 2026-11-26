@@ -1,4 +1,4 @@
-module pitta
+module pilot
 
 go 1.27.3
 

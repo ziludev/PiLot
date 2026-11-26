@@ -9,7 +9,7 @@ import { cliFailure, expandHome, parseDbQuery, parseLogsQuery, searchRoot } from
  * shell. Their limits have to hold on the arguments, since the blast radius is the tool.
  */
 
-const WS = "/Users/example/learn/pitta/workspace";
+const WS = "/Users/example/learn/pilot/workspace";
 const PROJECT = "/Users/example/work/example-service";
 
 test("logs_query fills in sane defaults", () => {

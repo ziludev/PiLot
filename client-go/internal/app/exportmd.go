@@ -7,7 +7,7 @@ import (
 	"time"
 	"unicode"
 
-	"pitta/internal/i18n"
+	"pilot/internal/i18n"
 )
 
 // exportMarkdown hands the chat on screen to a Markdown file. The transcript

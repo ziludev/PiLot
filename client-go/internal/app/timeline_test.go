@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"pitta/internal/i18n"
-	"pitta/internal/protocol"
+	"pilot/internal/i18n"
+	"pilot/internal/protocol"
 )
 
 // TestProjectTimelineReadsTheChat covers the derivation: what the drawer lists,

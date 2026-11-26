@@ -7,7 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/protocol"
+	"pilot/internal/protocol"
 )
 
 // The rail holds more chats than fit in it, which is the whole point of a list:

@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"pitta/internal/protocol"
+	"pilot/internal/protocol"
 )
 
 func TestMoney(t *testing.T) {

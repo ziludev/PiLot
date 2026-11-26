@@ -12,7 +12,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"pitta/internal/protocol"
+	"pilot/internal/protocol"
 )
 
 const (

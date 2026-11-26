@@ -12,8 +12,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/api"
-	"pitta/internal/i18n"
+	"pilot/internal/api"
+	"pilot/internal/i18n"
 )
 
 // TestTaskRowOpensItsDetail: a task row that cannot be opened is a row the user

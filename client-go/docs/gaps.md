@@ -51,7 +51,7 @@
 - **transcript 的步骤折叠是手写的**（`rows.go` 里数 agent / tool 行数生成一行摘要）。往里面加结构化
   输出时不要改折叠结构，只在展开后的内容里分派。
 - **rail 的分区是 `rows.go` 的 `chatSections` + `prefs.Sections`**。新的分区（比如「已归档」）照抄这套，
-  默认折叠、点分区头开合、选过的状态进 `~/.pitta/window.json`。
+  默认折叠、点分区头开合、选过的状态进 `~/.pilot/window.json`。
 - **任务行能点开**（`internal/app/taskdetail.go`）：列表回答「有没有东西坏了」，不回答「为什么」。
   对话框给类型/会话/开始时间/输入/结果/子 agent，运行中的才有「停止任务」——点完不假装停了，
   而是再问一次 bridge（abort 是异步的）。

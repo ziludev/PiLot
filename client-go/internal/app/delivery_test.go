@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"pitta/internal/i18n"
-	"pitta/internal/protocol"
+	"pilot/internal/i18n"
+	"pilot/internal/protocol"
 )
 
 // The window is allowed to interrupt, but not all night and not all day. These

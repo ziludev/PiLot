@@ -38,7 +38,7 @@ posing as a new fault.
 
 ## Two launchd jobs, one conversation state
 
-`com.pitta.agent` runs the bridge, `com.pitta.agent.feishu-gw` runs the Feishu connection
+`com.pilot.agent` runs the bridge, `com.pilot.agent.feishu-gw` runs the Feishu connection
 (`logs/feishu-gw.log`, `KeepAlive`, 10 s throttle); neither restarts the other. The gateway is
 `KeepAlive` because a bot whose gateway died is deaf with no symptom; `agentctl status` is what says
 so out loud (`feishu: ok (gateway connected)`).

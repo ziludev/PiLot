@@ -10,9 +10,9 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/app"
-	"pitta/internal/bridge"
-	"pitta/internal/theme"
+	"pilot/internal/app"
+	"pilot/internal/bridge"
+	"pilot/internal/theme"
 )
 
 func main() {

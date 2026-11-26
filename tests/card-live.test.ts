@@ -52,7 +52,7 @@ test("only the round that is running earns a line on the live card", async () =>
     key: "bash",
     label: "bash",
     hint: "cd client-go && go test ./...",
-    tail: "ok pitta/internal/app",
+    tail: "ok pilot/internal/app",
   };
   const out = renderLive(live as never, trail as never);
   assert.match(out, /🧪 bash `cd client-go && go test \.\/\.\.\.`/);

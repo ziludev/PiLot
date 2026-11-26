@@ -5,7 +5,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"pitta/internal/i18n"
+	"pilot/internal/i18n"
 )
 
 // litBands counts the rows of the folded rail that carry a background of their own

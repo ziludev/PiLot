@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"pitta/toolbox/internal/proto"
-	"pitta/toolbox/internal/server"
+	"pilot/toolbox/internal/proto"
+	"pilot/toolbox/internal/server"
 )
 
 func callTool(t *testing.T, srv *server.Server, tool string, args any, cwd string) (map[string]any, error) {

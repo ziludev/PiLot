@@ -12,9 +12,9 @@ import (
 
 	"github.com/egoist/mygo"
 
-	"pitta/internal/api"
-	"pitta/internal/bridge"
-	"pitta/internal/i18n"
+	"pilot/internal/api"
+	"pilot/internal/bridge"
+	"pilot/internal/i18n"
 )
 
 func (a *App) submit() {
