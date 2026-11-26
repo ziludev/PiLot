@@ -2,6 +2,7 @@
 workspace/
 node_modules/
 .env
+.env.bak*
 
 logs/
 tmp/
