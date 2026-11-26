@@ -57,6 +57,8 @@ export type ApprovalRequest = {
   /** Why it needs a human. */
   reason: string;
   surfaceId: string;
+  /** Human-readable chat/group title for approval DM context. */
+  chatTitle?: string;
   timeoutMs: number;
 };
 

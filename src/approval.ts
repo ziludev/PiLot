@@ -1,6 +1,6 @@
 import { basename, isAbsolute, relative, resolve } from "node:path";
 import { defineExtension, hook, ToolTask } from "@earendil-works/pi-durable";
-import { ChatPolicy } from "./access.ts";
+import { ChatPolicy, readRoots } from "./access.ts";
 import { hasInlineScript, isReadOnlyCommand, needsConservativeRefusal } from "./readonly.ts";
 import { config } from "./config.ts";
 import { requestApproval, surfaceForConversation } from "./channel.ts";
@@ -114,10 +114,15 @@ export function memberBlock(tool: string, args: Record<string, unknown>): string
 /** Tools that change something outside the workspace, in someone else's system. */
 const EXTERNAL_WRITES = new Set(["feishu_create_task"]);
 
-function outsideWorkspace(path: string): boolean {
-  const absolute = isAbsolute(path) ? path : resolve(config.workspace, path);
-  const rel = relative(config.workspace, absolute);
-  return rel.startsWith("..") || isAbsolute(rel);
+function insideRoot(target: string, root: string): boolean {
+  const rel = relative(resolve(root), resolve(target));
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+function outsideWorkspace(path: string, roots: readonly string[] = [config.workspace]): boolean {
+  const base = roots[0] ?? config.workspace;
+  const absolute = isAbsolute(path) ? path : resolve(base, path);
+  return !roots.some((root) => insideRoot(absolute, root));
 }
 
 /**
@@ -172,7 +177,11 @@ export function downloadThenRun(command: string): string | undefined {
 type ApprovalNeed = { reason: string; key: string };
 
 /** Returns why a call needs a human, or undefined when it may run unattended. */
-export function approvalReason(tool: string, args: Record<string, unknown>): ApprovalNeed | undefined {
+export function approvalReason(
+  tool: string,
+  args: Record<string, unknown>,
+  allowedRoots: readonly string[] = [config.workspace],
+): ApprovalNeed | undefined {
   if (tool === "bash" && typeof args["command"] === "string") {
     const command = args["command"];
     // Not in RISKY: this one needs the whole command line, not one pattern.
@@ -188,7 +197,7 @@ export function approvalReason(tool: string, args: Record<string, unknown>): App
   }
   if (WRITE_TOOLS.has(tool)) {
     const path = typeof args["path"] === "string" ? args["path"] : "";
-    if (path.length > 0 && outsideWorkspace(path)) {
+    if (path.length > 0 && outsideWorkspace(path, allowedRoots)) {
       return { reason: `写到工作区之外：${path}`, key: "write-outside" };
     }
   }
@@ -245,7 +254,10 @@ export const guardExtension = defineExtension({
         }
         // One surface the rest of the way: what a call *does* matters, so the risk list below
         // (and the approval card it triggers) is the gate — the owner's own turns go through it.
-        const need = approvalReason(call.name, args);
+        const allowedRoots = WRITE_TOOLS.has(call.name)
+          ? await readRoots(api, api.conversationId as unknown as number, context).catch(() => [config.workspace])
+          : [config.workspace];
+        const need = approvalReason(call.name, args, allowedRoots);
         if (need === undefined) return undefined;
         const { reason, key } = need;
         // "本会话内全部允许" already covered this class of call.
@@ -258,7 +270,7 @@ export const guardExtension = defineExtension({
         // A hook reruns after a crash: reuse the stored answer instead of asking twice.
         const decided = await api.memo<boolean>(memoKey, context);
         if (decided !== undefined) {
-          return decided ? undefined : { block: `alex 拒绝了这次操作（${reason}）` };
+          return decided ? undefined : { block: `${config.feishu.ownerName} 拒绝了这次操作（${reason}）` };
         }
 
         const surfaceId = surfaceForConversation(api.conversationId) ?? "";

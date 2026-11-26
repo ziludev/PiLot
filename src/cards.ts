@@ -29,6 +29,14 @@ export type PendingCard = {
   messageId?: string;
   /** Whether that message lives in a topic, so the recovered answer lands inside it too. */
   thread?: boolean;
+  /** Where that message lives ("p2p" / "group"). Recovery pings the same surface the live turn
+   * would: a topic thread pings, a group's root message stays quiet. Absent on old records, which
+   * are treated as a group root — the quiet choice. */
+  chatType?: string;
+  /** The 👀 reaction the live turn stamped on that message. A card patch is silent, but so was the
+   *  mark left behind when the process died mid-turn: recovery deletes it (and adds ✅ when it
+   *  answered) instead of leaving the message looking like it is still being worked on. */
+  reactionId?: string;
   /** Recovery attempts so far. A card that keeps failing is dropped instead of retried forever. */
   attempts?: number;
   /** Who took the card for delivery. Two boots in a row both waited for the same answer and both
@@ -71,6 +79,19 @@ export async function attachSubmission(
     const doc = await tx.doc(PendingCards);
     const current = doc.cards[requestId];
     if (current !== undefined) current.submissionId = submissionId;
+  }, context);
+}
+
+export async function attachReaction(
+  harness: Harness,
+  context: Context,
+  requestId: string,
+  reactionId: string,
+): Promise<void> {
+  await harness.commit(async (tx) => {
+    const doc = await tx.doc(PendingCards);
+    const current = doc.cards[requestId];
+    if (current !== undefined) current.reactionId = reactionId;
   }, context);
 }
 

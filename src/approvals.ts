@@ -16,7 +16,7 @@ type PendingApproval = {
    * Called once, and for a timeout too — the surface keeps no timer of its own, which is what
    * kept a second copy of "is this still pending" in flight.
    */
-  onSettled?: (outcome: { approved: boolean; by: string }) => void;
+  onSettled?: (outcome: { approved: boolean; by: string; pick?: string }) => void;
   /** Deny when nobody answers in time. Armed here so the pending state has one owner. */
   timeoutMs?: number;
 };
@@ -87,7 +87,12 @@ export function getApproval(callId: string): ReturnType<typeof listApprovals>[nu
   return listApprovals().find((entry) => entry.callId === callId);
 }
 
-export function resolveApproval(callId: string, approved: boolean, by = "unknown"): boolean {
+/**
+ * `pick` is which of the card's answers was used (allow / session / all / deny), not just the
+ * yes-or-no: a settled card that says 「允许」 when the human chose 「本会话全部允许」 is lying
+ * about what is now permitted.
+ */
+export function resolveApproval(callId: string, approved: boolean, by = "unknown", pick?: string): boolean {
   const entry = pending.get(callId);
   if (entry === undefined) return false;
   // Delete first: two clicks, or a click racing the timeout, must not both resolve the waiter.
@@ -96,7 +101,9 @@ export function resolveApproval(callId: string, approved: boolean, by = "unknown
   conversations.delete(callId);
   clearTimer(callId);
   recordWait?.({ conversationId, tool: entry.tool, start: entry.createdAt, end: Date.now() });
-  entry.onSettled?.({ approved, by });
+  // Keep the shape unchanged for callers that only told us yes/no: an extra `pick: undefined`
+  // key would break every strict comparison of the settled payload.
+  entry.onSettled?.(pick === undefined ? { approved, by } : { approved, by, pick });
   entry.resolve(approved, by);
   log("approval", "resolved", { callId: callId.slice(-12), approved, by });
   return true;
