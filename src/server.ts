@@ -23,8 +23,9 @@ import { createBranch, deleteBranch, listBranches } from "./branches.ts";
 import { deriveStages } from "./stages.ts";
 import { createMergeRequest, findMergeRequest, mergeMergeRequest } from "./mr.ts";
 import { jobTrace, pipelineWithJobs, retryWork } from "./pipeline.ts";
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { ConversationProjectDoc } from "./projects.ts";
 import { ChatMemory, GlobalMemory, WorkMemory } from "./memory.ts";
 import { healthReport } from "./health.ts";
 import { topicTitle, type ThreadInfo } from "./threads.ts";
@@ -81,17 +82,57 @@ function tokenMatches(given: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+const MAX_JSON_BYTES = 8 * 1024 * 1024;
+
+class PayloadTooLargeError extends Error {
+  constructor() {
+    super("request body too large");
+    this.name = "PayloadTooLargeError";
+  }
+}
+
+/** Allow CORS only for local loopback / file WebView origins, never arbitrary websites. */
+export function allowedCorsOrigin(origin: string | undefined): string | undefined {
+  if (origin === undefined || origin === "") return undefined;
+  if (origin === "null") return "null";
+  if (/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(origin)) return origin;
+  return undefined;
+}
+
 function send(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "content-length": Buffer.byteLength(payload),
-    // The client is a local app; allow it to call from a WebView origin.
-    "access-control-allow-origin": "*",
-    "access-control-allow-headers": "authorization, content-type, x-agent-token",
-    "access-control-allow-methods": "GET, POST, OPTIONS",
   });
   res.end(payload);
+}
+
+/**
+ * Resolves a requested file inside `root`, rejecting both lexical traversal (`..`) and
+ * symlink escapes (`realpath` pointing outside `realpath(root)`).
+ */
+export async function resolveWorkspaceFile(
+  root: string,
+  requested: string,
+): Promise<{ ok: true; absolute: string; rel: string; size: number } | { ok: false; status: 400 | 404; error: string }> {
+  const absolute = isAbsolute(requested) ? requested : resolve(root, requested);
+  const rel = relative(root, absolute);
+  if (rel.startsWith("..") || isAbsolute(rel)) {
+    return { ok: false, status: 400, error: "path outside workspace" };
+  }
+  try {
+    const info = await stat(absolute);
+    if (!info.isFile()) return { ok: false, status: 404, error: "not a file" };
+    const [realRoot, realTarget] = await Promise.all([realpath(root), realpath(absolute)]);
+    const realRel = relative(realRoot, realTarget);
+    if (realRel.startsWith("..") || isAbsolute(realRel)) {
+      return { ok: false, status: 400, error: "path outside workspace" };
+    }
+    return { ok: true, absolute: realTarget, rel, size: info.size };
+  } catch {
+    return { ok: false, status: 404, error: "not a file" };
+  }
 }
 
 /** Plain text of one entry's messages, for search snippets. */
@@ -122,7 +163,13 @@ async function execGit(dir: string, args: string[]): Promise<string> {
 
 async function readJson(req: IncomingMessage): Promise<Json> {
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(Buffer.from(chunk as Buffer));
+  let total = 0;
+  for await (const chunk of req) {
+    const buf = Buffer.from(chunk as Buffer);
+    total += buf.byteLength;
+    if (total > MAX_JSON_BYTES) throw new PayloadTooLargeError();
+    chunks.push(buf);
+  }
   const text = Buffer.concat(chunks).toString("utf8").trim();
   if (text.length === 0) return {};
   try {
@@ -169,6 +216,13 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
 
   const server = createServer(async (req, res) => {
     try {
+      const corsOrigin = allowedCorsOrigin(req.headers.origin);
+      if (corsOrigin !== undefined) {
+        res.setHeader("access-control-allow-origin", corsOrigin);
+        res.setHeader("access-control-allow-headers", "authorization, content-type, x-agent-token");
+        res.setHeader("access-control-allow-methods", "GET, POST, OPTIONS");
+        res.setHeader("vary", "Origin");
+      }
       if (req.method === "OPTIONS") return send(res, 204, {});
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
       const path = url.pathname;
@@ -254,25 +308,25 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
       };
 
       if (req.method === "GET" && path === "/api/state") {
-        const [inspection, usage, projects] = await Promise.all([
+        const [inspection, usage, projects, chatsDoc, metaDoc, threadsDoc, projectDoc] = await Promise.all([
           runtime.harness.inspect(context),
           runtime.harness.usage(context),
           runtime.projects(),
+          runtime.harness.snapshot(ChatsToken, context).catch(() => undefined),
+          surfaceMeta(runtime.harness, context).catch(() => ({})),
+          runtime.threads().catch((error: unknown) => {
+            logError("server", "could not read thread index", error);
+            return {} as Record<string, ThreadInfo>;
+          }),
+          runtime.harness.snapshot(ConversationProjectDoc, context).catch(() => undefined),
         ]);
-        const chats = (await runtime.harness.snapshot(ChatsToken, context).catch(() => undefined)) as
-          | { chats: Record<string, number> }
-          | undefined;
+        const chats = chatsDoc as { chats: Record<string, number> } | undefined;
         const meta: Record<
           string,
           { title?: string; archived?: boolean; topic?: boolean; chatType?: "p2p" | "group" }
-        > = await surfaceMeta(
-          runtime.harness,
-          context,
-        ).catch(() => ({}));
-        const threads: Record<string, ThreadInfo> = await runtime.threads().catch((error: unknown) => {
-          logError("server", "could not read thread index", error);
-          return {} as Record<string, ThreadInfo>;
-        });
+        > = metaDoc;
+        const threads: Record<string, ThreadInfo> = threadsDoc;
+        const projectByConv = projectDoc?.byConversation ?? {};
         const entries = Object.entries(chats?.chats ?? {});
         // Read before the surfaces are built: one query serves all of them.
         const stops = lastStops(config.dbPath, [
@@ -315,7 +369,7 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
               // bridge has never heard from the chat and so never asked Feishu what it is.
               chatType: own?.chatType,
               topic: own?.topic === true,
-              projectId: await runtime.projectOfConversation(conversationId as unknown as number).catch(() => undefined),
+              projectId: projectByConv[String(conversationId)],
               lastStop: stops.get(conversationId as unknown as number),
             };
           }),
@@ -349,7 +403,7 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
             archived: own?.archived === true,
             chatType: own?.chatType,
             topic: true,
-            projectId: await runtime.projectOfConversation(conversationId).catch(() => undefined),
+            projectId: projectByConv[String(conversationId)],
             lastStop: stops.get(conversationId),
           });
         }
@@ -772,19 +826,15 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
       if (req.method === "GET" && path === "/api/file") {
         const root = await dirFor(Number(url.searchParams.get("conversationId")));
         const requested = url.searchParams.get("path") ?? "";
-        const absolute = isAbsolute(requested) ? requested : resolve(root, requested);
-        const rel = relative(root, absolute);
-        // The client may only read inside the workspace it belongs to.
-        if (rel.startsWith("..") || isAbsolute(rel)) return send(res, 400, { error: "path outside workspace" });
-        const info = await stat(absolute).catch(() => undefined);
-        if (info === undefined || !info.isFile()) return send(res, 404, { error: "not a file" });
+        const resolved = await resolveWorkspaceFile(root, requested);
+        if (!resolved.ok) return send(res, resolved.status, { error: resolved.error });
         const MAX = 512 * 1024;
-        const raw = await readFile(absolute);
+        const raw = await readFile(resolved.absolute);
         const truncated = raw.byteLength > MAX;
         const content = raw.subarray(0, MAX).toString("utf8");
         return send(res, 200, {
-          path: rel,
-          size: info.size,
+          path: resolved.rel,
+          size: resolved.size,
           truncated,
           lines: content.split("\n").length,
           content,
@@ -1222,6 +1272,9 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
 
       return send(res, 404, { error: "not found" });
     } catch (error) {
+      if (error instanceof PayloadTooLargeError) {
+        return send(res, 413, { error: error.message });
+      }
       const dead = isDeadSession(error);
       logError("http", `${req.method} ${req.url} failed${dead ? " (session is dead)" : ""}`, error);
       if (dead && (await shouldReopenSession())) {
